@@ -27,13 +27,18 @@ certifi==2025.4.26
 charset-normalizer==3.4.2
     # via requests
 click==8.1.8
-    # via litellm
+    # via
+    #   hatch
+    #   litellm
+    #   userpath
 cloudpickle==3.1.1
     # via gymnasium
 decorator==5.2.1
     # via
     #   ipdb
     #   ipython
+distlib==0.3.9
+    # via virtualenv
 distro==1.9.0
     # via openai
 executing==2.2.0
@@ -41,7 +46,9 @@ executing==2.2.0
 farama-notifications==0.0.4
     # via gymnasium
 filelock==3.18.0
-    # via huggingface-hub
+    # via
+    #   huggingface-hub
+    #   virtualenv
 frozenlist==1.6.0
     # via
     #   aiohttp
@@ -49,21 +56,31 @@ frozenlist==1.6.0
 fsspec==2025.3.2
     # via huggingface-hub
 gymnasium==1.1.1
-    # via minigrid
+    # via
+    #   -r requirements.in
+    #   minigrid
 h11==0.16.0
     # via httpcore
+hatch==1.14.1
+    # via -r requirements.in
+hatchling==1.27.0
+    # via hatch
 httpcore==1.0.9
     # via httpx
 httpx==0.28.1
     # via
+    #   hatch
     #   litellm
     #   openai
 huggingface-hub==0.30.2
     # via tokenizers
+hyperlink==21.0.0
+    # via hatch
 idna==3.10
     # via
     #   anyio
     #   httpx
+    #   hyperlink
     #   requests
     #   yarl
 importlib-metadata==8.7.0
@@ -74,6 +91,12 @@ ipython==9.2.0
     # via ipdb
 ipython-pygments-lexers==1.1.1
     # via ipython
+jaraco-classes==3.4.0
+    # via keyring
+jaraco-context==6.0.1
+    # via keyring
+jaraco-functools==4.1.0
+    # via keyring
 jedi==0.19.2
     # via ipython
 jinja2==3.1.6
@@ -84,16 +107,26 @@ jsonschema==4.23.0
     # via litellm
 jsonschema-specifications==2025.4.1
     # via jsonschema
+keyring==25.6.0
+    # via hatch
 litellm==1.67.6
     # via -r requirements.in
 loguru==0.7.3
     # via -r requirements.in
+markdown-it-py==3.0.0
+    # via rich
 markupsafe==3.0.2
     # via jinja2
 matplotlib-inline==0.1.7
     # via ipython
+mdurl==0.1.2
+    # via markdown-it-py
 minigrid==3.0.0
     # via -r requirements.in
+more-itertools==10.7.0
+    # via
+    #   jaraco-classes
+    #   jaraco-functools
 multidict==6.4.3
     # via
     #   aiohttp
@@ -105,11 +138,24 @@ numpy==2.2.5
 openai==1.75.0
     # via litellm
 packaging==25.0
-    # via huggingface-hub
+    # via
+    #   hatch
+    #   hatchling
+    #   huggingface-hub
 parso==0.8.4
     # via jedi
+pathspec==0.12.1
+    # via hatchling
 pexpect==4.9.0
-    # via ipython
+    # via
+    #   hatch
+    #   ipython
+platformdirs==4.3.7
+    # via
+    #   hatch
+    #   virtualenv
+pluggy==1.5.0
+    # via hatchling
 prompt-toolkit==3.0.51
     # via ipython
 propcache==0.3.1
@@ -133,6 +179,7 @@ pygments==2.19.1
     # via
     #   ipython
     #   ipython-pygments-lexers
+    #   rich
 python-dotenv==1.1.0
     # via litellm
 python-ulid==3.0.0
@@ -149,10 +196,16 @@ requests==2.32.3
     # via
     #   huggingface-hub
     #   tiktoken
+rich==14.0.0
+    # via hatch
 rpds-py==0.24.0
     # via
     #   jsonschema
     #   referencing
+setuptools==80.3.1
+    # via -r requirements.in
+shellingham==1.5.4
+    # via hatch
 sniffio==1.3.1
     # via
     #   anyio
@@ -163,6 +216,10 @@ tiktoken==0.9.0
     # via litellm
 tokenizers==0.21.1
     # via litellm
+tomli-w==1.2.0
+    # via hatch
+tomlkit==0.13.2
+    # via hatch
 tqdm==4.67.1
     # via
     #   huggingface-hub
@@ -171,6 +228,8 @@ traitlets==5.14.3
     # via
     #   ipython
     #   matplotlib-inline
+trove-classifiers==2025.5.1.12
+    # via hatchling
 typing-extensions==4.13.2
     # via
     #   anyio
@@ -185,9 +244,17 @@ typing-inspection==0.4.0
     # via pydantic
 urllib3==2.4.0
     # via requests
+userpath==1.9.2
+    # via hatch
+uv==0.7.2
+    # via hatch
+virtualenv==20.30.0
+    # via hatch
 wcwidth==0.2.13
     # via prompt-toolkit
 yarl==1.20.0
     # via aiohttp
 zipp==3.21.0
     # via importlib-metadata
+zstandard==0.23.0
+    # via hatch

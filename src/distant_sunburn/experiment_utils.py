@@ -1,5 +1,4 @@
 from pathlib import Path
-from loguru import logger
 from dataclasses import dataclass
 import re
 from typing import Self

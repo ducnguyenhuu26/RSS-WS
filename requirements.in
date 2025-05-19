@@ -4,3 +4,6 @@ loguru
 pydantic
 python-ulid
 ipdb
+gymnasium
+hatch
+setuptools
