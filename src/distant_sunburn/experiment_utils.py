@@ -1,7 +1,7 @@
 from pathlib import Path
 from dataclasses import dataclass
 import re
-from typing import Self
+from typing_extensions import Self
 import shutil
 
 
@@ -56,3 +56,15 @@ class ExperimentWorkspaceManager:
     def from_dunder_file(cls, __file__: str) -> Self:
         identifier = ExperimentIdentifier.parse_from_script_name(__file__)
         return cls(identifier)
+
+    @classmethod
+    def from_module_name(cls, __file__: str) -> Self:
+        as_path = Path(__file__)
+        experiments_root = "experiments"
+        while as_path.name != experiments_root:
+            try:
+                identifier = ExperimentIdentifier.parse_from_script_name(as_path.name)
+                return cls(identifier)
+            except ValueError:
+                as_path = as_path.parent
+        raise ValueError(f"Could not find experiments root in {__file__}")

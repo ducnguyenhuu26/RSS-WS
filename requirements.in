@@ -7,4 +7,5 @@ ipdb
 gymnasium
 hatch
 setuptools
+pandas
 -e external/BALROG
