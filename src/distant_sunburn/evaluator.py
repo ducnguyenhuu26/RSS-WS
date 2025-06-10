@@ -26,6 +26,7 @@ from balrog.dataset import InContextDataset
 from balrog.environments import make_env
 from balrog.utils import get_unique_seed
 from distant_sunburn.typing_utils import implements
+from balrog.agents import AgentFactory
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +77,7 @@ class EvaluatorManager:
     of evaluation tasks either sequentially or in parallel using multiple workers.
     """
 
-    def __init__(self, config, original_cwd="", output_dir="."):
+    def __init__(self, config, output_dir=".", balrog_root: Path = Path(".")):
         """Initialize the EvaluatorManager.
 
         Args:
@@ -85,7 +86,6 @@ class EvaluatorManager:
             output_dir (str, optional): Directory to save evaluation outputs. Defaults to ".".
         """
         self.config = config
-        self.original_cwd = original_cwd
         self.output_dir = output_dir
 
         self.env_names = config.envs.names.split("-")
@@ -93,7 +93,10 @@ class EvaluatorManager:
         self.tasks = []
         for env_name in self.env_names:
             evaluator = Evaluator(
-                env_name, config, original_cwd=original_cwd, output_dir=self.output_dir
+                env_name,
+                config,
+                balrog_root=balrog_root,
+                output_dir=self.output_dir,
             )
             self.env_evaluators[env_name] = evaluator
             for task in evaluator.tasks:
@@ -278,7 +281,7 @@ class Evaluator:
     including loading in-context learning episodes and running episodes with the agent.
     """
 
-    def __init__(self, env_name, config, original_cwd="", output_dir="."):
+    def __init__(self, env_name, config, balrog_root: Path = Path("."), output_dir="."):
         """Initialize the Evaluator.
 
         Args:
@@ -297,7 +300,7 @@ class Evaluator:
         self.max_steps_per_episode = config.eval.max_steps_per_episode
 
         self.dataset = InContextDataset(
-            self.config, self.env_name, original_cwd=original_cwd
+            self.config, self.env_name, original_cwd=balrog_root
         )
 
     def run_episode(self, task, agent, process_num=None, position=0, episode_idx=0):
