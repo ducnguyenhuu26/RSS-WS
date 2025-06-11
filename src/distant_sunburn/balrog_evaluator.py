@@ -15,7 +15,7 @@ from tqdm import tqdm
 from typing_extensions import Self
 
 from .balrog_components import CrafterEnvironmentConfig, environment_factory
-from .balrog_interfaces import AgentProtocol
+from .balrog_interfaces import AgentProtocol, EnvironmentProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -69,11 +69,7 @@ class EvaluatorConfig(BaseModel):
 
 
 class Evaluator:
-
-    def __init__(
-        self,
-        config: EvaluatorConfig,
-    ):
+    def __init__(self, config: EvaluatorConfig):
         self.config = config
 
     def run_episode(
