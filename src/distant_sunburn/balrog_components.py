@@ -14,7 +14,7 @@ from typing_extensions import Self
 from balrog.environments.env_wrapper import EnvWrapper
 from balrog.environments import make_env
 from omegaconf import DictConfig
-from .balrog_interfaces import EnvironmentProtocol, Text, Experience
+from .balrog_interfaces import EnvironmentProtocol, Text, Experience, OnResetExperience
 from .typing_utils import implements
 from typing import TypeVar, Union
 
@@ -247,12 +247,12 @@ class TypedBalrogEnvironmentAdapter:
     def __init__(self, env: EnvWrapper):
         self.env = env
 
-    def reset(self, **kwargs) -> tuple[Observation, dict]:
+    def reset(self, **kwargs) -> OnResetExperience[dict]:
         obs, info = self.env.reset(**kwargs)
         short_term_context = obs["text"]["short_term_context"]
         long_term_context = obs["text"]["long_term_context"]
         image = obs.get("image", None)
-        return (
+        return OnResetExperience(
             Observation(
                 text=Text(
                     short_term_context=short_term_context,
@@ -264,7 +264,7 @@ class TypedBalrogEnvironmentAdapter:
             info,
         )
 
-    def step(self, action: str) -> Experience:
+    def step(self, action: str) -> Experience[dict]:
         raw_obs, reward, terminated, truncated, info = self.env.step(action)
         short_term_context = raw_obs["text"]["short_term_context"]
         long_term_context = raw_obs["text"]["long_term_context"]

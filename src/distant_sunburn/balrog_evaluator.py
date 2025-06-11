@@ -58,6 +58,7 @@ class PydanticTrajectoryStepWriter:
 
 implements(TrajectoryStepWriter)(PydanticTrajectoryStepWriter)
 
+
 class EvaluatorConfig(BaseModel):
     num_episodes: int
     max_steps_per_episode: Optional[int] = None
@@ -99,7 +100,9 @@ class Evaluator:
             seed = get_unique_seed(process_num=process_num, episode_idx=episode_idx)
         random.seed(seed)
         np.random.seed(seed)
-        obs, info = env.reset(seed=seed)
+        on_reset_experience = env.reset(seed=seed)
+        obs = on_reset_experience.obs
+        info = on_reset_experience.info
         episode_log = {
             "task": self.config.environment_config.task,
             "action_frequency": defaultdict(int),

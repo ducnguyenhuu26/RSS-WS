@@ -5,6 +5,9 @@ from typing import Any
 from balrog.client import LLMResponse
 from typing import Literal, Optional
 from dataclasses import dataclass
+from typing import Generic, TypeVar
+from pydantic import BaseModel
+from typing import Union
 
 
 @attrs.define
@@ -27,14 +30,24 @@ class Observation:
     obs: Any = None
 
 
+MetadataT = TypeVar("MetadataT", bound=Union[BaseModel, dict])
+MetadataT_co = TypeVar("MetadataT_co", bound=Union[BaseModel, dict], covariant=True)
+
+
 @attrs.define
-class Experience:
+class Experience(Generic[MetadataT]):
     obs: Observation
     action: str
     reward: float
     done: bool
     truncated: bool
-    info: dict
+    info: MetadataT
+
+
+@attrs.define
+class OnResetExperience(Generic[MetadataT]):
+    obs: Observation
+    info: MetadataT
 
 
 class PromptBuilderProtocol(Protocol):
@@ -58,10 +71,10 @@ class AgentProtocol(Protocol):
     def prompt_builder(self) -> PromptBuilderProtocol: ...
 
 
-class EnvironmentProtocol(Protocol):
-    def reset(self, **kwargs) -> tuple[Observation, dict]: ...
+class EnvironmentProtocol(Protocol[MetadataT]):
+    def reset(self, **kwargs) -> OnResetExperience[MetadataT]: ...
 
-    def step(self, action: str) -> Experience: ...
+    def step(self, action: str) -> Experience[MetadataT]: ...
 
     def get_instruction_prompt(self, instructions: str | None = None) -> str: ...
 

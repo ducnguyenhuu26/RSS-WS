@@ -15,6 +15,7 @@ from distant_sunburn.balrog_components import (
     CrafterEnvironmentConfig,
 )
 
+
 def test_evaluator_custom(tmp_path: Path):
     client_config = LlmClientConfig(
         client_name="gemini",
