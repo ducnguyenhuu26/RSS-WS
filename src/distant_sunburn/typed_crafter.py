@@ -1,8 +1,11 @@
 from dataclasses import dataclass
 import numpy as np
-from typing import Optional
+from typing import Optional, SupportsFloat, Any
 
-from crafter.env import Env
+from crafter.env import Env as CrafterBaseEnv
+from gymnasium.core import Env
+from gymnasium import spaces
+import numpy.typing as npt
 
 
 # 1. Crafter configuration dataclass
@@ -112,7 +115,7 @@ class Achievements:
         )
 
 
-# 4. Step info and output dataclasses
+# 4. Step info dataclass
 @dataclass
 class CrafterStepInfo:
     inventory: Inventory
@@ -125,18 +128,17 @@ class CrafterStepInfo:
     terminated: bool = False
 
 
-@dataclass
-class CrafterStepOutput:
-    obs: np.ndarray  # shape (size_x, size_y, 3), dtype uint8
-    reward: float
-    done: bool
-    info: CrafterStepInfo
-
-
 # 5. The wrapper
-class CrafterEnv:
+class CrafterEnv(Env[np.ndarray, np.int64]):
+    """A typed Gymnasium environment wrapper for Crafter."""
+
+    metadata = {"render_modes": ["rgb_array"], "render_fps": 30}
+
     def __init__(self, config: CrafterConfig = CrafterConfig()):
-        self._env = Env(
+        """Initialize the Crafter environment with the given configuration."""
+        super().__init__()
+
+        self._env = CrafterBaseEnv(
             area=config.area,
             view=config.view,
             size=config.size,
@@ -147,18 +149,33 @@ class CrafterEnv:
         self._max_steps = config.length
         self._step_count = 0
 
-    def reset(self) -> tuple[np.ndarray, CrafterStepInfo]:
+        # Set up spaces
+        self.observation_space = spaces.Box(
+            low=0, high=255, shape=self._env.observation_space.shape, dtype=np.uint8
+        )
+        self.action_space = spaces.Discrete(self._env.action_space.n)
+
+    def reset(
+        self, *, seed: int | None = None, options: dict[str, Any] | None = None
+    ) -> tuple[np.ndarray, dict[str, Any]]:
+        """Reset the environment to an initial state."""
+        super().reset(seed=seed)  # Important: call super().reset() to properly seed
         obs = self._env.reset()
         info = self._make_info()
-        return obs, info
+        return np.asarray(obs), info.__dict__
 
-    def step(self, action: int) -> CrafterStepOutput:
+    def step(
+        self, action: int
+    ) -> tuple[np.ndarray, SupportsFloat, bool, bool, dict[str, Any]]:
+        """Run one timestep of the environment's dynamics."""
         self._step_count += 1
         obs, reward, done, info_dict = self._env.step(action)
+
         # Determine truncation/termination like gymnasium does
         over = self._max_steps and self._step_count >= self._max_steps
         assert self._env._player is not None
         dead = self._env._player.health <= 0
+
         info = CrafterStepInfo(
             inventory=Inventory.from_dict(info_dict["inventory"]),
             achievements=Achievements.from_dict(info_dict["achievements"]),
@@ -169,27 +186,30 @@ class CrafterEnv:
             truncated=bool(over and not dead),
             terminated=bool(dead),
         )
-        return CrafterStepOutput(
-            obs=np.asarray(obs), reward=reward, done=bool(done), info=info
+
+        return (
+            np.asarray(obs),
+            float(reward),
+            info.terminated,
+            info.truncated,
+            info.__dict__,
         )
 
-    def render(self, size: Optional[tuple[int, int]] = None) -> np.ndarray:
-        return self._env.render(size)
+    def render(self) -> np.ndarray | None:
+        """Render the environment."""
+        return self._env.render()
+
+    def close(self):
+        """Clean up resources."""
+        return self._env.close()
 
     @property
     def action_names(self) -> list[str]:
+        """Return the list of action names."""
         return list(self._env.action_names)
 
-    @property
-    def action_space_n(self) -> int:
-        return self._env.action_space.n
-
-    @property
-    def observation_shape(self) -> tuple[int, int, int]:
-        return self._env.observation_space.shape
-
     def _make_info(self) -> CrafterStepInfo:
-        # After reset, info isn't returned. We need to construct from env.
+        """Construct info dictionary after reset."""
         assert self._env._player is not None
         player = self._env._player
         info = CrafterStepInfo(
@@ -210,8 +230,10 @@ if __name__ == "__main__":
     env = CrafterEnv(config)
     obs, info = env.reset()
     while True:
-        action = np.random.randint(env.action_space_n)
-        step = env.step(action)
-        print(step.info.inventory.food)
-        if step.done:
+        # For Discrete action space, we can access the size with action_space.n
+        assert isinstance(env.action_space, spaces.Discrete)
+        action = int(np.random.randint(env.action_space.n))  # Convert to Python int
+        obs, reward, terminated, truncated, info = env.step(action)
+        print(info["inventory"].food)  # Access food from info dict
+        if terminated or truncated:  # Check terminated or truncated
             break
