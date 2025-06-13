@@ -29,3 +29,4 @@ def test_language_symbolic_crafter():
 
     # Test action validity check
     valid_action = env.check_action_validity("Move West")
+    assert valid_action == "Move West"
