@@ -4,7 +4,7 @@ import os
 import random
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Optional, Protocol
+from typing import Any, Callable, Optional, Protocol
 
 import numpy as np
 from balrog.utils import get_unique_seed
@@ -14,23 +14,36 @@ from pydantic import BaseModel
 from tqdm import tqdm
 from typing_extensions import Self
 
-from .balrog_components import CrafterEnvironmentConfig, environment_factory
-from .balrog_interfaces import AgentProtocol, EnvironmentProtocol
+from .balrog_components import (
+    CrafterEnvironmentConfig,
+    environment_factory,
+    EnvironmentConfig,
+)
+from .balrog_interfaces import AgentProtocol, EnvironmentProtocol, MetadataT
+from typing import Generic, TypeAlias
+from .typing_utils import BaseModelT
 
 logger = logging.getLogger(__name__)
 
 
-class TrajectoryStep(BaseModel):
+class TrajectoryStep(BaseModel, Generic[MetadataT]):
     step: int
     action: str
     reasoning: Optional[str]
     observation: str
     reward: float
     done: bool
+    # NOTE: It is possible that MetadataT contains
+    # non-serializable objects, so attempting to blindly
+    # serialize it _may_ fail.
+    info: MetadataT
 
 
-class TrajectoryStepWriter(Protocol):
-    def __call__(self, step: TrajectoryStep) -> None:
+TrajectoryStepDictMetadata: TypeAlias = TrajectoryStep[dict]
+
+
+class TrajectoryStepWriter(Protocol[MetadataT]):
+    def __call__(self, step: TrajectoryStep[MetadataT]) -> None:
         pass
 
     def __enter__(self) -> Any:
@@ -40,12 +53,12 @@ class TrajectoryStepWriter(Protocol):
         pass
 
 
-class PydanticTrajectoryStepWriter:
+class PydanticTrajectoryStepWriter(Generic[MetadataT]):
     def __init__(self, file_path: str | Path = Path("trajectory_steps.jsonl")):
         self.file_path = file_path
         self.writer = PydanticJSONLinesWriter(file_path)
 
-    def __call__(self, step: TrajectoryStep) -> None:
+    def __call__(self, step: TrajectoryStep[MetadataT]) -> None:
         self.writer(step)
 
     def __enter__(self) -> Self:
@@ -69,9 +82,16 @@ class EvaluatorConfig(BaseModel):
     num_workers: int = 1
 
 
-class Evaluator:
-    def __init__(self, config: EvaluatorConfig):
+class Evaluator(Generic[MetadataT]):
+    def __init__(
+        self,
+        config: EvaluatorConfig,
+        environment_factory: Callable[
+            [EnvironmentConfig], EnvironmentProtocol[MetadataT]
+        ],
+    ):
         self.config = config
+        self.environment_factory = environment_factory
 
     def run_episode(
         self,
@@ -92,7 +112,7 @@ class Evaluator:
         Returns:
             dict: Log of the episode containing statistics and results.
         """
-        env = environment_factory(self.config.environment_config)
+        env = self.environment_factory(self.config.environment_config)
         agent.reset()
 
         seed = self.config.environment_config.seed
@@ -182,6 +202,7 @@ class Evaluator:
                     + obs.text.short_term_context,
                     reward=float(reward),
                     done=done,
+                    info=info,
                 )
                 trajectory_step_writer(trajectory_step)
 
@@ -237,4 +258,4 @@ class Evaluator:
             with open(json_filename, "w") as f:
                 json.dump(episode_log, f, indent=4)
 
-        return episode_log
+        return episode_log, trajectory_log_filename
