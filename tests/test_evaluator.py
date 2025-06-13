@@ -16,7 +16,7 @@ from distant_sunburn.balrog_components import (
 )
 
 
-def test_evaluator_custom(tmp_path: Path):
+def test_evaluator(tmp_path: Path):
     client_config = LlmClientConfig(
         client_name="gemini",
         model_id="gemini-2.0-flash",

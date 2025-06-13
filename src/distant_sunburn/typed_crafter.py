@@ -72,6 +72,7 @@ class CrafterStepInfo(BaseModel):
         np.uint8
     ]  # int values, shape (area_x, area_y), dtype usually uint8
     player_pos: tuple[int, int]
+    view: tuple[int, int]
     reward: float
     truncated: bool = False
     terminated: bool = False
@@ -133,6 +134,7 @@ class CrafterEnv(Env[np.ndarray, np.int64]):
             discount=float(info_dict["discount"]),
             semantic=np.asarray(info_dict["semantic"]),
             player_pos=tuple(info_dict["player_pos"]),
+            view=tuple(self._env._view),
             reward=float(info_dict["reward"]),
             truncated=bool(over and not dead),
             terminated=bool(dead),
@@ -169,6 +171,7 @@ class CrafterEnv(Env[np.ndarray, np.int64]):
             discount=1.0,
             semantic=np.asarray(self._env._sem_view()),
             player_pos=tuple(player.pos),
+            view=tuple(self._env._view),
             reward=0.0,
             truncated=False,
             terminated=False,
