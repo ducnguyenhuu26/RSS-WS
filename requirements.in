@@ -8,5 +8,6 @@ gymnasium
 hatch
 setuptools
 pandas
+pyro-ppl
 -e external/BALROG
 -e external/crafter_refactored
