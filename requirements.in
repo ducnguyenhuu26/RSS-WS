@@ -10,5 +10,6 @@ setuptools
 pandas
 pyro-ppl
 tensordict
+vllm
 -e external/BALROG
 -e external/crafter_refactored
