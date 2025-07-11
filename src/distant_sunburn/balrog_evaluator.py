@@ -99,6 +99,7 @@ class Evaluator(Generic[MetadataT]):
         process_num=None,
         position=0,
         episode_idx=0,
+        trajectory_log_filename: Optional[str | Path] = None,
     ):
         """Run a single evaluation episode.
 
@@ -143,12 +144,13 @@ class Evaluator(Generic[MetadataT]):
             else self.config.max_steps_per_episode
         )
 
-        trajectory_log_filename = os.path.join(
-            self.config.output_dir,
-            self.config.environment_config.name,
-            self.config.environment_config.task,
-            f"{self.config.environment_config.task}_run_{episode_idx:02d}.csv",
-        )
+        if trajectory_log_filename is None:
+            trajectory_log_filename = os.path.join(
+                self.config.output_dir,
+                self.config.environment_config.name,
+                self.config.environment_config.task,
+                f"{self.config.environment_config.task}_run_{episode_idx:02d}.csv",
+            )
         Path(trajectory_log_filename).parent.mkdir(exist_ok=True, parents=True)
 
         with PydanticTrajectoryStepWriter(
