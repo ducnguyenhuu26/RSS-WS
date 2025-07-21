@@ -12,5 +12,6 @@ pyro-ppl
 tensordict
 vllm
 jsonpatch
+swe-rex
 -e external/BALROG
 -e external/crafter_refactored
