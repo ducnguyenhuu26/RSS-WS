@@ -1,101 +1,143 @@
-This document summarizes the PoE-World method for learning symbolic world models. It is designed to guide the reimplementation of the method for new environments like Crafter.
+Here is an analysis of the PoE-World codebase, detailing the pipeline, dataflow, and implementation choices to guide a clean reimplementation for the Crafter environment.
 
-### Summary of PoE-World
+## Overall Architecture and Dataflow
 
-The core idea of PoE-World is to represent a complex world model not as a single, large program, but as a composition of many small, simple programs called "experts". Each expert describes a specific aspect of the environment's dynamics, such as a single physical law or the effect of an action. These experts are combined probabilistically to predict the next state of the world.
+The PoE-World system can be broken down into two main phases: **World Model Learning** and **Planning with the Learned Model**.
 
-This approach has several advantages:
-*   **Modularity:** Decomposing the world model into smaller pieces makes it easier to learn and debug. The system can learn independent causal mechanisms separately.
-*   **Scalability:** Learning many small programs is a more tractable search problem for a Large Language Model (LLM) than synthesizing one monolithic program. The paper reports synthesizing models with over 4000 lines of code.
-*   **Stochasticity:** The probabilistic combination of experts naturally handles uncertainty and stochasticity in the environment.
+1.  **World Model Learning (executed by `run.py`)**:
+    *   **Input**: A configuration file (`conf/*.yaml`) and a dataset of pre-recorded environment interactions (`(o, a, o')` triplets) stored in `saved_data/`.
+    *   **Process**: The `PoEWorldLearner` is instantiated. It identifies all unique object types in the dataset. For each object type, it creates an `ObjModelLearner`. The `ObjModelLearner` uses various `Synthesizer` modules to prompt an LLM with transitions from the dataset, generating a set of programmatic "expert" rules. It then fits weights to these rules using the entire dataset to create a probabilistic model for that object type.
+    *   **Output**: A `WorldModel` object, which is a composition of all the learned object models. This model is saved as a pickle file in a `saved_checkpoints_*` directory.
 
-The learning process is iterative. The system uses an LLM to synthesize a pool of candidate expert programs from observed environment transitions. Then, it fits weights to these experts to determine how much each one should contribute to the final prediction. Finally, it prunes away useless experts (those with low weights) and repeats the process as it gathers more experience.
+2.  **Planning (executed by `run.py` with `post_synthesis_mode: agent`)**:
+    *   **Input**: The learned `WorldModel` and a high-level goal (e.g., "get the key").
+    *   **Process**: The `Agent` class takes the world model and uses it for planning. It first builds a high-level abstract graph of the environment using the model's constraints to define states. It then searches for a plan on this graph. Finally, it uses a low-level planner (MCTS) to execute the steps of the high-level plan. The MCTS uses the `WorldModel`'s `sample_next_scene` method as its transition function.
+    *   **Output**: A sequence of actions executed in the real environment to achieve the goal.
 
-### Core Components
-
-#### 1. World Model Representation
-
-The world model is a probability distribution over the next observation $o_{t+1}$ given the history of past observations and actions $(o_{1:t}, a_{1:t})$. This distribution is defined as a **Product of programmatic Experts (PoE)**:
-
-$p_\btheta(o_{t+1}|o_{1:t}, a_{1:t}) \propto \prod_i p^{expert}_i(o_{t+1}|o_{1:t}, a_{1:t})^{\theta_i}$
-
-*   $p^{expert}_i$ is the distribution defined by the $i$-th expert program.
-*   $\theta_i$ is a learned scalar weight for that expert.
-
-**Factored State Representation:** The method assumes an object-centric state representation. Each observation $o_t$ is a list of objects, and each object has attributes (e.g., position, velocity). The model predicts the value of each attribute for each object independently, which makes calculating the probability distribution tractable.
-
-**Handling Partial Observability:** The model conditions on the full history of observations and actions. This avoids the need to maintain a compressed latent state, which would entangle the experts and make modular learning difficult. An expert for one mechanism (e.g., gravity) can be learned independently of an expert for another (e.g., collisions).
-
-**Interpreting Programs as Distributions:** The expert programs are simple, deterministic Python functions synthesized by an LLM. To make them probabilistic:
-1.  The Python program is executed with the current state history as input.
-2.  Any object attribute the program modifies is converted into a distribution with a sharp peak at the predicted value (with some added noise to avoid zero probabilities).
-3.  Any attribute the program *does not* modify is assigned a uniform distribution over all possible values.
-This means an expert only expresses an "opinion" on the attributes it explicitly changes.
-
-#### 2. The Learning Loop
-
-The world model is learned and refined through an iterative loop:
-
-1.  **Synthesize Programmatic Experts:** An LLM generates candidate expert programs. The input to the LLM is a small batch of transitions `(observation, action, next_observation)` from a demonstration or environment interaction. This data is formatted into a textual description for the LLM prompt. The paper uses multiple specialized "synthesis modules", each prompting the LLM to generate programs for different kinds of dynamics (e.g., effects of actions, passive movement, object interactions). This modular synthesis approach is a key implementation detail.
-
-2.  **Fit Expert Weights:** Once a pool of experts $\{p^{expert}_i\}$ is generated, their weights $\btheta$ are fit using maximum likelihood estimation. The goal is to find weights that maximize the probability of the observed transitions from the experience buffer.
-    
-    $\btheta^* = \argmax_{\btheta} \sum_{ (o_{1:T+1}, a_{1:T})\in D} \sum_{t =1}^T \log p_\btheta (o_{t+1}|o_{1:t}, a_{1:t})$
-    
-    This optimization is performed with a gradient-based optimizer. The paper uses L-BFGS with L1 regularization.
-
-3.  **Prune Experts:** After fitting, experts with weights below a small threshold $\delta$ are removed from the model. This keeps the model from growing unnecessarily large with incorrect or redundant programs.
-
-This loop repeats as more data becomes available, allowing the model to be refined online.
-
-#### 3. Environment-Specific Components
-
-The paper describes two components that are applications or extensions of the core method, likely tailored for complex Atari environments. These may not be directly necessary for a gridworld like Crafter.
-
-*   **Hard Constraints:** These are additional programmatic rules, also synthesized by an LLM, that rule out physically impossible states. For example, a constraint for Montezuma's Revenge ensures the player's feet are aligned with the top of a platform they are standing on. The final world model's distribution is multiplied by an indicator function that is 1 only if the proposed next state satisfies at least one of these constraints.
-    
-    *   **Relevance to Crafter:** This component was primarily used for Montezuma's Revenge to handle its complex physics. Crafter's grid-based physics are much simpler. Constraints like "player cannot move into a wall block" might be useful, but they could also be learned directly as part of the main expert programs. You should consider if this mechanism is needed after implementing the core model.
-
-*   **Hierarchical Planner:** This is a sophisticated planning algorithm that *uses* the learned world model to make decisions; it is not part of the world model learning process itself. It works by:
-    1.  Building a high-level, abstract graph of the environment where nodes are defined by object contacts (e.g., "player touching ladder").
-    2.  Searching for a path in this abstract graph to a goal.
-    3.  Using a low-level motion planner (like MCTS) to execute the steps of the high-level plan.
-    
-    *   **Relevance to Crafter:** This planner is designed for long-horizon tasks in continuous spaces. For Crafter, a much simpler planner (e.g., standard MCTS or random shooting) operating on the learned world model would be a more appropriate starting point.
+The entire process is driven by the main script `run.py`, which uses Hydra for configuration management.
 
 ---
 
-### Dataflow Pipeline
+## Component-by-Component Analysis
 
-This section describes the step-by-step process of transforming raw environment data into a learned world model.
+### 1. Configuration
 
-1.  **Input Data:** The process begins with a buffer of experience, which is a set of trajectories $D$. Each trajectory consists of a sequence of transitions `(o_t, a_t, o_{t+1})`.
+*   **Purpose**: To set all parameters for a run, including the task, dataset, learning hyperparameters, and agent behavior.
+*   **Implementation**:
+    *   `conf/config.yaml`: Contains default parameters for the entire system.
+    *   `conf/<game_name>.yaml`: Contains game-specific overrides. For example, `conf/montezuma.yaml` sets the task to `MontezumaRevenge` and specifies which observation file to use (`obs_suffix`).
+    *   `run.py`: The `@hydra.main` decorator loads the configuration into a `DictConfig` object.
+*   **Inputs**: Command-line arguments that can override any parameter in the YAML files.
+*   **Outputs**: A single `config` object that is passed down to almost every other component in the system.
+*   **Software Engineering Critique**:
+    *   **Code Smell (God Object)**: Passing the entire `config` object everywhere is a form of dependency injection that obscures the actual dependencies of each component. Functions and classes should explicitly ask for the parameters they need.
+    *   **Poor Implementation**: The configuration structure is flat and sprawling. A hierarchical structure would be more organized. For example, all MCTS-related parameters could be under an `mcts` key.
 
-2.  **Preprocessing for LLM:**
-    *   A small batch of consecutive transitions is sampled from the experience buffer.
-    *   This sequence is converted into a structured text format. The text describes the initial objects and their attributes, the sequence of actions taken, and the resulting changes to the object attributes over time. This format is designed to be easily understood by an LLM.
+### 2. Data Collection and Preprocessing
 
-3.  **Expert Synthesis:**
-    *   The preprocessed text is passed to several LLM-based synthesis modules.
-    *   Each module uses a specific prompt to ask an LLM (e.g., GPT-4) to first propose natural language causal explanations for the observed changes, and then to translate those explanations into Python functions (the expert programs).
-    *   These programs use a predefined API with helper classes like `Obj` and `ObjList`.
+*   **Purpose**: To generate and load the experience buffer of `(observation, action, next_observation)` triplets that form the training data for the world model.
+*   **Implementation**:
+    *   `make_observations.py`: This script runs an `AtariEnv` with a hardcoded sequence of actions to generate a trajectory.
+    *   `actions_lists/*.py`: These files contain extremely long, hardcoded lists of actions for different Atari games (e.g., `montezuma_actions_basic17`). These are brittle and not generalizable.
+    *   The generated data (observations, actions, game states) is saved as a single pickle file.
+    *   `data/atari.py`: The `load_atari_observations` function loads this pickled data.
+    *   `run.py`: The main script calls `load_atari_observations` to get the training data.
+*   **Inputs**: A game name and an action list name (via `config.obs_suffix`).
+*   **Outputs**: A tuple `(observations, actions, game_states)` loaded into memory.
+*   **Software Engineering Critique**:
+    *   **Poor Implementation (Hardcoding)**: The reliance on massive, manually crafted action lists is the most significant flaw. This is not a scalable or general approach to data collection. For Crafter, this should be replaced with a system that can use data from random agents, scripted agents, or human demonstrations.
+    *   **Code Smell (Data Format)**: Using pickle is convenient for research but poor for long-term data storage or interoperability. A more standard format like HDF5 or even JSONL would be better.
 
-4.  **Model Assembly:**
-    *   All synthesized programs from all modules are collected into a single pool of candidate experts.
-    *   This collection of programs $\{p^{expert}_i\}$ defines the structure of the world model.
+### 3. State Representation
 
-5.  **Weight Optimization:**
-    *   The entire experience buffer $D$ is used as a training set.
-    *   For each transition in $D$, the log-likelihood of the true `next_observation` is calculated under the current PoE model (with weights $\btheta$).
-    *   The gradient of the total log-likelihood with respect to $\btheta$ is computed.
-    *   An L-BFGS optimizer updates the weights $\btheta$ to maximize this likelihood.
+*   **Purpose**: To define the object-centric view of the environment state.
+*   **Implementation**:
+    *   `classes/envs/env.py`: The `create_atari_env` function acts as a factory for environment wrappers. The `AtariEnv` class uses `OCAtari` to extract object information from the game's RAM.
+    *   `classes/helper.py`: Defines the core data structures.
+        *   `Obj`: Represents a single object with attributes like `obj_type`, `x`, `y`, `w`, `h`, `velocity_x`, `velocity_y`, and `history`.
+        *   `ObjList`: A container for a list of `Obj` instances at a single timestep.
+        *   `StateMemory`: A rolling buffer of recent `(ObjList, action)` pairs.
+        *   `ObjListWithMemory`: A wrapper that combines an `ObjList` with its corresponding `StateMemory`. This is the primary state representation passed to the models to handle partial observability.
+        *   `StateTransitionTriplet`: A container for an `(o_t, a_t, o_{t+1})` transition, using `ObjListWithMemory` for the states.
+    *   `classes/envs/object_tracker.py`: The `ObjectTracker` class assigns consistent IDs to objects across frames by matching them based on type and proximity. This is crucial because the underlying `OCAtari` library does not provide stable object IDs.
+    *   `classes/game_utils/*.py`: These files contain hardcoded dictionaries like `montezuma_revenge_wh_dict` that map object types to default widths and heights. This is a fragile, game-specific approach.
+*   **Software Engineering Critique**:
+    *   **Code Smell (God File)**: `classes/helper.py` is a classic "helper" or "utils" file that has grown to contain many unrelated but essential classes. These should be split into logical modules (e.g., `state_representation.py`, `data_structures.py`).
+    *   **Poor Implementation (Hardcoding)**: The object dimensions in `classes/game_utils/` are hardcoded. A better system would infer these from observation or have them specified in a clean configuration file. The `ObjectTracker`'s logic is complex and heuristic-based, which may not work well for different games. Crafter's symbolic state makes this component much simpler, as object IDs are stable.
 
-6.  **Pruning:**
-    *   After the weights have converged, any expert $p^{expert}_i$ whose weight $\theta_i$ is below a threshold (e.g., 0.01) is discarded.
+### 4. Expert Synthesis and World Model Learning
 
-7.  **Final Output: The World Model:**
-    *   The final output is the set of pruned expert programs $\{p^{expert}_i\}$ and their corresponding optimized weights $\{\theta_i\}$. Together, they define the probabilistic transition function $p_\btheta(o_{t+1}|o_{1:t}, a_{1:t})$.
+This is the core of the PoE-World method, managed by a hierarchy of "learner" and "model" classes.
 
-8.  **Evaluation:**
-    *   **Next State Attribute Prediction Accuracy:** This is the main evaluation metric for the world model itself. A test set of unseen transitions is used. For each transition, the model predicts a distribution over the attributes of objects in the next state. The accuracy measures how often the ground truth attribute value has the highest probability under the model's predicted distribution.
-    *   **Agent Performance:** The utility of the world model is evaluated by using it for planning. An agent uses the model to simulate future outcomes and choose actions that maximize expected reward. The agent's score in the game is then measured.
+*   **Purpose**: To synthesize expert programs and combine them into a probabilistic world model.
+*   **Implementation & Dataflow**:
+
+    1.  **`PoEWorldLearner` (`learners/world_model_learner.py`)**: This is the top-level orchestrator.
+        *   **Input**: A list of `StateTransitionTriplet`.
+        *   **Process**:
+            *   Its `synthesize_world_model` method first calls `_all_obj_types_in_obs` to find all object types in the dataset.
+            *   It then calls `_init_obj_model_learners` to create an `ObjModelLearner` instance for each object type. The synthesizers used for each learner are hardcoded here, which is inflexible.
+            *   It iterates through each `ObjModelLearner`, passes it the full list of transitions, and calls its `infer_moe` method.
+            *   Finally, it collects the learned `ObjTypeModel` from each learner and composes them into a single `WorldModel`.
+        *   **Output**: A `WorldModel` object.
+
+    2.  **`ObjModelLearner` (`learners/obj_model_learner.py`)**: This class manages the learning for a *single* object type.
+        *   **Input**: A list of `StateTransitionTriplet`.
+        *   **Process**:
+            *   Its `infer_moe` method is the main learning loop. It processes transitions in batches.
+            *   For each batch, it identifies "surprising" transitions that the current model cannot explain well using `_explain_well`.
+            *   For each surprising transition, it calls `_a_infer_moe_at_transition`, which in turn calls the `a_synthesize` method of its `Synthesizer` modules. This generates new expert programs.
+            *   The new programs are added to its `MoEObjModel` instances (one for object creation, one for non-creation).
+            *   It then calls `_update_moe`, which triggers `fit_weights` on the `MoEObjModel`s to learn the expert weights $\theta_i$.
+        *   **Output**: An `ObjTypeModel` encapsulating the learned models for that object type.
+
+    3.  **`Synthesizer` subclasses (`learners/synthesizer.py`)**: These modules generate the expert programs.
+        *   **Input**: A small, recent history of `StateTransitionTriplet`.
+        *   **Process**:
+            *   The `a_synthesize` method formats the input transitions into a natural language description.
+            *   This description is embedded in a prompt template from `prompts/synthesizer.py`.
+            *   The prompt is sent to an LLM via `self.llm.aprompt`.
+            *   The LLM's response, containing Python code, is parsed by `process_llm_response_to_codes`.
+        *   **Output**: A list of strings, each being a Python function representing an expert.
+
+    4.  **`MoEObjModel` (`learners/models.py`)**: This class represents the Product of Experts model for a single object type (for either creation or non-creation).
+        *   **Input to `fit_weights`**: The full list of transitions `c`.
+        *   **Process**:
+            *   The `_objective` function calculates the negative log-likelihood of the data given the current expert weights (`params`).
+            *   It uses `self.precompute_dist` to cache the output distributions of each expert for each transition, avoiding re-computation.
+            *   An L-BFGS optimizer from `torch.optim` minimizes this objective function, finding the maximum likelihood weights.
+        *   **Output**: The `self.params` (the weights $\theta_i$) are updated in-place.
+
+*   **Software Engineering Critique**:
+    *   **High Coupling**: The learners, synthesizers, and models are tightly coupled. `ObjModelLearner` has direct knowledge of different synthesizer types and manually wires them together.
+    *   **Code Smell (Large Class)**: `ObjModelLearner` and `MoEObjModel` are both very large and complex, handling data processing, synthesis orchestration, and model fitting. Their responsibilities should be broken down.
+    *   **Poor Implementation**: The asynchronous `asyncio.gather` calls are used to parallelize LLM calls, which is good. However, the overall learning loop is sequential and slow. The process of separating creation vs. non-creation transitions and rules is handled manually and repeatedly, which is inefficient.
+
+### 5. Planning and Execution
+
+*   **Purpose**: To use the learned `WorldModel` to achieve goals in the environment. This part is an *application* of the learned model, not part of the learning process itself.
+*   **Implementation**:
+    *   `agents/agent.py`: The `Agent` class contains the entire planning and execution logic.
+        *   `plan_and_execute`: The main entry point. It calls `build_graph` if `self.abstract_planning` is true.
+        *   `build_graph`: This is a complex, multi-step process for hierarchical planning. It spawns multiple `run_mcts.py` processes to find paths between abstract states. This communication happens via pickling arguments and results to disk in a temporary folder (`tmp_params/`), which is extremely fragile.
+        *   `_abstract_state`: Defines abstract states based on the learned `Constraints` from the world model. For example, a state might be "player touching ladder and platform".
+        *   `run_low_level`: Uses `MCTS` to find a concrete action sequence to transition between abstract states or to reach a final goal object.
+    *   `agents/mcts.py`: Implements a standard Monte Carlo Tree Search.
+        *   **Input**: A starting `ObjListWithMemory`, a target abstract state, and the `WorldModel`.
+        *   **Process**: It uses `world_model.sample_next_scene` as the forward model to simulate trajectories in its search tree. It uses `manual_heuristics_factory` to create a heuristic function that guides the search towards states that satisfy the target constraints.
+        *   **Output**: A sequence of actions (a plan).
+*   **Software Engineering Critique**:
+    *   **Code Smell (Large Class)**: `Agent` is a monolithic class responsible for too many things: environment interaction, high-level planning, low-level planning, and model-based plan validation.
+    *   **Poor Implementation (IPC)**: The use of temporary pickle files for running parallel MCTS jobs in `build_graph` is a critical flaw. It is slow, error-prone, and not scalable. A proper job queue or a library like `ray` should be used.
+    *   **Environment Specificity**: The planning logic, especially the abstract state definitions and heuristics, is tailored for Montezuma's Revenge. The `_get_ghost_removal_actions` method is a glaring example of hardcoded logic. For Crafter, this entire hierarchical planning system is likely unnecessary and should be replaced with a simpler MCTS agent that plans directly in the symbolic state space provided by the learned model.
+
+### 6. Evaluation
+
+*   **Purpose**: To measure the predictive accuracy of the learned world model.
+*   **Implementation**:
+    *   `eval.py`: The `evaluate_world_model` function orchestrates the evaluation.
+    *   It loads a test set of transitions using `grab_transitions`.
+    *   It iterates through each transition, calls `world_model.sample_next_scene` to get a prediction, and compares it to the ground truth `next_observation`.
+    *   `are_two_obj_lists_equal` is used for exact matching, while `obj_lists_partial_match_score` is used for a more lenient metric focused on moving objects.
+*   **Software Engineering Critique**:
+    *   The evaluation logic is simple and clear. However, it is in a separate script from the main run file, which means evaluation is not an integrated part of the training loop (e.g., periodic evaluation on a validation set). For a clean implementation, evaluation should be a configurable part of the main training pipeline.
