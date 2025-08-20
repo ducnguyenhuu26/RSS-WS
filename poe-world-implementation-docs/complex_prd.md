@@ -91,6 +91,11 @@ class RandomValues:
     Represents a discrete probability distribution over a set of integer values.
     This is the core mechanism for interpreting deterministic expert outputs
     as probabilistic predictions.
+    
+    Expert functions create "sharp" distributions by specifying only the values
+    they believe are possible. These are then expanded via noise addition to
+    cover all possible values in the domain, with the expert's preferred values
+    having much higher log-probabilities than the rest.
     """
     values: np.ndarray
     logscores: np.ndarray = attrs.field()
@@ -114,18 +119,39 @@ class RandomValues:
         except IndexError:
             # The value was not a possible outcome under this distribution
             return -np.inf
+    
+    def add_noise_to_full_domain(self, all_possible_values: np.ndarray, noise_logScore: float = -10.0) -> 'RandomValues':
+        """
+        Expands this distribution to cover all possible values in the domain.
+        Values not in the current distribution get the noise_logScore.
+        This converts expert "opinions" into full probability distributions.
+        """
+        new_logscores = np.full_like(all_possible_values, noise_logScore, dtype=float)
+        for i, val in enumerate(self.values):
+            if val in all_possible_values:
+                idx = np.where(all_possible_values == val)[0][0]
+                new_logscores[idx] = self.logscores[i]
+        return RandomValues(values=all_possible_values, logscores=new_logscores)
 
 @attrs.define(frozen=True)
 class ExpertSourceCode:
     """The source code representation of an expert function."""
     id: str
     source_code: str
+    target_object_type: str  # e.g., "player", "zombie", "tree"
 
 @attrs.define(frozen=True)
 class WeightedExpert:
     """An expert associated with its learned weight."""
     expert: ExpertSourceCode
     weight: float
+
+@attrs.define(frozen=True)
+class ObjectTypeModel:
+    """A collection of experts and weights for a specific object type."""
+    object_type: str
+    creation_experts: list[WeightedExpert]
+    non_creation_experts: list[WeightedExpert]
 
 # Core Component Protocols
 class ExperienceBufferProtocol(Protocol[MetadataT]):
@@ -138,20 +164,48 @@ class WorldModelProtocol(Protocol[MetadataT]):
     """
     Represents the complete, learned symbolic world model. Operates purely on
     symbolic states (MetadataT), not raw observations.
+    
+    The model organizes experts by object type (e.g., player, zombie, tree) and
+    separates creation experts (predicting new objects) from non-creation experts
+    (predicting changes to existing objects).
     """
     def sample_next_state(self, current_state: MetadataT, action: str) -> MetadataT: ...
     def evaluate_log_probability(self, transition: SymbolicTransition[MetadataT]) -> float: ...
     def with_new_experts(self, new_experts: list[WeightedExpert]) -> 'WorldModelProtocol[MetadataT]': ...
+    def get_object_type_model(self, object_type: str) -> ObjectTypeModel: ...
     @property
     def experts(self) -> list[WeightedExpert]: ...
+    @property
+    def object_types(self) -> list[str]: ...
 
 class SynthesizerProtocol(Protocol[MetadataT]):
     """Generates new ExpertSourceCodes from observed data."""
     def synthesize(self, transitions: list[SymbolicTransition[MetadataT]]) -> list[ExpertSourceCode]: ...
 
 class WeightFitterProtocol(Protocol[MetadataT]):
-    """Fits weights to a set of experts based on a dataset of transitions."""
+    """
+    Fits weights to a set of experts based on a dataset of transitions.
+    
+    Weight fitting operates separately for each object type to prevent interference
+    between experts for different object types. Within each object type, creation
+    and non-creation experts are fitted separately.
+    
+    Supports both fast fitting (only new experts) and slow fitting (all experts)
+    for online learning efficiency.
+    """
     def fit(self, experts: list[ExpertSourceCode], transitions: list[SymbolicTransition[MetadataT]]) -> list[WeightedExpert]: ...
+    def fit_object_type_experts(
+        self, 
+        object_type: str,
+        experts: list[ExpertSourceCode], 
+        transitions: list[SymbolicTransition[MetadataT]]
+    ) -> ObjectTypeModel: ...
+    def fast_fit(
+        self, 
+        new_experts: list[ExpertSourceCode], 
+        existing_weighted_experts: list[WeightedExpert],
+        transitions: list[SymbolicTransition[MetadataT]]
+    ) -> list[WeightedExpert]: ...
 
 class PrunerProtocol(Protocol):
     """Filters a list of weighted experts to remove those deemed not useful."""
@@ -233,6 +287,7 @@ This section describes the initial concrete implementations for each protocol.
 #### 5.2. `PoEWorldModel` (implements `WorldModelProtocol`)
 *   **Responsibility**: Represents the Product of Experts world model and implements the core probabilistic prediction logic.
 *   **Dependencies**: An `ExpertCompilerProtocol` and an `ExpertExecutorProtocol`.
+*   **Architecture**: The model organizes experts by object type (e.g., "player", "zombie", "tree") and separates creation experts from non-creation experts within each type. This prevents interference between different types of dynamics during weight fitting.
 
 *   **5.2.1. Probabilistic Prediction Mechanism**
     The model predicts the next symbolic state attribute by attribute. The process for sampling a `next_state` is as follows:
@@ -243,12 +298,16 @@ This section describes the initial concrete implementations for each protocol.
         c.  The compiled expert function is executed via the `ExpertExecutorProtocol`, which **mutates** the attributes of the copied state in-place.
         d.  **Crucially, the expert assigns `RandomValues` objects to attributes, not primitive values** (e.g., `state.player.inventory.wood = RandomValues(values=np.array([1]))`). This mutated state copy, containing probabilistic attribute values, is the expert's output distribution.
 
-    2.  **Handle Unmodified Attributes:** For a given expert, any attribute it did *not* modify is assigned a uniform `RandomValues` distribution over all its possible values. This signifies that the expert has no opinion on that attribute's outcome.
-        *   **Discretization:** For continuous float values in the Crafter state (e.g., `hunger`), these must first be discretized into a fixed integer range (e.g., `0-1000`) before a uniform distribution can be created. The system must define these ranges and discretization rules.
+    2.  **Noise Addition and Unmodified Attributes:** After expert execution, the system performs two critical transformations:
+        *   **Noise Addition**: Expert functions create "sharp" `RandomValues` containing only their preferred values. These are expanded using `add_noise_to_full_domain()` to cover all possible values, with non-preferred values receiving very low log-probabilities (e.g., -10.0).
+        *   **Uniform Distributions**: For attributes an expert did *not* modify, the system assigns uniform `RandomValues` distributions over all possible values, signifying the expert has no opinion.
+        *   **Discretization**: For continuous float values in the Crafter state (e.g., `hunger`), these must first be discretized into a fixed integer range (e.g., `0-1000`) before distributions can be created. The system must define these ranges and discretization rules.
 
-    3.  **Combine Distributions (PoE Step):** The model constructs the final distribution for each attribute of the next state. For a single attribute (e.g., `player.inventory.wood`):
+    3.  **Combine Distributions (PoE Step):** The model constructs the final distribution for each attribute of the next state through matrix multiplication. For a single attribute (e.g., `player.inventory.wood`):
         a.  It gathers the `RandomValues` objects for this attribute from *all* experts (including the uniform distributions from experts that didn't modify it).
-        b.  It creates a final `RandomValues` object. Its `logscores` are the **weighted sum of the `logscores` from each expert's `RandomValues` object.** This is the PoE formula applied in log-space.
+        b.  It creates a matrix where each row represents possible values and each column represents an expert's log-probabilities for those values.
+        c.  The final combined log-scores are computed as: `combined_logscores = logscores_matrix.T @ expert_weights`, where the expert weights are the learned per-expert parameters.
+        d.  This matrix multiplication implements the PoE formula in log-space, creating a final `RandomValues` object for the attribute.
 
     4.  **Instantiate Next State:** The final symbolic `next_state` is constructed by calling the `sample()` method on the final `RandomValues` object for every attribute, creating a new `MetadataT` instance.
 
@@ -268,16 +327,26 @@ This section describes the initial concrete implementations for each protocol.
         - Mutate the `current_state` object in-place
         - **Assign `RandomValues` objects to attributes**, not primitive types (e.g., `state.player.health = RandomValues(np.array([current_health - 1]))`)
         - Follow the naming convention established by PoE-World: `alter_{obj_type}_objects`
+        - Specify their target object type and whether they handle creation or non-creation dynamics
     *   It will parse the LLM's response to extract valid Python code blocks, creating an `ExpertSourceCode` for each. It must be robust to malformed LLM outputs.
     *   **Validation**: Should use the `ExpertCompilerProtocol` to validate that synthesized experts compile successfully before returning them.
 
 #### 5.4. `MaxLikelihoodWeightFitter` (implements `WeightFitterProtocol`)
 *   **Responsibility**: To find the optimal weights for a set of experts by maximizing the log-likelihood of the data.
-*   **Dependencies**: An optimization library like `scipy.optimize`.
+*   **Dependencies**: PyTorch for automatic differentiation and L-BFGS optimization.
+*   **Weight Structure**: The parameters being optimized are **per-expert weights**, not per-object weights. Each expert has exactly one weight regardless of how many objects of that type exist in any given state. This weight represents how much to trust that expert's opinion across all objects of its target type.
 *   **Implementation Notes**:
+    *   **Object-Type Separation**: Weight fitting operates separately for each object type to prevent interference between experts for different object types (e.g., player experts vs zombie experts).
+    *   **Loss Computation**: The objective function computes loss at the most granular level possible - per attribute, per object, per training example. For each object's each attribute, expert predictions are combined using matrix multiplication of log-probabilities weighted by expert weights.
+    *   **Precomputation Strategy**: For efficiency, expert predictions are precomputed for all training examples before optimization begins, avoiding repeated execution of expert functions during weight updates.
     *   The `fit` method will define an objective function: the negative log-likelihood of a randomly sampled batch of transitions from the dataset (with a configurable batch size, defaulting to 10,000) given the experts and their weights, plus an L1 regularization term.
-    *   It will use `scipy.optimize.minimize` with the `L-BFGS-B` method to find the weights that minimize this objective.
+    *   It will use PyTorch's L-BFGS optimizer to find the weights that minimize this objective. L-BFGS is a quasi-Newton method that significantly outperforms gradient descent, Adam, and SGD for this type of optimization problem.
     *   **Batch Sampling**: For each optimization step, the fitter will randomly sample up to `batch_size` transitions from the full dataset. If the dataset has fewer transitions than the batch size, all transitions are used. This approach balances computational efficiency with statistical robustness.
+    *   **Variable Object Counts**: The system naturally handles variable object counts because the same expert weights are applied to each object independently, and the loss simply accumulates more terms when there are more objects.
+    *   **Weight Constraints and Initialization**: Expert weights are constrained to the range [0, 10] to prevent numerical instability. Weights are initialized to 0.5 (uniform contribution from all experts) unless continuing from previous weights.
+    *   **Fast vs Slow Fitting Modes**: The fitter supports two modes:
+        - **Fast fitting**: Only fits weights for newly added experts while preserving existing expert weights. Essential for online learning efficiency.
+        - **Slow fitting**: Refits all expert weights from scratch for optimal model quality.
     *   **Scalability Concern**: While batch sampling helps with computational efficiency, fitting on the entire experience buffer at every update cycle may still be expensive for very large buffers. The implementation should consider strategies to mitigate this, such as using a fixed-size, sliding window of recent experiences, or exploring online optimization methods (e.g., SGD).
 
 #### 5.5. `ThresholdPruner` (implements `PrunerProtocol`)
@@ -340,7 +409,7 @@ class OnlineLearner(Generic[MetadataT]):
     2.  **Identify Gaps**: Get all symbolic transitions from the buffer. Use the current `world_model`'s `evaluate_log_probability` method to find a small batch of "surprising" transitions (those with the lowest log-probability).
     3.  **Synthesize**: Pass these surprising transitions to the `synthesizer`. If no new experts are returned, terminate the update cycle early.
     4.  **Combine Experts**: Create a combined list of the new experts and the existing experts from the current `world_model`.
-    5.  **Fit Weights**: Pass the combined expert list and a representative batch of symbolic transitions from the buffer to the `fitter` to get a new list of `WeightedExpert`s.
+    5.  **Fit Weights**: Pass the combined expert list and a representative batch of symbolic transitions from the buffer to the `fitter` to get a new list of `WeightedExpert`s. The fitter will automatically group experts by object type and fit creation vs. non-creation models separately. For online learning efficiency, use fast fitting (only new experts) for frequent updates and slow fitting (all experts) periodically for optimal model quality.
     6.  **Prune**: Pass the `WeightedExpert`s to the `pruner` to get the final, pruned set of experts.
     7.  **Update Model**: Create the new world model state by calling `self.world_model.with_new_experts(pruned_weighted_experts)`.
     8.  **Checkpoint**: Atomically save the new `world_model` and the current `experience_buffer` by calling `repository.save()`.
