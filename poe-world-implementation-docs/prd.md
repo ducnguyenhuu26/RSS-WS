@@ -72,7 +72,7 @@ import numpy as np
 from scipy.special import logsumexp
 
 # Provided Interfaces for Integration
-from your_module import Observation, Experience, MetadataT
+from distant_sunburn.balrog_interfaces import Observation, Experience, MetadataT
 
 # Core Data Structures
 @attrs.define(frozen=True)
