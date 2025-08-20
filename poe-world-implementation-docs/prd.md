@@ -13,7 +13,7 @@ The implementation will adhere to a **Hexagonal (Ports and Adapters) Architectur
 
 ### 2. Goals and Objectives
 
-*   **Implement a Functional Online Learning Pipeline**: The system must support a continuous loop of ingesting new experiences, synthesizing new programmatic experts, re-fitting expert weights, and pruning the model.
+*   **Implement a Functional Online Learning Pipeline**: The system must support a continuous loop of ingesting new experiences, synthesizing new expert source code, re-fitting expert weights, and pruning the model.
 *   **Produce a Predictive Probabilistic World Model**: The core output must be a `WorldModel` object capable of predicting the next symbolic state (`MetadataT`) of the Crafter environment as a probability distribution.
 *   **Ensure Robustness via Checkpointing**: The system must periodically save its complete state (learned model and all experience) and be able to automatically resume training from the last successful checkpoint.
 *   **Adhere to Architectural Principles**: The implementation must strictly separate domain logic from external concerns through the use of protocols (ports).
@@ -116,15 +116,15 @@ class RandomValues:
             return -np.inf
 
 @attrs.define(frozen=True)
-class ProgrammaticExpert:
-    """A single, atomic programmatic rule describing a piece of world dynamics."""
+class ExpertSourceCode:
+    """The source code representation of an expert function."""
     id: str
     source_code: str
 
 @attrs.define(frozen=True)
 class WeightedExpert:
     """An expert associated with its learned weight."""
-    expert: ProgrammaticExpert
+    expert: ExpertSourceCode
     weight: float
 
 # Core Component Protocols
@@ -146,12 +146,12 @@ class WorldModelProtocol(Protocol[MetadataT]):
     def experts(self) -> list[WeightedExpert]: ...
 
 class SynthesizerProtocol(Protocol[MetadataT]):
-    """Generates new ProgrammaticExperts from observed data."""
-    def synthesize(self, transitions: list[SymbolicTransition[MetadataT]]) -> list[ProgrammaticExpert]: ...
+    """Generates new ExpertSourceCodes from observed data."""
+    def synthesize(self, transitions: list[SymbolicTransition[MetadataT]]) -> list[ExpertSourceCode]: ...
 
 class WeightFitterProtocol(Protocol[MetadataT]):
     """Fits weights to a set of experts based on a dataset of transitions."""
-    def fit(self, experts: list[ProgrammaticExpert], transitions: list[SymbolicTransition[MetadataT]]) -> list[WeightedExpert]: ...
+    def fit(self, experts: list[ExpertSourceCode], transitions: list[SymbolicTransition[MetadataT]]) -> list[WeightedExpert]: ...
 
 class PrunerProtocol(Protocol):
     """Filters a list of weighted experts to remove those deemed not useful."""
@@ -190,12 +190,12 @@ class ExpertFunction(Protocol[MetadataT]):
 class ExpertCompilerProtocol(Protocol[MetadataT]):
     """Protocol for compiling expert source code into executable functions."""
     
-    def compile_expert(self, expert: ProgrammaticExpert) -> ExpertFunction[MetadataT]:
+    def compile_source_code(self, expert: ExpertSourceCode) -> ExpertFunction[MetadataT]:
         """Compile an expert's source code into an executable function."""
         ...
     
-    def validate_expert(self, expert: ProgrammaticExpert) -> bool:
-        """Check if an expert can be compiled successfully."""
+    def validate_source_code(self, expert: ExpertSourceCode) -> bool:
+        """Check if an expert's source code can be compiled successfully."""
         ...
 
 class ExpertExecutorProtocol(Protocol[MetadataT]):
@@ -239,7 +239,7 @@ This section describes the initial concrete implementations for each protocol.
 
     1.  **Generate Expert Outputs:** For a given `current_state` and `action`, the `PoEWorldModel` iterates through its list of weighted experts. For each expert:
         a.  A deep copy of the `current_state` is created.
-        b.  The expert's `source_code` is compiled into an `ExpertFunction` (with caching for performance).
+        b.  The expert's `source_code` is compiled into an `ExpertFunction` via the `ExpertCompilerProtocol` (with caching for performance).
         c.  The compiled expert function is executed via the `ExpertExecutorProtocol`, which **mutates** the attributes of the copied state in-place.
         d.  **Crucially, the expert assigns `RandomValues` objects to attributes, not primitive values** (e.g., `state.player.inventory.wood = RandomValues(values=np.array([1]))`). This mutated state copy, containing probabilistic attribute values, is the expert's output distribution.
 
@@ -254,12 +254,12 @@ This section describes the initial concrete implementations for each protocol.
 
 *   **5.2.2. Implementation Notes**
     *   The model must be immutable. `with_new_experts` will return a new `PoEWorldModel` instance.
-    *   **Expert Compilation Caching**: The model should cache compiled expert functions to avoid repeated `exec()` calls on the same source code. The cache key should be the expert's `id` and `source_code`.
+    *   **Expert Compilation Caching**: The model should cache compiled expert functions to avoid repeated compilation of the same source code. The cache key should be the expert's `id` and `source_code`.
     *   **Error Handling**: If an expert fails to compile or execute, it should be logged and excluded from that prediction. The system should continue with the remaining experts.
     *   `evaluate_log_probability` follows the same logic as sampling, but instead of calling `sample()` in the final step, it calls `evaluate_log_probability(observed_value)` for each attribute of the `transition.next_metadata` and sums the results.
 
 #### 5.3. `LLMSynthesizer` (implements `SynthesizerProtocol`)
-*   **Responsibility**: To generate candidate `ProgrammaticExpert`s using an LLM.
+*   **Responsibility**: To generate candidate `ExpertSourceCode`s using an LLM.
 *   **Internal Dependencies**: An `LlmClientProtocol` and a `PromptBuilderProtocol`.
 *   **Implementation Notes**:
     *   The `synthesize` method will use an internal prompt builder to format the input `transitions` into a detailed prompt.
@@ -268,7 +268,7 @@ This section describes the initial concrete implementations for each protocol.
         - Mutate the `current_state` object in-place
         - **Assign `RandomValues` objects to attributes**, not primitive types (e.g., `state.player.health = RandomValues(np.array([current_health - 1]))`)
         - Follow the naming convention established by PoE-World: `alter_{obj_type}_objects`
-    *   It will parse the LLM's response to extract valid Python code blocks, creating a `ProgrammaticExpert` for each. It must be robust to malformed LLM outputs.
+    *   It will parse the LLM's response to extract valid Python code blocks, creating an `ExpertSourceCode` for each. It must be robust to malformed LLM outputs.
     *   **Validation**: Should use the `ExpertCompilerProtocol` to validate that synthesized experts compile successfully before returning them.
 
 #### 5.4. `MaxLikelihoodWeightFitter` (implements `WeightFitterProtocol`)
@@ -294,10 +294,10 @@ This section describes the initial concrete implementations for each protocol.
 #### 5.7. `DefaultExpertCompiler` (implements `ExpertCompilerProtocol`)
 *   **Responsibility**: To compile expert source code into executable `ExpertFunction` instances.
 *   **Implementation Notes**:
-    *   `compile_expert`: Creates a controlled execution namespace with safe imports (`RandomValues`, `np`, etc.), executes the source code via `exec()`, and extracts the expert function by name.
+    *   `compile_source_code`: Creates a controlled execution namespace with safe imports (`RandomValues`, `np`, etc.), executes the source code via `exec()`, and extracts the expert function by name.
     *   **Function Name Convention**: Expects expert functions to follow the naming pattern `alter_{obj_type}_objects` as established by the PoE-World synthesizers.
     *   **Signature Validation**: Uses the `inspect` module to validate that compiled functions match the `ExpertFunction` protocol signature.
-    *   `validate_expert`: Attempts compilation without caching to check if an expert is valid. Returns `False` and logs errors for malformed experts.
+    *   `validate_source_code`: Attempts compilation without caching to check if an expert's source code is valid. Returns `False` and logs errors for malformed experts.
     *   **Security**: The execution namespace should be restricted to prevent malicious code execution. Only essential imports should be available.
 
 #### 5.8. `SafeExpertExecutor` (implements `ExpertExecutorProtocol`)
