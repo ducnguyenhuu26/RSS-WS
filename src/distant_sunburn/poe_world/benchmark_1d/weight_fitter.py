@@ -73,6 +73,67 @@ def combine_expert_predictions(
     )
 
 
+def combine_expert_predictions_torch(
+    expert_predictions: list[RandomValues], weights: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    PyTorch-native version of combine_expert_predictions that preserves gradients.
+
+    Args:
+        expert_predictions: List of RandomValues from each expert
+        weights: Tensor of expert weights [n_experts]
+
+    Returns:
+        Tuple of (values_tensor, combined_logscores_tensor) preserving gradients
+    """
+    if not expert_predictions:
+        raise ValueError("No expert predictions provided")
+
+    # Stack logscores from all experts into matrix [n_experts, n_values]
+    logscores_matrix = torch.stack(
+        [
+            torch.tensor(pred.logscores, dtype=torch.float32)
+            for pred in expert_predictions
+        ]
+    )
+
+    # Matrix multiplication: [n_values, n_experts] @ [n_experts] = [n_values]
+    combined_logscores = logscores_matrix.T @ weights
+
+    # Also return values as tensor for PyTorch operations
+    values_tensor = torch.tensor(expert_predictions[0].values, dtype=torch.int32)
+
+    return values_tensor, combined_logscores
+
+
+def evaluate_log_probability_torch(
+    values_tensor: torch.Tensor, combined_logscores: torch.Tensor, observed_value: int
+) -> torch.Tensor:
+    """
+    PyTorch-native log probability evaluation that preserves gradients.
+
+    Args:
+        values_tensor: Tensor of possible values [n_values]
+        combined_logscores: Combined logscores tensor [n_values]
+        observed_value: The observed value to evaluate
+
+    Returns:
+        Log probability tensor (preserves gradients)
+    """
+    # Normalize to log probabilities
+    log_probs = combined_logscores - torch.logsumexp(combined_logscores, dim=0)
+
+    # Find the index of the observed value
+    mask = values_tensor == observed_value
+
+    if mask.any():
+        # Return the log probability for the observed value
+        return log_probs[mask][0]  # Take first match
+    else:
+        # Value not possible under this distribution
+        return torch.tensor(-float("inf"), dtype=torch.float32)
+
+
 class MaxLikelihoodWeightFitter:
     """
     Maximum likelihood weight fitter using PyTorch L-BFGS optimization.
@@ -270,11 +331,15 @@ class MaxLikelihoodWeightFitter:
                 # Get expert predictions for this attribute
                 attr_predictions = [pred[attr_name] for pred in transition_predictions]
 
-                # Combine using current weights
-                combined_dist = combine_expert_predictions(attr_predictions, weights)
+                # Use PyTorch-native combination to preserve gradients
+                values_tensor, combined_logscores = combine_expert_predictions_torch(
+                    attr_predictions, weights
+                )
 
-                # Evaluate log-probability of observed value
-                log_prob = combined_dist.evaluate_log_probability(observed_value)
+                # Evaluate log-probability using PyTorch operations
+                log_prob = evaluate_log_probability_torch(
+                    values_tensor, combined_logscores, observed_value
+                )
 
                 # Accumulate negative log-likelihood
                 total_loss -= log_prob
