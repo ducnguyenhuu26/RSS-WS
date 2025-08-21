@@ -9,8 +9,8 @@ predictions and the ExpertFunction protocol.
 import numpy as np
 import numpy.typing as npt
 from scipy.special import logsumexp
-from typing import Protocol, Any, TypeVar, Optional
-from typing_extensions import Self
+from typing import Protocol, Any, TypeVar, Optional, Generic
+import attrs
 
 # Type variable for the metadata type used by different environments
 MetadataT = TypeVar("MetadataT")
@@ -34,7 +34,11 @@ class RandomValues:
         logscores: Optional[npt.NDArray[np.float32]] = None,
     ):
         self.values = values
-        self.logscores = logscores or np.zeros_like(values, dtype=float)
+        self.logscores = (
+            logscores
+            if logscores is not None
+            else np.zeros_like(values, dtype=np.float32)
+        )
 
     def sample(self) -> int:
         """Samples a value from the distribution."""
@@ -43,10 +47,13 @@ class RandomValues:
 
     def evaluate_log_probability(self, value: int) -> float:
         """Calculates the log-probability of a given value."""
-        log_probs = self.logscores - logsumexp(self.logscores)
+        # Cache normalized log probabilities to avoid repeated logsumexp
+        if not hasattr(self, "_cached_log_probs"):
+            self._cached_log_probs = self.logscores - logsumexp(self.logscores)
+
         try:
             # Find the index of the value and return its log probability
-            return float(log_probs[np.where(self.values == value)[0][0]])
+            return float(self._cached_log_probs[np.where(self.values == value)[0][0]])
         except IndexError:
             # The value was not a possible outcome under this distribution
             return -np.inf
@@ -94,3 +101,52 @@ class ExpertFunction(Protocol[MetadataT]):
             Attributes not modified are assumed to have uniform distributions.
         """
         ...
+
+
+@attrs.define(frozen=True)
+class SymbolicTransition(Generic[MetadataT]):
+    """
+    Represents a single transition at the symbolic level: (s_t, a_t, s_{t+1}).
+    This is the fundamental unit of data for learning and evaluation.
+    """
+
+    prev_metadata: MetadataT
+    action: Any
+    next_metadata: MetadataT
+
+
+@attrs.define(frozen=True)
+class WeightedExpert:
+    """An expert function associated with its learned weight."""
+
+    expert_function: Any  # ExpertFunction - avoiding generic issue
+    weight: float
+
+
+class WorldModelProtocol(Protocol[MetadataT]):
+    """
+    Represents the complete, learned symbolic world model. Operates purely on
+    symbolic states (MetadataT), not raw observations.
+    """
+
+    def sample_next_state(self, current_state: MetadataT, action: Any) -> MetadataT: ...
+    def evaluate_log_probability(
+        self, transition: SymbolicTransition[MetadataT]
+    ) -> float: ...
+    def with_new_experts(
+        self, new_experts: list[WeightedExpert]
+    ) -> "WorldModelProtocol[MetadataT]": ...
+    @property
+    def experts(self) -> list[WeightedExpert]: ...
+
+
+class WeightFitterProtocol(Protocol[MetadataT]):
+    """
+    Fits weights to a set of experts based on a dataset of transitions.
+    """
+
+    def fit(
+        self,
+        experts: list[ExpertFunction[MetadataT]],
+        transitions: list[SymbolicTransition[MetadataT]],
+    ) -> list[WeightedExpert]: ...
