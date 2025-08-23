@@ -11,6 +11,7 @@ from typing import Any, Generic, Protocol, TypeVar
 import numpy as np
 
 SymbolicStateT = TypeVar("SymbolicStateT")
+SymbolicStateT_contra = TypeVar("SymbolicStateT_contra", contravariant=True)
 
 
 class EvaluatableWorldModel(Protocol[SymbolicStateT]):
@@ -47,11 +48,11 @@ class TrajectoryCollector(Protocol[SymbolicStateT]):
         ...
 
 
-class EditDistanceCalculator(Protocol[SymbolicStateT]):
+class EditDistanceCalculator(Protocol[SymbolicStateT_contra]):
     """Protocol for computing edit distances between states."""
 
     def compute_distance(
-        self, state1: SymbolicStateT, state2: SymbolicStateT
+        self, state1: SymbolicStateT_contra, state2: SymbolicStateT_contra
     ) -> int | float:
         """Compute structured edit distance between two states"""
         ...
