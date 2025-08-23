@@ -7,7 +7,8 @@ to validate the evaluation framework and establish performance bounds.
 
 import copy
 import math
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar, Callable
+import random
 
 from .core import SymbolicEnvironment
 
@@ -17,8 +18,13 @@ SymbolicStateT = TypeVar("SymbolicStateT")
 class TrueTransitionWorldModel(Generic[SymbolicStateT]):
     """Perfect world model using actual transition function."""
 
-    def __init__(self, environment: SymbolicEnvironment[SymbolicStateT]):
+    def __init__(
+        self,
+        environment: SymbolicEnvironment[SymbolicStateT],
+        equal_fn: Callable[[SymbolicStateT, SymbolicStateT], bool],
+    ):
         self.environment = environment
+        self.equal_fn = equal_fn
 
     def sample_next_state(
         self, current_state: SymbolicStateT, action: Any
@@ -35,13 +41,14 @@ class TrueTransitionWorldModel(Generic[SymbolicStateT]):
 
     def _states_equal(self, state1: SymbolicStateT, state2: SymbolicStateT) -> bool:
         """Check if two states are equal."""
-        # For simple states, we can use direct comparison
-        # For complex states, this might need to be overridden
-        return state1 == state2
+        return self.equal_fn(state1, state2)
 
 
-class NullWorldModel:
+class NullWorldModel(Generic[SymbolicStateT]):
     """Baseline model that predicts no state changes."""
+
+    def __init__(self, equal_fn: Callable[[SymbolicStateT, SymbolicStateT], bool]):
+        self.equal_fn = equal_fn
 
     def sample_next_state(
         self, current_state: SymbolicStateT, action: Any
@@ -60,15 +67,13 @@ class NullWorldModel:
 
     def _states_equal(self, state1: SymbolicStateT, state2: SymbolicStateT) -> bool:
         """Check if two states are equal."""
-        return state1 == state2
+        return self.equal_fn(state1, state2)
 
 
 class RandomWorldModel:
     """Random baseline model for comparison."""
 
     def __init__(self, rng=None):
-        import random
-
         self.rng = rng or random.Random()
 
     def sample_next_state(

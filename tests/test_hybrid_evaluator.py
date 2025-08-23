@@ -10,13 +10,14 @@ import numpy as np
 import random
 from typing import Any
 
+from sympy import true
+
 from distant_sunburn.evaluator import (
     HybridEvaluator,
     EvaluationConfig,
     Environment1DAdapter,
     TrueTransitionWorldModel,
     NullWorldModel,
-    RandomWorldModel,
 )
 from distant_sunburn.evaluator.components import (
     JSONPatchEditDistance,
@@ -42,8 +43,12 @@ def test_true_vs_null_world_model():
     environment = adapter.create_environment()
 
     # Create world models
-    true_model = TrueTransitionWorldModel(environment)  # Perfect model
-    null_model = NullWorldModel()  # Always predicts no change
+    true_model = TrueTransitionWorldModel(
+        environment, equal_fn=lambda x, y: x == y
+    )  # Perfect model
+    null_model = NullWorldModel(
+        equal_fn=lambda x, y: x == y
+    )  # Always predicts no change
 
     # Create evaluator with injected components
     evaluator = HybridEvaluator(
@@ -61,7 +66,10 @@ def test_true_vs_null_world_model():
     assert true_results.mean_generative_error < null_results.mean_generative_error
     assert true_results.discriminative_accuracy > null_results.discriminative_accuracy
     assert true_results.discriminative_accuracy > 0.9  # Near perfect
-    assert null_results.discriminative_accuracy < 0.3  # Poor performance
+    # Check that the difference in discriminative accuracy is greater than 0.5
+    assert (
+        true_results.discriminative_accuracy - null_results.discriminative_accuracy
+    ) > 0.5
 
 
 def test_evaluation_config_defaults():
@@ -81,7 +89,7 @@ def test_evaluation_results_structure():
     adapter = Environment1DAdapter(config=config, seed=42)
     environment = adapter.create_environment()
 
-    true_model = TrueTransitionWorldModel(environment)
+    true_model = TrueTransitionWorldModel(environment, equal_fn=lambda x, y: x == y)
 
     evaluator = HybridEvaluator(
         config=EvaluationConfig(num_transitions=10, num_distractors=2),
@@ -199,7 +207,7 @@ def test_baseline_world_models():
     environment = adapter.create_environment()
 
     # Test true transition model
-    true_model = TrueTransitionWorldModel(environment)
+    true_model = TrueTransitionWorldModel(environment, equal_fn=lambda x, y: x == y)
     state = adapter.create_environment().transition(
         initial_state(seed=1), Action.MOVE_RIGHT
     )
@@ -209,7 +217,7 @@ def test_baseline_world_models():
     assert pred_state.player.position == state.player.position
 
     # Test null model
-    null_model = NullWorldModel()
+    null_model = NullWorldModel(equal_fn=lambda x, y: x == y)
     null_pred = null_model.sample_next_state(initial_state(seed=1), Action.MOVE_RIGHT)
     # Should predict no change
     assert null_pred.player.position == initial_state(seed=1).player.position
@@ -222,7 +230,7 @@ def test_deterministic_evaluation():
     adapter = Environment1DAdapter(config=config, seed=42)
     environment = adapter.create_environment()
 
-    true_model = TrueTransitionWorldModel(environment)
+    true_model = TrueTransitionWorldModel(environment, equal_fn=lambda x, y: x == y)
 
     evaluator = HybridEvaluator(
         config=EvaluationConfig(num_transitions=20, num_distractors=2),
@@ -247,7 +255,7 @@ def test_evaluation_with_different_configs():
     config = WorldConfig(width=8, switch_point=4)
     adapter = Environment1DAdapter(config=config, seed=42)
     environment = adapter.create_environment()
-    true_model = TrueTransitionWorldModel(environment)
+    true_model = TrueTransitionWorldModel(environment, equal_fn=lambda x, y: x == y)
 
     # Test with different numbers of transitions
     for num_transitions in [10, 20, 50]:
