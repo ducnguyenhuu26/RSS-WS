@@ -5,77 +5,78 @@ This module defines the core protocols and data structures that enable
 environment-agnostic evaluation of symbolic world models.
 """
 
-import copy
-import math
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Generic, Protocol, TypeVar
 import numpy as np
 
-# Type variable for metadata types
-MetadataT = TypeVar("MetadataT")
+SymbolicStateT = TypeVar("SymbolicStateT")
 
 
-class EvaluatableWorldModel(Protocol[MetadataT]):
+class EvaluatableWorldModel(Protocol[SymbolicStateT]):
     """Protocol for world models that can be evaluated."""
 
-    def sample_next_state(self, current_state: MetadataT, action: Any) -> MetadataT:
+    def sample_next_state(
+        self, current_state: SymbolicStateT, action: Any
+    ) -> SymbolicStateT:
         """Generate single prediction by sampling from posterior P(s_next | s, a)"""
         ...
 
     def evaluate_log_probability(
-        self, next_state: MetadataT, current_state: MetadataT, action: Any
+        self, next_state: SymbolicStateT, current_state: SymbolicStateT, action: Any
     ) -> float:
         """Compute log P(next_state | current_state, action)"""
         ...
 
 
-class SymbolicEnvironment(Protocol[MetadataT]):
+class SymbolicEnvironment(Protocol[SymbolicStateT]):
     """Minimal protocol for symbolic environments."""
 
-    def transition(self, state: MetadataT, action: Any) -> MetadataT:
+    def transition(self, state: SymbolicStateT, action: Any) -> SymbolicStateT:
         """True transition function: (s, a) -> s'"""
         ...
 
 
-class TrajectoryCollector(Protocol[MetadataT]):
+class TrajectoryCollector(Protocol[SymbolicStateT]):
     """Protocol for collecting symbolic transitions."""
 
     def collect_transitions(
-        self, environment: SymbolicEnvironment[MetadataT], num_transitions: int
-    ) -> list["SymbolicTransition[MetadataT]"]:
+        self, environment: SymbolicEnvironment[SymbolicStateT], num_transitions: int
+    ) -> list["SymbolicTransition[SymbolicStateT]"]:
         """Collect symbolic transitions using environment-specific policy"""
         ...
 
 
-class EditDistanceCalculator(Protocol[MetadataT]):
+class EditDistanceCalculator(Protocol[SymbolicStateT]):
     """Protocol for computing edit distances between states."""
 
-    def compute_distance(self, state1: MetadataT, state2: MetadataT) -> int | float:
+    def compute_distance(
+        self, state1: SymbolicStateT, state2: SymbolicStateT
+    ) -> int | float:
         """Compute structured edit distance between two states"""
         ...
 
 
-class DistractorGenerator(Protocol[MetadataT]):
+class DistractorGenerator(Protocol[SymbolicStateT]):
     """Protocol for generating plausible but incorrect next states."""
 
     def generate_distractors(
         self,
-        transition: "SymbolicTransition[MetadataT]",
-        all_transitions: list["SymbolicTransition[MetadataT]"],
+        transition: "SymbolicTransition[SymbolicStateT]",
+        all_transitions: list["SymbolicTransition[SymbolicStateT]"],
         num_distractors: int,
-    ) -> list[MetadataT]:
+    ) -> list[SymbolicStateT]:
         """Generate plausible but incorrect next states"""
         ...
 
 
 @dataclass(frozen=True)
-class SymbolicTransition(Generic[MetadataT]):
+class SymbolicTransition(Generic[SymbolicStateT]):
     """A single symbolic transition."""
 
-    prev_metadata: MetadataT
+    prev_metadata: SymbolicStateT
     action: Any
-    next_metadata: MetadataT
+    next_metadata: SymbolicStateT
 
 
 @dataclass(frozen=True)
@@ -97,7 +98,7 @@ class EvaluationResults:
     total_transitions_evaluated: int
 
 
-class HybridEvaluator(Generic[MetadataT]):
+class HybridEvaluator(Generic[SymbolicStateT]):
     """
     Core evaluator that combines generative and discriminative tests.
 
@@ -107,9 +108,9 @@ class HybridEvaluator(Generic[MetadataT]):
     def __init__(
         self,
         config: EvaluationConfig,
-        trajectory_collector: TrajectoryCollector[MetadataT],
-        edit_distance_calc: EditDistanceCalculator[MetadataT],
-        distractor_generator: DistractorGenerator[MetadataT],
+        trajectory_collector: TrajectoryCollector[SymbolicStateT],
+        edit_distance_calc: EditDistanceCalculator[SymbolicStateT],
+        distractor_generator: DistractorGenerator[SymbolicStateT],
     ):
         self.config = config
         self.trajectory_collector = trajectory_collector
@@ -118,8 +119,8 @@ class HybridEvaluator(Generic[MetadataT]):
 
     def evaluate(
         self,
-        world_model: EvaluatableWorldModel[MetadataT],
-        environment: SymbolicEnvironment[MetadataT],
+        world_model: EvaluatableWorldModel[SymbolicStateT],
+        environment: SymbolicEnvironment[SymbolicStateT],
     ) -> EvaluationResults:
         """Core evaluation logic - environment agnostic"""
 

@@ -7,7 +7,6 @@ environments.
 """
 
 import random
-from typing import Any
 
 from .core import (
     SymbolicEnvironment,
@@ -24,7 +23,6 @@ from ..poe_world.benchmark_1d.environment import (
     GameState,
     Action,
     WorldConfig,
-    initial_state,
     transition_function,
     DEFAULT_LAWS,
 )

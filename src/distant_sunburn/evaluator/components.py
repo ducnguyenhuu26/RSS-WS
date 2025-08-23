@@ -6,16 +6,12 @@ protocols for different environments and use cases.
 """
 
 import copy
-import json
 import random
-from typing import Any, Generic, TypeVar
+from typing import Any, TypeVar
 
 import jsonpatch
 
 from .core import (
-    TrajectoryCollector,
-    EditDistanceCalculator,
-    DistractorGenerator,
     SymbolicTransition,
     SymbolicEnvironment,
 )
@@ -26,7 +22,7 @@ from ..poe_world.benchmark_1d.environment import (
     initial_state,
 )
 
-MetadataT = TypeVar("MetadataT")
+SymbolicStateT = TypeVar("SymbolicStateT")
 
 
 class RandomPolicy1DTrajectoryCollector:
@@ -101,10 +97,10 @@ class TemporalDistractorGenerator:
 
     def generate_distractors(
         self,
-        transition: SymbolicTransition[MetadataT],
-        all_transitions: list[SymbolicTransition[MetadataT]],
+        transition: SymbolicTransition[SymbolicStateT],
+        all_transitions: list[SymbolicTransition[SymbolicStateT]],
         num_distractors: int,
-    ) -> list[MetadataT]:
+    ) -> list[SymbolicStateT]:
         """Generate distractors from temporally distant states."""
         current_idx = all_transitions.index(transition)
         eligible_indices = [
