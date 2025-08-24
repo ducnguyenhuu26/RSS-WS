@@ -69,31 +69,6 @@ class JSONPatchEditDistance:
         }
 
 
-class TemporalDistractorGenerator:
-    """Generate distractors from temporally distant transitions."""
-
-    def __init__(self, gap: int = 50):
-        self.gap = gap
-
-    def __call__(
-        self,
-        transition: SymbolicTransition[SymbolicStateT],
-        all_transitions: list[SymbolicTransition[SymbolicStateT]],
-        num_distractors: int,
-    ) -> list[SymbolicStateT]:
-        """Generate distractors from temporally distant states."""
-        current_idx = all_transitions.index(transition)
-        eligible_indices = [
-            i for i in range(len(all_transitions)) if abs(i - current_idx) > self.gap
-        ]
-
-        if len(eligible_indices) < num_distractors:
-            return [all_transitions[i].next_metadata for i in eligible_indices]
-
-        selected_indices = random.sample(eligible_indices, num_distractors)
-        return [all_transitions[i].next_metadata for i in selected_indices]
-
-
 class Semantic1DDistractorGenerator:
     """Generate semantically plausible distractors for 1D environment."""
 
