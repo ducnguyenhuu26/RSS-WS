@@ -53,3 +53,7 @@ balrog = [
     "google-generativeai>=0.8.5",
     "openai>=1.90.0",
 ]
+
+[tool.ty.src]
+include = ["src", "tests"]
+exclude = ["src/distant_sunburn/external"]
