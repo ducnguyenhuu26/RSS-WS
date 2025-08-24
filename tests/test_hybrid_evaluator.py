@@ -6,7 +6,7 @@ including sanity checks with baseline models and integration tests.
 """
 
 from distant_sunburn.evaluator import (
-    HybridEvaluator,
+    Evaluator,
     EvaluationConfig,
     Environment1DAdapter,
     TrueTransitionWorldModel,
@@ -49,7 +49,7 @@ def test_true_vs_null_world_model():
         edit_distance_calculator=adapter.create_edit_distance_calculator(),
     )
 
-    evaluator = HybridEvaluator(context=evaluation_context)
+    evaluator = Evaluator(context=evaluation_context)
 
     true_results = evaluator.evaluate(true_model)
     null_results = evaluator.evaluate(null_model)
@@ -139,7 +139,7 @@ def test_deterministic_evaluation():
         edit_distance_calculator=adapter.create_edit_distance_calculator(),
     )
 
-    evaluator = HybridEvaluator(context=evaluation_context)
+    evaluator = Evaluator(context=evaluation_context)
 
     # Run evaluation twice with same seed
     results1 = evaluator.evaluate(true_model)

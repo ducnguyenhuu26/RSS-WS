@@ -15,7 +15,7 @@ from .core import (
     SymbolicTransition,
     EvaluationConfig,
     EvaluationResults,
-    HybridEvaluator,
+    Evaluator,
 )
 from .simple_1d_env.adapters import (
     Environment1DAdapter,
@@ -44,7 +44,7 @@ __all__ = [
     "SymbolicTransition",
     "EvaluationConfig",
     "EvaluationResults",
-    "HybridEvaluator",
+    "Evaluator",
     # Environment adapters
     "Environment1DAdapter",
     "Environment1DWrapper",

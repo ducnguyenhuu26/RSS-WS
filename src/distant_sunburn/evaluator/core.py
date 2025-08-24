@@ -109,7 +109,11 @@ class EvaluationResults:
     total_transitions_evaluated: int
 
 
-class HybridEvaluator(Generic[SymbolicStateT]):
+class Evaluator(Generic[SymbolicStateT]):
+    """
+    Measures the performance of a symbolic world model against a sequence of transitions collected offline.
+    """
+
     def __init__(self, context: EvaluationContext[SymbolicStateT]):
         self.ctx = context
 
