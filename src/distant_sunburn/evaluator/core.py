@@ -30,7 +30,7 @@ class EvaluatableWorldModel(Protocol[SymbolicStateT]):
         ...
 
 
-class SymbolicEnvironment(Protocol[SymbolicStateT]):
+class SymbolicTransitionFunction(Protocol[SymbolicStateT]):
     """Minimal protocol for symbolic environments."""
 
     def __call__(self, state: SymbolicStateT, action: Any) -> SymbolicStateT:
@@ -42,7 +42,9 @@ class TrajectoryCollector(Protocol[SymbolicStateT]):
     """Protocol for collecting symbolic transitions."""
 
     def collect_transitions(
-        self, environment: SymbolicEnvironment[SymbolicStateT], num_transitions: int
+        self,
+        transition_function: SymbolicTransitionFunction[SymbolicStateT],
+        num_transitions: int,
     ) -> list["SymbolicTransition[SymbolicStateT]"]:
         """Collect symbolic transitions using environment-specific policy"""
         ...

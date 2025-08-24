@@ -9,7 +9,7 @@ environments.
 import random
 
 from ..core import (
-    SymbolicEnvironment,
+    SymbolicTransitionFunction,
     TrajectoryCollector,
     EditDistanceCalculator,
     DistractorGenerator,
@@ -48,7 +48,7 @@ class Environment1DAdapter:
         self.seed = seed
         self.rng = random.Random(seed)
 
-    def create_environment(self) -> SymbolicEnvironment[GameState]:
+    def create_environment(self) -> SymbolicTransitionFunction[GameState]:
         """Create a 1D environment wrapper."""
         return Environment1DWrapper(self.config, self.seed)
 

@@ -13,7 +13,7 @@ import jsonpatch
 
 from ..core import (
     SymbolicTransition,
-    SymbolicEnvironment,
+    SymbolicTransitionFunction,
 )
 from ...poe_world.benchmark_1d.environment import (
     GameState,
@@ -33,7 +33,9 @@ class RandomPolicy1DTrajectoryCollector:
         self.actions = [Action.MOVE_LEFT, Action.MOVE_RIGHT, Action.STAY]
 
     def collect_transitions(
-        self, environment: SymbolicEnvironment[GameState], num_transitions: int
+        self,
+        transition_function: SymbolicTransitionFunction[GameState],
+        num_transitions: int,
     ) -> list[SymbolicTransition[GameState]]:
         """Collect transitions using random policy."""
         transitions = []
@@ -41,7 +43,7 @@ class RandomPolicy1DTrajectoryCollector:
 
         for _ in range(num_transitions):
             action = self.rng.choice(self.actions)
-            next_state = environment(state, action)
+            next_state = transition_function(state, action)
             transitions.append(SymbolicTransition(state, action, next_state))
             state = next_state
 

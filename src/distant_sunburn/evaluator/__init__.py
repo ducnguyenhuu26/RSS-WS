@@ -8,7 +8,7 @@ accuracy (probability distribution understanding) of world models.
 
 from .core import (
     EvaluatableWorldModel,
-    SymbolicEnvironment,
+    SymbolicTransitionFunction,
     TrajectoryCollector,
     EditDistanceCalculator,
     DistractorGenerator,
@@ -37,7 +37,7 @@ from .baselines import (
 __all__ = [
     # Core interfaces and classes
     "EvaluatableWorldModel",
-    "SymbolicEnvironment",
+    "SymbolicTransitionFunction",
     "TrajectoryCollector",
     "EditDistanceCalculator",
     "DistractorGenerator",

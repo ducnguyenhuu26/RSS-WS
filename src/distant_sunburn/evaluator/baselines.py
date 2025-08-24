@@ -10,7 +10,7 @@ import math
 from typing import Any, Generic, TypeVar, Callable
 import random
 
-from .core import SymbolicEnvironment
+from .core import SymbolicTransitionFunction
 
 SymbolicStateT = TypeVar("SymbolicStateT")
 
@@ -20,7 +20,7 @@ class TrueTransitionWorldModel(Generic[SymbolicStateT]):
 
     def __init__(
         self,
-        environment: SymbolicEnvironment[SymbolicStateT],
+        environment: SymbolicTransitionFunction[SymbolicStateT],
         equal_fn: Callable[[SymbolicStateT, SymbolicStateT], bool],
     ):
         self.environment = environment
