@@ -84,14 +84,22 @@ class SymbolicTransition(Generic[SymbolicStateT]):
 class EvaluationConfig:
     """Configuration for evaluation runs."""
 
-    num_transitions: int = 100
     num_distractors: int = 5
-    random_seed: int = 42
+
+
+@dataclass
+class EvaluationContext(Generic[SymbolicStateT]):
+    """Dependencies for evaluation."""
+
+    test_transitions: list[SymbolicTransition[SymbolicStateT]]
+    distractor_generator: DistractorGenerator[SymbolicStateT]
+    edit_distance_calculator: EditDistanceCalculator[SymbolicStateT]
+    config: EvaluationConfig
 
 
 @dataclass(frozen=True)
 class EvaluationResults:
-    """Results from a hybrid evaluation run."""
+    """Results from a evaluation run."""
 
     mean_generative_error: float
     discriminative_accuracy: float
@@ -100,62 +108,40 @@ class EvaluationResults:
 
 
 class HybridEvaluator(Generic[SymbolicStateT]):
-    """
-    Core evaluator that combines generative and discriminative tests.
-
-    Uses dependency injection to remain environment-agnostic.
-    """
-
-    def __init__(
-        self,
-        config: EvaluationConfig,
-        trajectory_collector: TrajectoryCollector[SymbolicStateT],
-        edit_distance_calc: EditDistanceCalculator[SymbolicStateT],
-        distractor_generator: DistractorGenerator[SymbolicStateT],
-    ):
-        self.config = config
-        self.trajectory_collector = trajectory_collector
-        self.edit_distance_calc = edit_distance_calc
-        self.distractor_generator = distractor_generator
+    def __init__(self, context: EvaluationContext[SymbolicStateT]):
+        self.ctx = context
 
     def evaluate(
         self,
         world_model: EvaluatableWorldModel[SymbolicStateT],
-        environment: SymbolicEnvironment[SymbolicStateT],
     ) -> EvaluationResults:
-        """Core evaluation logic - environment agnostic"""
 
-        # 1. Collect transitions using injected collector
-        transitions = self.trajectory_collector.collect_transitions(
-            environment, self.config.num_transitions
-        )
-
-        generative_errors = []
-        discriminative_successes = []
+        generative_errors: list[int | float] = []
+        discriminative_successes: list[bool] = []
         distractor_type_results: dict[str, list[bool]] = defaultdict(list)
 
-        for transition in transitions:
+        for transition in self.ctx.test_transitions:
             # 2. Generate prediction
             pred_state = world_model.sample_next_state(
                 transition.prev_metadata, transition.action
             )
 
             # 3. Measure generative error using injected calculator
-            gen_error = self.edit_distance_calc.compute_distance(
+            gen_error = self.ctx.edit_distance_calculator.compute_distance(
                 pred_state, transition.next_metadata
             )
             generative_errors.append(gen_error)
 
             # 4. Generate distractors using injected generator
-            distractors = self.distractor_generator.generate_distractors(
-                transition, transitions, self.config.num_distractors
+            distractors = self.ctx.distractor_generator.generate_distractors(
+                transition, self.ctx.test_transitions, self.ctx.config.num_distractors
             )
 
             # 5. Construct candidate set
             candidates = [transition.next_metadata, pred_state] + distractors
 
             # 6. Evaluate log probabilities using indices
-            log_probs = []
+            log_probs: list[float] = []
             for candidate in candidates:
                 log_prob = world_model.evaluate_log_probability(
                     candidate, transition.prev_metadata, transition.action
@@ -165,7 +151,6 @@ class HybridEvaluator(Generic[SymbolicStateT]):
             # 7. Check discriminative success
             # Index 0 is the true next state, index 1 is the predicted state
             max_prob_idx = max(range(len(log_probs)), key=lambda i: log_probs[i])
-            true_state_prob = log_probs[0]  # True state is always at index 0
             discriminative_successes.append(
                 max_prob_idx == 0
             )  # True state should have highest probability
@@ -180,5 +165,5 @@ class HybridEvaluator(Generic[SymbolicStateT]):
             mean_generative_error=float(np.mean(generative_errors)),
             discriminative_accuracy=float(np.mean(discriminative_successes)),
             discriminative_accuracy_by_distractor_type=distractor_type_means,
-            total_transitions_evaluated=len(transitions),
+            total_transitions_evaluated=len(self.ctx.test_transitions),
         )

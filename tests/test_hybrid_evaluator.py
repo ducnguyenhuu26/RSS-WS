@@ -16,7 +16,7 @@ from distant_sunburn.evaluator.simple_1d_env.components import (
     JSONPatchEditDistance,
     Semantic1DDistractorGenerator,
 )
-from distant_sunburn.evaluator.core import SymbolicTransition
+from distant_sunburn.evaluator.core import SymbolicTransition, EvaluationContext
 from distant_sunburn.poe_world.benchmark_1d.environment import (
     WorldConfig,
     Action,
@@ -27,12 +27,10 @@ from distant_sunburn.poe_world.benchmark_1d.environment import (
 def test_true_vs_null_world_model():
     """True transition function should vastly outperform null model."""
 
-    # Setup components
     config = WorldConfig(width=12, switch_point=6)
     adapter = Environment1DAdapter(config=config, seed=42)
     environment = adapter.create_environment()
 
-    # Create world models
     true_model = TrueTransitionWorldModel(
         environment, equal_fn=lambda x, y: x == y
     )  # Perfect model
@@ -40,23 +38,25 @@ def test_true_vs_null_world_model():
         equal_fn=lambda x, y: x == y
     )  # Always predicts no change
 
-    # Create evaluator with injected components
-    evaluator = HybridEvaluator(
-        config=EvaluationConfig(num_transitions=50, num_distractors=3),
-        trajectory_collector=adapter.create_trajectory_collector(),
-        edit_distance_calc=adapter.create_edit_distance_calculator(),
-        distractor_generator=adapter.create_distractor_generator(),
+    transitions = adapter.create_trajectory_collector().collect_transitions(
+        environment, num_transitions=50
     )
 
-    # Evaluate both models
-    true_results = evaluator.evaluate(true_model, environment)
-    null_results = evaluator.evaluate(null_model, environment)
+    evaluation_context = EvaluationContext(
+        config=EvaluationConfig(num_distractors=3),
+        test_transitions=transitions,
+        distractor_generator=adapter.create_distractor_generator(),
+        edit_distance_calculator=adapter.create_edit_distance_calculator(),
+    )
 
-    # Assertions - true model should dominate
+    evaluator = HybridEvaluator(context=evaluation_context)
+
+    true_results = evaluator.evaluate(true_model)
+    null_results = evaluator.evaluate(null_model)
+
     assert true_results.mean_generative_error < null_results.mean_generative_error
     assert true_results.discriminative_accuracy > null_results.discriminative_accuracy
     assert true_results.discriminative_accuracy > 0.9  # Near perfect
-    # Check that the difference in discriminative accuracy is greater than 0.5
     assert (
         true_results.discriminative_accuracy - null_results.discriminative_accuracy
     ) > 0.5
@@ -129,39 +129,24 @@ def test_deterministic_evaluation():
 
     true_model = TrueTransitionWorldModel(environment, equal_fn=lambda x, y: x == y)
 
-    evaluator = HybridEvaluator(
-        config=EvaluationConfig(num_transitions=20, num_distractors=2),
-        trajectory_collector=adapter.create_trajectory_collector(),
-        edit_distance_calc=adapter.create_edit_distance_calculator(),
-        distractor_generator=adapter.create_distractor_generator(),
+    test_transitions = adapter.create_trajectory_collector().collect_transitions(
+        environment, num_transitions=20
     )
 
+    evaluation_context = EvaluationContext(
+        config=EvaluationConfig(num_distractors=2),
+        test_transitions=test_transitions,
+        distractor_generator=adapter.create_distractor_generator(),
+        edit_distance_calculator=adapter.create_edit_distance_calculator(),
+    )
+
+    evaluator = HybridEvaluator(context=evaluation_context)
+
     # Run evaluation twice with same seed
-    results1 = evaluator.evaluate(true_model, environment)
-    results2 = evaluator.evaluate(true_model, environment)
+    results1 = evaluator.evaluate(true_model)
+    results2 = evaluator.evaluate(true_model)
 
     # Results should be identical
     assert results1.mean_generative_error == results2.mean_generative_error
     assert results1.discriminative_accuracy == results2.discriminative_accuracy
     assert results1.total_transitions_evaluated == results2.total_transitions_evaluated
-
-
-def test_evaluation_with_different_configs():
-    """Test that evaluation works with different configurations."""
-
-    config = WorldConfig(width=8, switch_point=4)
-    adapter = Environment1DAdapter(config=config, seed=42)
-    environment = adapter.create_environment()
-    true_model = TrueTransitionWorldModel(environment, equal_fn=lambda x, y: x == y)
-
-    # Test with different numbers of transitions
-    for num_transitions in [10, 20, 50]:
-        evaluator = HybridEvaluator(
-            config=EvaluationConfig(num_transitions=num_transitions, num_distractors=2),
-            trajectory_collector=adapter.create_trajectory_collector(),
-            edit_distance_calc=adapter.create_edit_distance_calculator(),
-            distractor_generator=adapter.create_distractor_generator(),
-        )
-
-        results = evaluator.evaluate(true_model, environment)
-        assert results.total_transitions_evaluated == num_transitions
