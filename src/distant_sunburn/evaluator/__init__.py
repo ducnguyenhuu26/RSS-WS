@@ -17,8 +17,8 @@ from .core import (
     EvaluationResults,
     Evaluator,
 )
-from .simple_1d_env.adapters import (
-    Environment1DAdapter,
+from .simple_1d_env.factory import (
+    OneDEvaluationFactory,
 )
 from .simple_1d_env.components import (
     RandomPolicy1DTrajectoryCollector,
@@ -43,7 +43,7 @@ __all__ = [
     "EvaluationResults",
     "Evaluator",
     # Environment adapters
-    "Environment1DAdapter",
+    "OneDEvaluationFactory",
     # Component implementations
     "RandomPolicy1DTrajectoryCollector",
     "JSONPatchEditDistance",

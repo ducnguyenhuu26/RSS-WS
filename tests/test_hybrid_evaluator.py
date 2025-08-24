@@ -8,7 +8,6 @@ including sanity checks with baseline models and integration tests.
 from distant_sunburn.evaluator import (
     Evaluator,
     EvaluationConfig,
-    Environment1DAdapter,
     TrueTransitionWorldModel,
     NullWorldModel,
 )
@@ -16,7 +15,8 @@ from distant_sunburn.evaluator.simple_1d_env.components import (
     Semantic1DDistractorGenerator,
     JSONPatchEditDistance,
 )
-from distant_sunburn.evaluator.core import SymbolicTransition, EvaluationContext
+from distant_sunburn.evaluator.core import SymbolicTransition
+from distant_sunburn.evaluator.simple_1d_env.factory import OneDEvaluationFactory
 from distant_sunburn.poe_world.benchmark_1d.environment import (
     WorldConfig,
     Action,
@@ -28,8 +28,8 @@ def test_true_vs_null_world_model():
     """True transition function should vastly outperform null model."""
 
     config = WorldConfig(width=12, switch_point=6)
-    adapter = Environment1DAdapter(world_config=config, policy_seed=42)
-    environment = adapter.create_environment()
+    factory = OneDEvaluationFactory(world_config=config, policy_seed=42)
+    environment = factory.environment
 
     true_model = TrueTransitionWorldModel(
         environment, equal_fn=lambda x, y: x == y
@@ -38,15 +38,8 @@ def test_true_vs_null_world_model():
         equal_fn=lambda x, y: x == y
     )  # Always predicts no change
 
-    transitions = adapter.create_trajectory_collector().collect_transitions(
-        environment, num_transitions=50
-    )
-
-    evaluation_context = EvaluationContext(
-        config=EvaluationConfig(num_distractors=3),
-        test_transitions=transitions,
-        distractor_generator=adapter.create_distractor_generator(),
-        edit_distance_calculator=adapter.create_edit_distance_calculator(),
+    evaluation_context = factory.create_context(
+        config=EvaluationConfig(num_distractors=3), num_transitions=50
     )
 
     evaluator = Evaluator(context=evaluation_context)
@@ -101,8 +94,8 @@ def test_baseline_world_models():
     """Test that baseline world models work correctly."""
 
     config = WorldConfig(width=8, switch_point=4)
-    adapter = Environment1DAdapter(world_config=config, policy_seed=42)
-    environment = adapter.create_environment()
+    factory = OneDEvaluationFactory(world_config=config, policy_seed=42)
+    environment = factory.environment
 
     # Test true transition model
     true_model = TrueTransitionWorldModel(environment, equal_fn=lambda x, y: x == y)
@@ -129,20 +122,13 @@ def test_deterministic_evaluation():
     """Test that evaluation results are deterministic with same seed."""
 
     config = WorldConfig(width=8, switch_point=4)
-    adapter = Environment1DAdapter(world_config=config, policy_seed=42)
-    environment = adapter.create_environment()
+    factory = OneDEvaluationFactory(world_config=config, policy_seed=42)
+    environment = factory.environment
 
     true_model = TrueTransitionWorldModel(environment, equal_fn=lambda x, y: x == y)
 
-    test_transitions = adapter.create_trajectory_collector().collect_transitions(
-        environment, num_transitions=20
-    )
-
-    evaluation_context = EvaluationContext(
-        config=EvaluationConfig(num_distractors=2),
-        test_transitions=test_transitions,
-        distractor_generator=adapter.create_distractor_generator(),
-        edit_distance_calculator=adapter.create_edit_distance_calculator(),
+    evaluation_context = factory.create_context(
+        config=EvaluationConfig(num_distractors=2), num_transitions=20
     )
 
     evaluator = Evaluator(context=evaluation_context)
