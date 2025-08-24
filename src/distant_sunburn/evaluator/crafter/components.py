@@ -1,7 +1,31 @@
-import json
-
 from crafter.state_export import WorldState
 import jsonpatch
+from typing import Protocol
+from crafter.functional_env import (
+    reconstruct_world_from_state,
+    export_world_state,
+)
+from crafter.state_export import WorldState
+from crafter.constants import ActionT
+from .utils import find_player
+from crafter.testing_helpers import (
+    player_utils,
+    world_utils,
+)
+from crafter.functional_env import initial_state
+from crafter import objects
+from ...typing_utils import implements
+from crafter.env import Env
+from crafter.functional_env import (
+    EnvConfig,
+    transition,
+    initial_state,
+    export_world_state,
+)
+from .utils import get_world_state
+import random
+from ..core import SymbolicTransition
+from .utils import MAP_ACTION_TO_INDEX
 
 
 # Note: This is almost a copy of the format_state function used to generate
@@ -44,3 +68,37 @@ class JSONPatchEditDistance:
         json2 = _gamestate_to_json(state2)
         patch = jsonpatch.make_patch(json1, json2)
         return len(list(patch))
+
+
+class RandomMovementPolicy:
+    def __init__(self, policy_seed: int, num_transitions: int):
+        self.policy_rng = random.Random(policy_seed)
+        self.movement_actions: list[ActionT] = [
+            "move_left",
+            "move_right",
+            "move_up",
+            "move_down",
+        ]
+        self.num_transitions = num_transitions
+
+    def __call__(self) -> list[SymbolicTransition[WorldState]]:
+
+        transitions: list[SymbolicTransition[WorldState]] = []
+
+        config = EnvConfig(
+            view=(9, 9),
+            size=(64, 64),
+            seed=1,
+        )
+
+        state = initial_state(area=config.size, view=config.view, seed=config.seed)
+
+        for _ in range(self.num_transitions):
+            action = self.policy_rng.choice(self.movement_actions)
+            prev_state = state
+
+            state, _ = transition(state, MAP_ACTION_TO_INDEX[action])
+
+            transitions.append(SymbolicTransition(prev_state, action, state))
+
+        return transitions

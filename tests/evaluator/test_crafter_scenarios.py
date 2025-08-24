@@ -11,6 +11,7 @@ from distant_sunburn.evaluator.crafter.scenarios import (
     CowMovementScenario,
 )
 from crafter.state_export import Position
+from distant_sunburn.evaluator.crafter.components import RandomMovementPolicy
 
 
 def get_action_index(action: str) -> int:
@@ -87,3 +88,20 @@ class TestCowMovementScenario:
         else:
             # Fail the test if the cow didn't move at all
             pytest.fail(f"Cow did not move in {len(actions)} actions")
+
+
+def test_random_movement_scenario():
+    scenario = RandomMovementPolicy(policy_seed=1, num_transitions=100)
+
+    transitions = scenario()
+
+    # Assert that the player moved from the initial position
+    initial_position = transitions[0].prev_metadata.player.position
+
+    for t in transitions:
+        if t.prev_metadata.player.position != initial_position:
+            # Test passed
+            break
+    else:
+        # Fail the test if the player didn't move at all
+        pytest.fail(f"Player did not move in {len(transitions)} actions")

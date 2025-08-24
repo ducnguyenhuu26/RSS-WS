@@ -6,6 +6,8 @@ from crafter.env import Env
 from crafter.state_export import WorldState, export_world_state
 from crafter.engine import World
 import crafter.objects as crafter_objects
+from crafter.constants import ActionT
+import crafter.constants as crafter_constants
 
 
 def get_world_state(env: Env) -> WorldState:
@@ -20,3 +22,8 @@ def find_player(world: World) -> crafter_objects.Player:
         if isinstance(obj, crafter_objects.Player):
             return obj
     raise ValueError("No player found in world")
+
+
+MAP_ACTION_TO_INDEX: dict[ActionT, int] = {
+    action: index for index, action in enumerate(crafter_constants.actions)
+}
