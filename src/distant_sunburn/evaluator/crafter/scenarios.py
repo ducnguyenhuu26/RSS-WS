@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import Optional
 from crafter.functional_env import transition as crafter_transition_fn
 from .utils import MAP_ACTION_TO_INDEX
+import random
 
 
 @dataclass
@@ -33,6 +34,16 @@ class GoalChecked:
 
     def __bool__(self) -> bool:
         return self.value
+
+
+def _check_steps_taken(
+    transitions: list[SymbolicTransition[WorldState]], max_steps: int
+) -> GoalChecked:
+    if transitions[-1].next_metadata.step_count >= max_steps:
+        return GoalChecked(
+            True, f"Have taken {transitions[-1].next_metadata.step_count} steps"
+        )
+    return GoalChecked(False, f"Have not yet taken {max_steps} steps")
 
 
 class Scenario(Protocol):
@@ -196,6 +207,9 @@ class CowMovementScenario:
         if not cows:
             return GoalChecked(False, "No cow found in initial state")
 
+        if not (target_steps_goal := _check_steps_taken(transitions, self.max_steps)):
+            return target_steps_goal
+
         initial_cow = cows[0]
 
         # Now we step through the transitions and check if the cow has moved.
@@ -215,3 +229,66 @@ class CowMovementScenario:
 
 
 implements(Scenario)(CowMovementScenario)
+
+
+class RandomMovementPolicy:
+    """Policy that returns random movement actions."""
+
+    def __init__(self, policy_seed: int):
+        self.policy_rng = random.Random(policy_seed)
+        self.movement_actions: list[ActionT] = [
+            "move_left",
+            "move_right",
+            "move_up",
+            "move_down",
+        ]
+
+    def __call__(self, state: WorldState) -> ActionT:
+        """Returns a random movement action."""
+        return self.policy_rng.choice(self.movement_actions)
+
+
+class RandomMovementScenario:
+    """Scenario for testing random movement behavior."""
+
+    def __init__(self, max_steps: int = 30, policy_seed: int = 1):
+        self.max_steps = max_steps
+        self.policy = RandomMovementPolicy(policy_seed)
+
+    @property
+    def name(self) -> str:
+        return "random_movement"
+
+    def get_initial_state(self) -> WorldState:
+        """
+        Creates a simple initial state with default world configuration.
+        """
+        view = (9, 9)
+        state = initial_state(area=(9, 9), view=view, seed=1)
+        return state
+
+    def policy(self, state: WorldState) -> ActionT:
+        """Returns a random movement action."""
+        return self.policy(state)
+
+    def goal_test(
+        self, transitions: list[SymbolicTransition[WorldState]]
+    ) -> GoalChecked:
+        # Check if the player has moved from the initial position
+        if not transitions:
+            return GoalChecked(False, "No transitions occurred")
+
+        initial_position = transitions[0].prev_metadata.player.position
+
+        # Check if we've taken max_steps
+        if not (target_steps_goal := _check_steps_taken(transitions, self.max_steps)):
+            return target_steps_goal
+
+        for transition in transitions:
+            if transition.next_metadata.player.position != initial_position:
+                return GoalChecked(True, "Player moved from initial position")
+
+        return GoalChecked(False, f"Player did not move in {len(transitions)} steps")
+
+
+implements(Scenario)(RandomMovementScenario)

@@ -7,8 +7,8 @@ import pytest
 from distant_sunburn.evaluator.crafter.scenarios import (
     CraftWoodenPickaxeScenario,
     CowMovementScenario,
+    RandomMovementScenario,
 )
-from distant_sunburn.evaluator.crafter.components import RandomMovementPolicy
 from distant_sunburn.evaluator.crafter.scenarios import run_scenarios
 
 
@@ -56,17 +56,14 @@ class TestCowMovementScenario:
 
 
 def test_random_movement_scenario():
-    scenario = RandomMovementPolicy(policy_seed=1, num_transitions=100)
+    """Test that the random movement scenario results in player movement."""
+    # Arrange
+    scenario = RandomMovementScenario(max_steps=100, policy_seed=1)
 
-    transitions = scenario()
+    # Act
+    results = run_scenarios([scenario])
 
-    # Assert that the player moved from the initial position
-    initial_position = transitions[0].prev_metadata.player.position
-
-    for t in transitions:
-        if t.prev_metadata.player.position != initial_position:
-            # Test passed
-            break
-    else:
-        # Fail the test if the player didn't move at all
-        pytest.fail(f"Player did not move in {len(transitions)} actions")
+    # Assert - Verify the goal test succeeded (player moved)
+    assert results[
+        0
+    ].goal_test, "Player should have moved during random movement scenario"
