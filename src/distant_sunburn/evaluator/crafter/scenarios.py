@@ -128,7 +128,9 @@ def run_scenarios(scenarios: Sequence[Scenario]) -> list[ScenarioRunResult]:
                 copy.deepcopy(state), MAP_ACTION_TO_INDEX[action]
             )
 
-            transition = SymbolicTransition(state, action, next_state)
+            transition = SymbolicTransition[WorldState, CrafterAction](
+                state, action, next_state
+            )
             transitions.append(transition)
             state = next_state
 

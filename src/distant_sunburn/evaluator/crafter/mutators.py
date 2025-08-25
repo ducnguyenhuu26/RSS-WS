@@ -28,6 +28,11 @@ class Mutator(Protocol):
         ...
 
 
+# TODO: This doesn't actually guarantee illegal states. To do so, we'd
+# need to make sure that the mutation is not one that would have been caused
+# by the action. This should be handled by the mutation generator though —
+# it can skip any mutations that result in the true transition via an
+# equality check.
 class AddIllegalItemMutator:
     """
     A mutator that adds an item to the player's inventory that
@@ -53,6 +58,7 @@ class AddIllegalItemMutator:
         return mutated_state
 
 
+# TODO: Name is wrong; this only teleports cows, not other entities.
 class TeleportEntityToIllegalTileMutator:
     """
     Moves a random cow to a non-walkable tile, violating physics.
