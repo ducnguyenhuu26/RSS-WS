@@ -1,9 +1,4 @@
-"""
-Integration tests for the Crafter evaluation framework.
-
-These tests verify that all components work together correctly to evaluate world models.
-"""
-
+import rich
 from crafter.functional_env import EnvConfig
 from crafter.functional_env import transition as crafter_transition_fn
 from crafter.state_export import WorldState
@@ -15,7 +10,7 @@ from distant_sunburn.evaluator.crafter.factory import CrafterEvaluationFactory
 from distant_sunburn.evaluator.crafter.utils import MAP_ACTION_TO_INDEX
 
 
-def test_evaluation_framework_can_evaluate_world_model():
+def test_evaluating_true_vs_null_world_model():
     """
     Test that the evaluation framework can successfully evaluate a world model
     and produce meaningful results using the factory and actual evaluator.
@@ -26,38 +21,39 @@ def test_evaluation_framework_can_evaluate_world_model():
 
     context = factory.create_context(config, num_transitions_per_scenario=30)
 
-    def states_equal(state1: WorldState, state2: WorldState) -> bool:
+    def equality_check(state1: WorldState, state2: WorldState) -> bool:
         return _gamestate_to_json(state1) == _gamestate_to_json(state2)
 
-    def crafter_transition_wrapper(state: WorldState, action) -> WorldState:
+    def wrap_true_transition_fn(state: WorldState, action) -> WorldState:
         next_state, _ = crafter_transition_fn(state, MAP_ACTION_TO_INDEX[action])
         return next_state
 
-    true_model = TrueTransitionWorldModel(crafter_transition_wrapper, states_equal)
-    null_model = NullWorldModel(states_equal)
+    true_model = TrueTransitionWorldModel(wrap_true_transition_fn, equality_check)
+    null_model = NullWorldModel(equality_check)
 
     evaluator = Evaluator(context)
 
-    true_results = evaluator.evaluate(true_model)
+    true_wm_perf = evaluator.evaluate(true_model)
 
-    null_results = evaluator.evaluate(null_model)
+    null_wm_perf = evaluator.evaluate(null_model)
 
     # True model should have perfect discriminative accuracy
     assert (
-        true_results.discriminative_accuracy == 1.0
+        true_wm_perf.discriminative_accuracy == 1.0
     ), "True transition model should have perfect discriminative accuracy"
 
     #
     assert (
-        true_results.mean_generative_error == 0.0
+        true_wm_perf.mean_generative_error == 0.0
     ), "True transition model should have low generative error"
 
     # Null model should perform worse than true model
     assert (
-        null_results.discriminative_accuracy < true_results.discriminative_accuracy
+        null_wm_perf.discriminative_accuracy < true_wm_perf.discriminative_accuracy
     ), "Null model should perform worse than true model"
 
-    print(null_results.discriminative_accuracy)
-    print(null_results.mean_generative_error)
-    print(true_results.discriminative_accuracy)
-    print(true_results.mean_generative_error)
+    rich.print("== True World Model Performance ==")
+    rich.print(true_wm_perf)
+
+    rich.print("== Null World Model Performance ==")
+    rich.print(null_wm_perf)

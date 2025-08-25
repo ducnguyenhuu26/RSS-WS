@@ -8,7 +8,12 @@ import random
 
 from ..core import EvaluationContext, EvaluationConfig, SymbolicTransition
 from .components import JSONPatchEditDistance, CrafterDistractorGenerator
-from .scenarios import run_scenarios, CraftWoodenPickaxeScenario, CowMovementScenario
+from .scenarios import (
+    run_scenarios,
+    CraftWoodenPickaxeScenario,
+    CowMovementScenario,
+    RandomMovementScenario,
+)
 from loguru import logger
 from crafter.constants import ActionT as CrafterAction
 
@@ -34,6 +39,7 @@ class CrafterEvaluationFactory:
         scenarios = [
             CraftWoodenPickaxeScenario(),
             CowMovementScenario(max_steps=num_transitions_per_scenario),
+            RandomMovementScenario(max_steps=100),
         ]
         scenario_results = run_scenarios(scenarios)
 
