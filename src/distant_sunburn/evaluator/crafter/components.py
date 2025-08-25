@@ -1,5 +1,10 @@
 from crafter.state_export import WorldState
 import jsonpatch
+import random
+from typing import List
+
+from ..core import DistractorGenerator, SymbolicTransition
+from .mutators import Mutator, AddIllegalItemMutator, TeleportEntityToIllegalTileMutator
 
 
 # Note: This is almost a copy of the format_state function used to generate
@@ -42,3 +47,61 @@ class JSONPatchEditDistance:
         json2 = _gamestate_to_json(state2)
         patch = jsonpatch.make_patch(json1, json2)
         return len(list(patch))
+
+
+class CrafterDistractorGenerator:
+    """
+    Generates distractors for Crafter evaluation by applying mutators to ground truth states.
+    """
+
+    def __init__(self, seed: int = 42):
+        self.rng = random.Random(seed)
+        self.mutators: List[Mutator] = [
+            AddIllegalItemMutator("wood", 1),
+            AddIllegalItemMutator("stone", 1),
+            AddIllegalItemMutator("iron_pickaxe", 1),
+            TeleportEntityToIllegalTileMutator(seed=seed),
+        ]
+
+    def __call__(
+        self,
+        transition: SymbolicTransition[WorldState],
+        all_transitions: List[SymbolicTransition[WorldState]],
+        num_distractors: int,
+    ) -> List[WorldState]:
+        """
+        Generate distractors by applying mutators to the ground truth next state.
+
+        Args:
+            transition: The ground truth transition
+            all_transitions: All available transitions (unused in current implementation)
+            num_distractors: Number of distractors to generate
+
+        Returns:
+            List of mutated states that are plausible but incorrect
+        """
+        distractors = []
+        max_attempts = num_distractors * 10  # Prevent infinite loops
+        attempts = 0
+
+        while len(distractors) < num_distractors and attempts < max_attempts:
+            # Sample a random mutator
+            mutator = self.rng.choice(self.mutators)
+
+            # Check if the mutator can be applied
+            if mutator.precondition(transition.action, transition.next_metadata):
+                try:
+                    # Apply the mutation
+                    mutated_state = mutator(transition.next_metadata)
+
+                    # Ensure we don't return the original state
+                    if mutated_state != transition.next_metadata:
+                        distractors.append(mutated_state)
+
+                except Exception:
+                    # If mutation fails, continue to next attempt
+                    pass
+
+            attempts += 1
+
+        return distractors

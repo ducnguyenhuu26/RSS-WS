@@ -7,7 +7,7 @@ from crafter.functional_env import transition, initial_state, EnvConfig
 import random
 
 from ..core import EvaluationContext, EvaluationConfig, SymbolicTransition
-from .components import JSONPatchEditDistance
+from .components import JSONPatchEditDistance, CrafterDistractorGenerator
 
 
 class CrafterEvaluationFactory:
@@ -32,6 +32,6 @@ class CrafterEvaluationFactory:
         return EvaluationContext(
             config=config,
             test_transitions=test_transitions,
-            distractor_generator=Semantic1DDistractorGenerator(self.world_config),
+            distractor_generator=CrafterDistractorGenerator(seed=self.policy_seed),
             edit_distance_calculator=JSONPatchEditDistance(),
         )
