@@ -12,6 +12,16 @@ from distant_sunburn.evaluator.crafter.scenarios import (
 from distant_sunburn.evaluator.crafter.scenarios import run_scenarios
 
 
+class TestScenarioRunner:
+    def test_transitions_correct(self):
+        scenario = CraftWoodenPickaxeScenario()
+        results = run_scenarios([scenario])
+
+        # Check that the step count has incremented
+        assert results[0].transitions[0].prev_metadata.step_count == 0
+        assert results[0].transitions[0].next_metadata.step_count == 1
+
+
 class TestCraftWoodenPickaxeScenario:
     """Test the wooden pickaxe crafting scenario."""
 

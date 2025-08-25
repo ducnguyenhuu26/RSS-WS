@@ -9,6 +9,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Generic, Protocol, TypeVar
 import numpy as np
+from icecream import ic
 
 SymbolicStateT = TypeVar("SymbolicStateT")
 SymbolicStateT_contra = TypeVar("SymbolicStateT_contra", contravariant=True)
@@ -126,7 +127,7 @@ class Evaluator(Generic[SymbolicStateT]):
         discriminative_successes: list[bool] = []
         distractor_type_results: dict[str, list[bool]] = defaultdict(list)
 
-        for transition in self.ctx.test_transitions:
+        for idx, transition in enumerate(self.ctx.test_transitions):
             # 2. Generate prediction
             pred_state = world_model.sample_next_state(
                 transition.prev_metadata, transition.action

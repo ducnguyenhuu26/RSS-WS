@@ -8,6 +8,8 @@ import random
 
 from ..core import EvaluationContext, EvaluationConfig, SymbolicTransition
 from .components import JSONPatchEditDistance, CrafterDistractorGenerator
+from .scenarios import run_scenarios, CraftWoodenPickaxeScenario, CowMovementScenario
+from loguru import logger
 
 
 class CrafterEvaluationFactory:
@@ -24,14 +26,29 @@ class CrafterEvaluationFactory:
         self.transition_fn = transition
 
     def create_context(
-        self, config: EvaluationConfig, num_transitions: int
+        self, config: EvaluationConfig, num_transitions_per_scenario: int
     ) -> EvaluationContext[WorldState]:
 
-        test_transitions: list[SymbolicTransition[WorldState]] = []
+        # 1. Define and run scenarios to collect trajectories
+        scenarios = [
+            CraftWoodenPickaxeScenario(),
+            CowMovementScenario(max_steps=num_transitions_per_scenario),
+        ]
+        scenario_results = run_scenarios(scenarios)
 
+        test_transitions: list[SymbolicTransition[WorldState]] = []
+        for result in scenario_results:
+            test_transitions.extend(result.transitions)
+
+        logger.info(f"Collected {len(test_transitions)} test transitions")
+
+        # 2. Instantiate the distractor generator with all mutators
+        distractor_generator = CrafterDistractorGenerator(seed=self.policy_seed)
+
+        # 3. Assemble the context
         return EvaluationContext(
             config=config,
             test_transitions=test_transitions,
-            distractor_generator=CrafterDistractorGenerator(seed=self.policy_seed),
+            distractor_generator=distractor_generator,
             edit_distance_calculator=JSONPatchEditDistance(),
         )

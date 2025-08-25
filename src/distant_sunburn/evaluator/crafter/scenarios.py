@@ -2,6 +2,7 @@
 Scenario definitions for Crafter evaluation.
 """
 
+import copy
 from typing import Protocol, Callable, TypeVar, cast
 from crafter.functional_env import (
     reconstruct_world_from_state,
@@ -26,6 +27,7 @@ from crafter.functional_env import transition as crafter_transition_fn
 from .utils import MAP_ACTION_TO_INDEX
 import random
 import functools
+from typing import Sequence
 
 
 @dataclass
@@ -109,21 +111,25 @@ class ScenarioRunResult:
     run_for_steps: int
 
 
-def run_scenarios(scenarios: list[Scenario]) -> list[ScenarioRunResult]:
+def run_scenarios(scenarios: Sequence[Scenario]) -> list[ScenarioRunResult]:
     results: list[ScenarioRunResult] = []
+
     for scenario in scenarios:
         state = scenario.get_initial_state()
         transitions: list[SymbolicTransition[WorldState]] = []
         # In order to satisfy the type checker that goal_test and step are bound,
         # we will initialize them here and then re-assign them in the loop.
         goal_test = GoalChecked(False, "Scenario not started")
-        step = -1
+        step = 0
         for step in range(scenario.max_steps):
             action = scenario.policy(state)
-            next_state, _ = crafter_transition_fn(state, MAP_ACTION_TO_INDEX[action])
-            state = next_state
+            next_state, _ = crafter_transition_fn(
+                copy.deepcopy(state), MAP_ACTION_TO_INDEX[action]
+            )
+
             transition = SymbolicTransition(state, action, next_state)
             transitions.append(transition)
+            state = next_state
 
             goal_test = scenario.goal_test(transitions)
             if goal_test:
@@ -166,12 +172,20 @@ class CraftWoodenPickaxeScenario:
     def goal_test(
         self, transitions: list[SymbolicTransition[WorldState]]
     ) -> GoalChecked:
-        # Check the the first transition to see if the player has a wooden pickaxe
-        # If so, the scenario has been achieved.
-        return GoalChecked(
-            transitions[-1].prev_metadata.player.inventory.wood_pickaxe > 0,
-            "Player has a wooden pickaxe",
-        )
+        if transitions[0].prev_metadata.player.inventory.wood_pickaxe != 0:
+            return GoalChecked(
+                False,
+                "Player already has a wooden pickaxe",
+            )
+
+        post_pickaxe_count = transitions[0].next_metadata.player.inventory.wood_pickaxe
+        if post_pickaxe_count != 1:
+            return GoalChecked(
+                False,
+                f"Player has {post_pickaxe_count} wooden pickaxes instead of 1",
+            )
+
+        return GoalChecked(True, "Player has a wooden pickaxe")
 
     @property
     def max_steps(self) -> int:
