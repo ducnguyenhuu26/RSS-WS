@@ -2,7 +2,7 @@
 Scenario definitions for Crafter evaluation.
 """
 
-from typing import Protocol
+from typing import Protocol, Callable, TypeVar, cast
 from crafter.functional_env import (
     reconstruct_world_from_state,
     export_world_state,
@@ -25,6 +25,7 @@ from typing import Optional
 from crafter.functional_env import transition as crafter_transition_fn
 from .utils import MAP_ACTION_TO_INDEX
 import random
+import functools
 
 
 @dataclass
@@ -72,6 +73,32 @@ class Scenario(Protocol):
     ) -> GoalChecked:
         """Returns True if the scenario has been achieved."""
         ...
+
+
+T = TypeVar("T", bound=Callable[..., GoalChecked])
+
+
+def require_max_steps(goal_test_method: T) -> T:
+    """
+    Decorator that ensures max_steps have been reached before calling the original goal_test method.
+
+    This decorator should be applied to goal_test methods of scenarios that need to run
+    until max_steps have been reached. It will return False if max_steps haven't been
+    reached yet, otherwise it will call the original goal_test method.
+    """
+
+    @functools.wraps(goal_test_method)
+    def wrapper(
+        self: Scenario, transitions: list[SymbolicTransition[WorldState]]
+    ) -> GoalChecked:
+        # Check if we've reached max_steps
+        if not (target_steps_goal := _check_steps_taken(transitions, self.max_steps)):
+            return target_steps_goal
+
+        # If we have reached max_steps, call the original goal_test method
+        return goal_test_method(self, transitions)
+
+    return cast(T, wrapper)
 
 
 @dataclass
@@ -197,6 +224,7 @@ class CowMovementScenario:
         """Returns the action to take at the given state."""
         return "noop"
 
+    @require_max_steps
     def goal_test(
         self, transitions: list[SymbolicTransition[WorldState]]
     ) -> GoalChecked:
@@ -206,9 +234,6 @@ class CowMovementScenario:
         )
         if not cows:
             return GoalChecked(False, "No cow found in initial state")
-
-        if not (target_steps_goal := _check_steps_taken(transitions, self.max_steps)):
-            return target_steps_goal
 
         initial_cow = cows[0]
 
@@ -271,6 +296,7 @@ class RandomMovementScenario:
         """Returns a random movement action."""
         return self.policy(state)
 
+    @require_max_steps
     def goal_test(
         self, transitions: list[SymbolicTransition[WorldState]]
     ) -> GoalChecked:
@@ -279,10 +305,6 @@ class RandomMovementScenario:
             return GoalChecked(False, "No transitions occurred")
 
         initial_position = transitions[0].prev_metadata.player.position
-
-        # Check if we've taken max_steps
-        if not (target_steps_goal := _check_steps_taken(transitions, self.max_steps)):
-            return target_steps_goal
 
         for transition in transitions:
             if transition.next_metadata.player.position != initial_position:
