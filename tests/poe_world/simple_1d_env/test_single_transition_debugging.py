@@ -31,7 +31,7 @@ from distant_sunburn.poe_world.weight_fitter import (
     combine_expert_predictions_torch,
     evaluate_log_probability_torch,
 )
-from distant_sunburn.poe_world.observable_extractor import ObservableExtractor
+from distant_sunburn.poe_world.simple_1d_env.observable_extractor import ObservableExtractor
 
 
 def create_clear_transition() -> SymbolicTransition[GameState]:

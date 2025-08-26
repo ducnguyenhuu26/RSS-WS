@@ -31,7 +31,7 @@ from distant_sunburn.poe_world.weight_fitter import (
     MaxLikelihoodWeightFitter,
 )
 from distant_sunburn.poe_world.world_model import PoEWorldModel
-from distant_sunburn.poe_world.observable_extractor import ObservableExtractor
+from distant_sunburn.poe_world.simple_1d_env.observable_extractor import ObservableExtractor
 
 
 def generate_random_data(

@@ -11,7 +11,7 @@ import torch
 from typing import Dict
 from loguru import logger
 
-from .observable_extractor import ObservableExtractor
+from .simple_1d_env.observable_extractor import ObservableExtractor
 from distant_sunburn.poe_world.core import ObservableExtractorProtocol
 
 from .core import (
