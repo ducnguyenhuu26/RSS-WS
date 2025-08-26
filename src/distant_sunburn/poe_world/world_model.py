@@ -11,19 +11,19 @@ import torch
 from typing import Dict
 from loguru import logger
 
-from ..core import (
+from .core import (
     RandomValues,
     WeightedExpert,
     SymbolicTransition,
     WorldModelProtocol,
 )
-from ...simple_1d_env.environment import GameState, Action
-from .weight_fitter import (
+from ..simple_1d_env.environment import GameState, Action
+from .simple_1d_env.weight_fitter import (
     expand_to_full_domain,
     combine_expert_predictions,
     ObservableExtractor,
 )
-from ...typing_utils import implements
+from ..typing_utils import implements
 from typing import TypeVar, Generic
 from typing import Protocol, Any
 
