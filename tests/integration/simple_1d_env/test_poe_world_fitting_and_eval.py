@@ -36,7 +36,7 @@ from distant_sunburn.simple_1d_env.environment import (
     initial_state,
     transition_function,
 )
-from distant_sunburn.poe_world.weight_fitter import ObservableExtractor
+from distant_sunburn.poe_world.observable_extractor import ObservableExtractor
 
 
 def generate_random_data(
@@ -92,7 +92,11 @@ def test():
             world_config, n_transitions=750, policy_seed=42
         )
         fitter = MaxLikelihoodWeightFitter(
-            learning_rate=0.1, max_iterations=25, batch_size=200, l1_weight=0.001
+            observable_extractor=ObservableExtractor(),
+            learning_rate=0.1,
+            max_iterations=25,
+            batch_size=200,
+            l1_weight=0.001,
         )
 
         weighted_experts = fitter.fit(ALL_EXPERTS, transitions)

@@ -11,6 +11,9 @@ import torch
 from typing import Dict
 from loguru import logger
 
+from .observable_extractor import ObservableExtractor
+from distant_sunburn.poe_world.core import ObservableExtractorProtocol
+
 from .core import (
     RandomValues,
     WeightedExpert,
@@ -21,30 +24,13 @@ from ..simple_1d_env.environment import GameState, Action
 from .weight_fitter import (
     expand_to_full_domain,
     combine_expert_predictions,
-    ObservableExtractor,
 )
 from ..typing_utils import implements
 from typing import TypeVar, Generic
-from typing import Protocol, Any
 
 
 SymbolicStateT = TypeVar("SymbolicStateT")
 ActionT = TypeVar("ActionT")
-
-
-class ObservableExtractorProtocol(Protocol[SymbolicStateT]):
-    def extract_attribute_predictions(
-        self, state: SymbolicStateT
-    ) -> Dict[str, Any]: ...
-
-    def get_observed_values(self, state: SymbolicStateT) -> Dict[str, Any]: ...
-
-    def apply_expert_predictions(
-        self,
-        new_state: SymbolicStateT,
-        expert_predictions: Dict[str, Any],
-        weights: torch.Tensor,
-    ) -> SymbolicStateT: ...
 
 
 class PoEWorldModel(Generic[SymbolicStateT, ActionT]):

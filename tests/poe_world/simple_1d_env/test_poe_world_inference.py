@@ -31,7 +31,7 @@ from distant_sunburn.poe_world.weight_fitter import (
     MaxLikelihoodWeightFitter,
 )
 from distant_sunburn.poe_world.world_model import PoEWorldModel
-from distant_sunburn.poe_world.weight_fitter import ObservableExtractor
+from distant_sunburn.poe_world.observable_extractor import ObservableExtractor
 
 
 def generate_random_data(
@@ -95,7 +95,11 @@ def test_weight_fitting_distinguishes_good_from_bad_experts():
     print(f"Testing on {len(test_transitions)} transitions")
 
     fitter = MaxLikelihoodWeightFitter(
-        learning_rate=0.1, max_iterations=25, batch_size=200, l1_weight=0.001
+        observable_extractor=ObservableExtractor(),
+        learning_rate=0.1,
+        max_iterations=25,
+        batch_size=200,
+        l1_weight=0.001,
     )
 
     # Fit weights
@@ -154,7 +158,10 @@ def test_world_model_evaluation():
     test_transitions = transitions[75:]
 
     # Fit weights
-    fitter = MaxLikelihoodWeightFitter(max_iterations=20)
+    fitter = MaxLikelihoodWeightFitter(
+        observable_extractor=ObservableExtractor(),
+        max_iterations=20,
+    )
     weighted_experts = fitter.fit(ALL_EXPERTS, train_transitions)
 
     # Create world model
@@ -188,7 +195,10 @@ def test_world_model_sampling():
     Test that the PoE World Model can sample next states.
     """
     # Use correct experts only for cleaner sampling test
-    fitter = MaxLikelihoodWeightFitter(max_iterations=10)
+    fitter = MaxLikelihoodWeightFitter(
+        observable_extractor=ObservableExtractor(),
+        max_iterations=10,
+    )
     transitions = generate_random_data(200, seed=456)
 
     weighted_experts = fitter.fit(CORRECT_EXPERTS, transitions)

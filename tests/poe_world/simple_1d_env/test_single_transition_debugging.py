@@ -31,6 +31,7 @@ from distant_sunburn.poe_world.weight_fitter import (
     combine_expert_predictions_torch,
     evaluate_log_probability_torch,
 )
+from distant_sunburn.poe_world.observable_extractor import ObservableExtractor
 
 
 def create_clear_transition() -> SymbolicTransition[GameState]:
@@ -99,7 +100,9 @@ class TestSingleTransitionLossComputation:
         transition = create_clear_transition()
         experts = [correct_movement_expert, incorrect_movement_expert_ignores_switch]
 
-        fitter = MaxLikelihoodWeightFitter()
+        fitter = MaxLikelihoodWeightFitter(
+            observable_extractor=ObservableExtractor(),
+        )
         expert_predictions = fitter._precompute_expert_predictions(
             experts, [transition]
         )
@@ -130,7 +133,9 @@ class TestSingleTransitionLossComputation:
         transition = create_clear_transition()
         experts = [correct_movement_expert, incorrect_movement_expert_ignores_switch]
 
-        fitter = MaxLikelihoodWeightFitter()
+        fitter = MaxLikelihoodWeightFitter(
+            observable_extractor=ObservableExtractor(),
+        )
         expert_predictions = fitter._precompute_expert_predictions(
             experts, [transition]
         )
@@ -154,7 +159,9 @@ class TestSingleTransitionLossComputation:
         transition = create_clear_transition()
         experts = [correct_movement_expert, incorrect_movement_expert_ignores_switch]
 
-        fitter = MaxLikelihoodWeightFitter()
+        fitter = MaxLikelihoodWeightFitter(
+            observable_extractor=ObservableExtractor(),
+        )
         expert_predictions = fitter._precompute_expert_predictions(
             experts, [transition]
         )
@@ -213,6 +220,7 @@ class TestSingleTransitionOptimization:
         experts = [correct_movement_expert, incorrect_movement_expert_ignores_switch]
 
         fitter = MaxLikelihoodWeightFitter(
+            observable_extractor=ObservableExtractor(),
             learning_rate=0.1,
             max_iterations=10,
             batch_size=1,
@@ -238,7 +246,11 @@ class TestSingleTransitionOptimization:
         experts = [correct_movement_expert, incorrect_movement_expert_ignores_switch]
 
         fitter = MaxLikelihoodWeightFitter(
-            learning_rate=0.1, max_iterations=20, batch_size=1, l1_weight=0.0
+            observable_extractor=ObservableExtractor(),
+            learning_rate=0.1,
+            max_iterations=20,
+            batch_size=1,
+            l1_weight=0.0,
         )
 
         # Run fitting multiple times with same data
@@ -257,7 +269,9 @@ class TestSingleTransitionOptimization:
         transition = create_clear_transition()
         experts = [correct_movement_expert, incorrect_movement_expert_ignores_switch]
 
-        fitter = MaxLikelihoodWeightFitter()
+        fitter = MaxLikelihoodWeightFitter(
+            observable_extractor=ObservableExtractor(),
+        )
         expert_predictions = fitter._precompute_expert_predictions(
             experts, [transition]
         )
@@ -322,7 +336,11 @@ class TestDebuggingMethodology:
         assert weights[0] == weights[1]  # Documents the bug
 
         # The real fitter should succeed
-        real_fitter = MaxLikelihoodWeightFitter(max_iterations=10, l1_weight=0.0)
+        real_fitter = MaxLikelihoodWeightFitter(
+            observable_extractor=ObservableExtractor(),
+            max_iterations=10,
+            l1_weight=0.0,
+        )
         real_weighted_experts = real_fitter.fit(experts, [transition])
         real_weights = [we.weight for we in real_weighted_experts]
 
@@ -335,7 +353,9 @@ class TestDebuggingMethodology:
         transition = create_clear_transition()
         experts = [correct_movement_expert, incorrect_movement_expert_ignores_switch]
 
-        fitter = MaxLikelihoodWeightFitter()
+        fitter = MaxLikelihoodWeightFitter(
+            observable_extractor=ObservableExtractor(),
+        )
         expert_predictions = fitter._precompute_expert_predictions(
             experts, [transition]
         )

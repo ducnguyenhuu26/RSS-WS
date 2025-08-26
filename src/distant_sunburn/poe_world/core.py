@@ -9,8 +9,9 @@ predictions and the ExpertFunction protocol.
 import numpy as np
 import numpy.typing as npt
 from scipy.special import logsumexp
-from typing import Protocol, Any, TypeVar, Optional, Generic
+from typing import Dict, Protocol, Any, TypeVar, Optional, Generic
 import attrs
+import torch
 
 # Type variable for the metadata type used by different environments
 MetadataT = TypeVar("MetadataT")
@@ -135,3 +136,22 @@ class WeightFitterProtocol(Protocol[MetadataT]):
         experts: list[ExpertFunction[MetadataT]],
         transitions: list[SymbolicTransition[MetadataT]],
     ) -> list[WeightedExpert]: ...
+
+
+SymbolicStateT = TypeVar("SymbolicStateT")
+ActionT = TypeVar("ActionT")
+
+
+class ObservableExtractorProtocol(Protocol[SymbolicStateT]):
+    def extract_attribute_predictions(
+        self, state: SymbolicStateT
+    ) -> Dict[str, Any]: ...
+
+    def get_observed_values(self, state: SymbolicStateT) -> Dict[str, Any]: ...
+
+    def apply_expert_predictions(
+        self,
+        new_state: SymbolicStateT,
+        expert_predictions: Dict[str, Any],
+        weights: torch.Tensor,
+    ) -> SymbolicStateT: ...
