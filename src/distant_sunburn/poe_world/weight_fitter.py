@@ -157,6 +157,45 @@ def eval_expert_predictions_logprob_for_attr_torch(
         return torch.tensor(-float("inf"), dtype=torch.float32)
 
 
+def compute_log_prob_for_attr_from_expert_predictions_torch(
+    expert_predictions: list[DiscreteDistribution],
+    weights: torch.Tensor,
+    observed_outcome: int,
+) -> torch.Tensor:
+    """
+    Compute the log probability of an observed outcome under expert predictions.
+
+    Each of the expert predictions is expected to be a discrete distribution over the
+    same set of possible values. The weights are used to combine the expert predictions
+    into a single distribution. The log probability of the observed outcome under this
+    combined distribution is returned.
+
+    Args:
+        expert_predictions: List of expert predictions for this attribute.
+            Each DiscreteDistribution should have the same support (same possible values).
+            Length: n_experts
+        weights: Tensor of expert weights [n_experts] with dtype=torch.float32.
+            weights[i] determines how much expert i's prediction contributes.
+        observed_outcome: The actual observed value to evaluate (e.g., ground truth).
+            Must be one of the values in support_tensor for finite log-probability.
+            Scalar integer value.
+
+    Returns:
+        Log probability tensor [1] with dtype=torch.float32.
+        The log-probability of the observed_outcome under the normalized distribution.
+        Returns -inf if observed_outcome is not in support_tensor.
+    """
+    # Combine expert predictions into a single distribution
+    values_tensor, combined_logscores = combine_expert_predictions_for_attr_torch(
+        expert_predictions, weights
+    )
+
+    # Evaluate log-probability of observed outcome under combined distribution
+    return eval_expert_predictions_logprob_for_attr_torch(
+        values_tensor, combined_logscores, observed_outcome
+    )
+
+
 SymbolicStateT = TypeVar("SymbolicStateT")
 
 
@@ -333,13 +372,16 @@ class MaxLikelihoodWeightFitter(Generic[SymbolicStateT]):
                 attr_predictions = [pred[attr_name] for pred in transition_predictions]
 
                 # Use PyTorch-native combination to preserve gradients
-                values_tensor, combined_logscores = (
-                    combine_expert_predictions_for_attr_torch(attr_predictions, weights)
-                )
+                # values_tensor, combined_logscores = (
+                #     combine_expert_predictions_for_attr_torch(attr_predictions, weights)
+                # )
 
-                # Evaluate log-probability using PyTorch operations
-                log_prob = eval_expert_predictions_logprob_for_attr_torch(
-                    values_tensor, combined_logscores, observed_value
+                # # Evaluate log-probability using PyTorch operations
+                # log_prob = eval_expert_predictions_logprob_for_attr_torch(
+                #     values_tensor, combined_logscores, observed_value
+                # )
+                log_prob = compute_log_prob_for_attr_from_expert_predictions_torch(
+                    attr_predictions, weights, observed_value
                 )
 
                 # Accumulate negative log-likelihood
