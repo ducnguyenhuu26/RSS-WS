@@ -159,7 +159,9 @@ class ObservableExtractorProtocol(Protocol[SymbolicStateT]):
         self, state: SymbolicStateT
     ) -> Dict[ObservableId, RandomValues]: ...
 
-    def get_observed_values(self, state: SymbolicStateT) -> Dict[ObservableId, int]: ...
+    def get_observed_outcomes(
+        self, state: SymbolicStateT
+    ) -> Dict[ObservableId, int]: ...
 
     def apply_expert_predictions(
         self,

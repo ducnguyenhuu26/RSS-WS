@@ -350,7 +350,7 @@ class MaxLikelihoodWeightFitter(Generic[SymbolicStateT]):
             transition_predictions = expert_preds_per_transition[i]
 
             # Get observed values from next state
-            observed_values = self.observable_extractor.get_observed_values(
+            observed_values = self.observable_extractor.get_observed_outcomes(
                 transition.next_metadata
             )
 

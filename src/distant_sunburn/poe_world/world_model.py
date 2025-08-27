@@ -120,7 +120,7 @@ class PoEWorldModel(Generic[SymbolicStateT, ActionT]):
         )
 
         # Get observed values from next state
-        observed_values = self.observable_extractor.get_observed_values(next_state)
+        observed_values = self.observable_extractor.get_observed_outcomes(next_state)
 
         total_log_prob = 0.0
 

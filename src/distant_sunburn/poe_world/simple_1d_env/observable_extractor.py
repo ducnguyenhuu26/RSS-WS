@@ -55,7 +55,7 @@ class ObservableExtractor:
 
         return predictions
 
-    def get_observed_values(self, state: GameState) -> dict[ObservableId, int]:
+    def get_observed_outcomes(self, state: GameState) -> dict[ObservableId, int]:
         """Extract ground truth observed values from a state."""
         observed = {}
 
