@@ -34,9 +34,8 @@ class ObservableExtractor:
             )
         else:
             # Expert didn't modify this attribute - create uniform distribution
-            predictions["player_position"] = DiscreteDistribution(
-                support=self.position_domain,
-                logscores=np.zeros(len(self.position_domain), dtype=np.float32),
+            predictions["player_position"] = DiscreteDistribution.from_uniform(
+                self.position_domain
             )
 
         # Extract light states
@@ -48,9 +47,8 @@ class ObservableExtractor:
                 )
             else:
                 # Expert didn't modify this attribute - create uniform distribution
-                predictions[attr_name] = DiscreteDistribution(
-                    support=self.bool_domain,
-                    logscores=np.zeros(len(self.bool_domain), dtype=np.float32),
+                predictions[attr_name] = DiscreteDistribution.from_uniform(
+                    self.bool_domain
                 )
 
         return predictions
