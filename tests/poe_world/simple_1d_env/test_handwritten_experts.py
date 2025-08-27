@@ -24,7 +24,7 @@ from distant_sunburn.poe_world.simple_1d_env.handwritten_experts import (
     incorrect_movement_expert_ignores_slip,
     incorrect_light_expert_is_deterministic,
 )
-from distant_sunburn.poe_world.core import RandomValues
+from distant_sunburn.poe_world.core import DiscreteDistribution
 
 
 class TestCorrectMovementExpert:
@@ -43,7 +43,7 @@ class TestCorrectMovementExpert:
         correct_movement_expert(state, Action.STAY)
 
         # Assert - Expert should not modify player position for STAY action
-        assert not isinstance(state.player.position, RandomValues)
+        assert not isinstance(state.player.position, DiscreteDistribution)
 
     def test_standard_movement_normal_zone(self):
         """Test standard movement predictions in the non-switched zone."""
@@ -58,8 +58,8 @@ class TestCorrectMovementExpert:
         correct_movement_expert(state, Action.MOVE_RIGHT)
 
         # Assert
-        assert isinstance(state.player.position, RandomValues)
-        assert state.player.position.values[0] == 3
+        assert isinstance(state.player.position, DiscreteDistribution)
+        assert state.player.position.support[0] == 3
 
         # Act - Move left (create fresh state)
         state2 = GameState(
@@ -71,8 +71,8 @@ class TestCorrectMovementExpert:
         correct_movement_expert(state2, Action.MOVE_LEFT)
 
         # Assert
-        assert isinstance(state2.player.position, RandomValues)
-        assert state2.player.position.values[0] == 2
+        assert isinstance(state2.player.position, DiscreteDistribution)
+        assert state2.player.position.support[0] == 2
 
     def test_movement_inverted_in_switched_zone(self):
         """Test that movement predictions are inverted in the switched zone."""
@@ -87,8 +87,8 @@ class TestCorrectMovementExpert:
         correct_movement_expert(state, Action.MOVE_RIGHT)
 
         # Assert
-        assert isinstance(state.player.position, RandomValues)
-        assert state.player.position.values[0] == 6
+        assert isinstance(state.player.position, DiscreteDistribution)
+        assert state.player.position.support[0] == 6
 
         # Act - Move left (should become right in switched zone) - create fresh state
         state2 = GameState(
@@ -100,8 +100,8 @@ class TestCorrectMovementExpert:
         correct_movement_expert(state2, Action.MOVE_LEFT)
 
         # Assert
-        assert isinstance(state2.player.position, RandomValues)
-        assert state2.player.position.values[0] == 7
+        assert isinstance(state2.player.position, DiscreteDistribution)
+        assert state2.player.position.support[0] == 7
 
     def test_boundary_conditions(self):
         """Test boundary condition predictions."""
@@ -120,8 +120,8 @@ class TestCorrectMovementExpert:
         correct_movement_expert(state_left, Action.MOVE_LEFT)
 
         # Assert - Should stay at 0
-        assert isinstance(state_left.player.position, RandomValues)
-        assert state_left.player.position.values[0] == 0
+        assert isinstance(state_left.player.position, DiscreteDistribution)
+        assert state_left.player.position.support[0] == 0
 
     def test_slipperiness_affects_predictions(self):
         """Test that slipperiness affects movement predictions."""
@@ -141,8 +141,8 @@ class TestCorrectMovementExpert:
         correct_movement_expert(state, Action.MOVE_RIGHT)
 
         # Assert - Should slip and move left instead
-        assert isinstance(state.player.position, RandomValues)
-        assert state.player.position.values[0] == 2
+        assert isinstance(state.player.position, DiscreteDistribution)
+        assert state.player.position.support[0] == 2
 
 
 class TestCorrectLightExpert:
@@ -166,12 +166,12 @@ class TestCorrectLightExpert:
 
         # Assert - Both lights should be predicted to toggle
         for light in state.lights:
-            assert isinstance(light.is_on, RandomValues)
+            assert isinstance(light.is_on, DiscreteDistribution)
 
         # First light should toggle from False to True
-        assert cast(RandomValues, state.lights[0].is_on).values[0] == 1
+        assert cast(DiscreteDistribution, state.lights[0].is_on).support[0] == 1
         # Second light should toggle from True to False
-        assert cast(RandomValues, state.lights[1].is_on).values[0] == 0
+        assert cast(DiscreteDistribution, state.lights[1].is_on).support[0] == 0
 
     def test_light_predictions_independent_of_action(self):
         """Test that light predictions are independent of player action."""
@@ -185,15 +185,15 @@ class TestCorrectLightExpert:
         # Act - Test with different actions using fresh state each time
         state1 = copy.deepcopy(state)
         correct_light_expert(state1, Action.MOVE_LEFT)
-        prediction_left = cast(RandomValues, state1.lights[0].is_on).values[0]
+        prediction_left = cast(DiscreteDistribution, state1.lights[0].is_on).support[0]
 
         state2 = copy.deepcopy(state)
         correct_light_expert(state2, Action.MOVE_RIGHT)
-        prediction_right = cast(RandomValues, state2.lights[0].is_on).values[0]
+        prediction_right = cast(DiscreteDistribution, state2.lights[0].is_on).support[0]
 
         state3 = copy.deepcopy(state)
         correct_light_expert(state3, Action.STAY)
-        prediction_stay = cast(RandomValues, state3.lights[0].is_on).values[0]
+        prediction_stay = cast(DiscreteDistribution, state3.lights[0].is_on).support[0]
 
         # Assert - All predictions should be the same (given same RNG state)
         # Convert numpy booleans to Python booleans for comparison
@@ -219,8 +219,8 @@ class TestIncorrectMovementExpertIgnoresSwitch:
         incorrect_movement_expert_ignores_switch(state, Action.MOVE_RIGHT)
 
         # Assert - Should move right (not left like correct expert)
-        assert isinstance(state.player.position, RandomValues)
-        assert state.player.position.values[0] == 8  # 7 + 1, not 6
+        assert isinstance(state.player.position, DiscreteDistribution)
+        assert state.player.position.support[0] == 8  # 7 + 1, not 6
 
     def test_still_respects_boundaries_and_slipperiness(self):
         """Test that this expert still respects boundaries and slipperiness."""
@@ -235,8 +235,8 @@ class TestIncorrectMovementExpertIgnoresSwitch:
         incorrect_movement_expert_ignores_switch(state, Action.MOVE_LEFT)
 
         # Assert - Should still respect boundary
-        assert isinstance(state.player.position, RandomValues)
-        assert state.player.position.values[0] == 0
+        assert isinstance(state.player.position, DiscreteDistribution)
+        assert state.player.position.support[0] == 0
 
 
 class TestIncorrectMovementExpertIgnoresSlip:
@@ -259,8 +259,8 @@ class TestIncorrectMovementExpertIgnoresSlip:
         incorrect_movement_expert_ignores_slip(state, Action.MOVE_RIGHT)
 
         # Assert - Should move right (not left like correct expert with slip)
-        assert isinstance(state.player.position, RandomValues)
-        assert state.player.position.values[0] == 4  # 3 + 1, not 2
+        assert isinstance(state.player.position, DiscreteDistribution)
+        assert state.player.position.support[0] == 4  # 3 + 1, not 2
 
     def test_still_respects_switched_zone_and_boundaries(self):
         """Test that this expert still respects switched zone and boundaries."""
@@ -275,8 +275,8 @@ class TestIncorrectMovementExpertIgnoresSlip:
         incorrect_movement_expert_ignores_slip(state, Action.MOVE_RIGHT)
 
         # Assert - Should still respect switched zone
-        assert isinstance(state.player.position, RandomValues)
-        assert state.player.position.values[0] == 6  # 7 - 1 due to switched zone
+        assert isinstance(state.player.position, DiscreteDistribution)
+        assert state.player.position.support[0] == 6  # 7 - 1 due to switched zone
 
 
 class TestIncorrectLightExpertIsDeterministic:
@@ -296,12 +296,12 @@ class TestIncorrectLightExpertIsDeterministic:
 
         # Assert - Both lights should be predicted to toggle
         for light in state.lights:
-            assert isinstance(light.is_on, RandomValues)
+            assert isinstance(light.is_on, DiscreteDistribution)
 
         # First light should toggle from False to True
-        assert cast(RandomValues, state.lights[0].is_on).values[0] == 1
+        assert cast(DiscreteDistribution, state.lights[0].is_on).support[0] == 1
         # Second light should toggle from True to False
-        assert cast(RandomValues, state.lights[1].is_on).values[0] == 0
+        assert cast(DiscreteDistribution, state.lights[1].is_on).support[0] == 0
 
     def test_predictions_independent_of_rng(self):
         """Test that predictions are independent of RNG state."""
@@ -319,5 +319,5 @@ class TestIncorrectLightExpertIsDeterministic:
             incorrect_light_expert_is_deterministic(state, Action.STAY)
 
             for light in state.lights:
-                assert isinstance(light.is_on, RandomValues)
-                assert light.is_on.values[0]
+                assert isinstance(light.is_on, DiscreteDistribution)
+                assert light.is_on.support[0]

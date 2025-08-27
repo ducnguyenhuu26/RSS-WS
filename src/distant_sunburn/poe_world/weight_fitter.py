@@ -20,7 +20,7 @@ from ..typing_utils import implements
 from .core import (
     ExpertFunction,
     ObservableExtractorProtocol,
-    RandomValues,
+    DiscreteDistribution,
     SymbolicTransition,
     WeightedExpert,
     WeightFitterProtocol,
@@ -29,8 +29,10 @@ from .core import (
 
 
 def expand_to_full_domain(
-    rv: RandomValues, all_possible_values: np.ndarray, noise_logscore: float = -10.0
-) -> RandomValues:
+    rv: DiscreteDistribution,
+    all_possible_values: np.ndarray,
+    noise_logscore: float = -10.0,
+) -> DiscreteDistribution:
     """
     Expand a RandomValues distribution to cover all possible values in the domain.
 
@@ -52,16 +54,16 @@ def expand_to_full_domain(
         RandomValues distribution covering the full domain
     """
     new_logscores = np.full_like(all_possible_values, noise_logscore, dtype=np.float32)
-    for i, val in enumerate(rv.values):
+    for i, val in enumerate(rv.support):
         if val in all_possible_values:
             idx = np.where(all_possible_values == val)[0][0]
             new_logscores[idx] = rv.logscores[i]
-    return RandomValues(values=all_possible_values, logscores=new_logscores)
+    return DiscreteDistribution(support=all_possible_values, logscores=new_logscores)
 
 
 def combine_expert_predictions_for_attr(
-    expert_predictions: list[RandomValues], weights: torch.Tensor
-) -> RandomValues:
+    expert_predictions: list[DiscreteDistribution], weights: torch.Tensor
+) -> DiscreteDistribution:
     """
     Combine expert predictions for a single attribute using learned weights.
 
@@ -97,14 +99,14 @@ def combine_expert_predictions_for_attr(
 
     # Return combined distribution using the same values as the first expert
     # WARNING: .detach().numpy() breaks gradient flow - use _torch version for optimization
-    return RandomValues(
-        values=expert_predictions[0].values,
+    return DiscreteDistribution(
+        support=expert_predictions[0].support,
         logscores=combined_logscores.detach().numpy(),
     )
 
 
 def combine_expert_predictions_for_attr_torch(
-    expert_predictions: list[RandomValues], weights: torch.Tensor
+    expert_predictions: list[DiscreteDistribution], weights: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     PyTorch-native version of expert prediction combination that preserves gradients.
@@ -143,7 +145,7 @@ def combine_expert_predictions_for_attr_torch(
     combined_logscores = logscores_matrix.T @ weights
 
     # Also return values as tensor for PyTorch operations
-    values_tensor = torch.tensor(expert_predictions[0].values, dtype=torch.int32)
+    values_tensor = torch.tensor(expert_predictions[0].support, dtype=torch.int32)
 
     return values_tensor, combined_logscores
 
@@ -300,17 +302,19 @@ class MaxLikelihoodWeightFitter(Generic[SymbolicStateT]):
         self,
         experts: list[ExpertFunction[SymbolicStateT]],
         transitions: list[SymbolicTransition[SymbolicStateT]],
-    ) -> list[list[dict[ObservableId, RandomValues]]]:
+    ) -> list[list[dict[ObservableId, DiscreteDistribution]]]:
         """
         Precompute expert predictions for all transitions to avoid repeated execution.
 
         Returns:
             List of expert predictions [n_transitions][n_experts][attribute_name]
         """
-        preds_for_all_transitions: list[list[dict[ObservableId, RandomValues]]] = []
+        preds_for_all_transitions: list[
+            list[dict[ObservableId, DiscreteDistribution]]
+        ] = []
 
         for transition in transitions:
-            preds_for_transition: list[dict[ObservableId, RandomValues]] = []
+            preds_for_transition: list[dict[ObservableId, DiscreteDistribution]] = []
 
             # Each expert make a prediction for all observable attributes
             for expert in experts:
@@ -332,7 +336,9 @@ class MaxLikelihoodWeightFitter(Generic[SymbolicStateT]):
         self,
         weights: torch.Tensor,
         transitions: list[SymbolicTransition[SymbolicStateT]],
-        expert_preds_per_transition: list[list[dict[ObservableId, RandomValues]]],
+        expert_preds_per_transition: list[
+            list[dict[ObservableId, DiscreteDistribution]]
+        ],
     ) -> torch.Tensor:
         """
         Compute the negative log-likelihood loss for the given weights.

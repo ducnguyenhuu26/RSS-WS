@@ -26,7 +26,7 @@ from scipy.special import logsumexp
 MetadataT = TypeVar("MetadataT")
 
 
-class RandomValues:
+class DiscreteDistribution:
     """
     Represents a discrete probability distribution over a set of integer or boolean values.
 
@@ -40,20 +40,31 @@ class RandomValues:
 
     def __init__(
         self,
-        values: npt.NDArray[np.int32],
+        support: npt.NDArray[np.int32],
         logscores: Optional[npt.NDArray[np.float32]] = None,
     ):
-        self.values = values
+        self.support = support
+        # Assign uniform logscores if not provided
         self.logscores = (
             logscores
             if logscores is not None
-            else np.zeros_like(values, dtype=np.float32)
+            else np.zeros_like(support, dtype=np.float32)
         )
+
+    @classmethod
+    def from_uniform(cls, support: npt.NDArray[np.int32]) -> "DiscreteDistribution":
+        return cls(support=support, logscores=np.zeros_like(support, dtype=np.float32))
+
+    @classmethod
+    def from_peaks(
+        cls, peaks: npt.NDArray[np.int32], logscores: npt.NDArray[np.float32]
+    ) -> "DiscreteDistribution":
+        return cls(support=peaks, logscores=logscores)
 
     def sample(self) -> int:
         """Samples a value from the distribution."""
         probabilities = np.exp(self.logscores - logsumexp(self.logscores))
-        return np.random.choice(self.values, p=probabilities)
+        return np.random.choice(self.support, p=probabilities)
 
     def evaluate_log_probability(self, value: int) -> float:
         """Calculates the log-probability of a given value."""
@@ -63,13 +74,13 @@ class RandomValues:
 
         try:
             # Find the index of the value and return its log probability
-            return float(self._cached_log_probs[np.where(self.values == value)[0][0]])
+            return float(self._cached_log_probs[np.where(self.support == value)[0][0]])
         except IndexError:
             # The value was not a possible outcome under this distribution
             return -np.inf
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(values={self.values}, logscores={self.logscores})"
+        return f"{self.__class__.__name__}(values={self.support}, logscores={self.logscores})"
 
 
 class ExpertFunction(Protocol[MetadataT]):
@@ -157,7 +168,7 @@ ObservableId = NewType("ObservableId", str)
 class ObservableExtractorProtocol(Protocol[SymbolicStateT]):
     def extract_attribute_predictions(
         self, state: SymbolicStateT
-    ) -> Dict[ObservableId, RandomValues]: ...
+    ) -> Dict[ObservableId, DiscreteDistribution]: ...
 
     def get_observed_outcomes(
         self, state: SymbolicStateT
@@ -166,6 +177,6 @@ class ObservableExtractorProtocol(Protocol[SymbolicStateT]):
     def apply_expert_predictions(
         self,
         new_state: SymbolicStateT,
-        expert_predictions: Dict[ObservableId, list[RandomValues]],
+        expert_predictions: Dict[ObservableId, list[DiscreteDistribution]],
         weights: torch.Tensor,
     ) -> SymbolicStateT: ...

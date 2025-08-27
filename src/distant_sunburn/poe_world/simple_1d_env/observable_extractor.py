@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-from distant_sunburn.poe_world.core import RandomValues
+from distant_sunburn.poe_world.core import DiscreteDistribution
 from distant_sunburn.poe_world.weight_fitter import (
     combine_expert_predictions_for_attr,
     expand_to_full_domain,
@@ -18,7 +18,7 @@ class ObservableExtractor:
 
     def extract_attribute_predictions(
         self, state: GameState
-    ) -> dict[ObservableId, RandomValues]:
+    ) -> dict[ObservableId, DiscreteDistribution]:
         """
         Extract RandomValues predictions from a state after expert execution.
 
@@ -28,28 +28,28 @@ class ObservableExtractor:
         predictions = {}
 
         # Extract player position
-        if isinstance(state.player.position, RandomValues):
+        if isinstance(state.player.position, DiscreteDistribution):
             predictions["player_position"] = expand_to_full_domain(
                 state.player.position, self.position_domain
             )
         else:
             # Expert didn't modify this attribute - create uniform distribution
-            predictions["player_position"] = RandomValues(
-                values=self.position_domain,
+            predictions["player_position"] = DiscreteDistribution(
+                support=self.position_domain,
                 logscores=np.zeros(len(self.position_domain), dtype=np.float32),
             )
 
         # Extract light states
         for i, light in enumerate(state.lights):
             attr_name = f"light_{i}_is_on"
-            if isinstance(light.is_on, RandomValues):
+            if isinstance(light.is_on, DiscreteDistribution):
                 predictions[attr_name] = expand_to_full_domain(
                     light.is_on, self.bool_domain
                 )
             else:
                 # Expert didn't modify this attribute - create uniform distribution
-                predictions[attr_name] = RandomValues(
-                    values=self.bool_domain,
+                predictions[attr_name] = DiscreteDistribution(
+                    support=self.bool_domain,
                     logscores=np.zeros(len(self.bool_domain), dtype=np.float32),
                 )
 
@@ -71,7 +71,7 @@ class ObservableExtractor:
     @staticmethod
     def apply_expert_predictions(
         new_state: GameState,
-        expert_predictions: dict[ObservableId, list[RandomValues]],
+        expert_predictions: dict[ObservableId, list[DiscreteDistribution]],
         weights: torch.Tensor,
     ) -> GameState:
         # Sample player position

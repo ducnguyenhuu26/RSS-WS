@@ -15,7 +15,7 @@ import copy
 from typing import List, cast
 from distant_sunburn.poe_world.core import ObservableId
 
-from distant_sunburn.poe_world.core import SymbolicTransition, RandomValues
+from distant_sunburn.poe_world.core import SymbolicTransition, DiscreteDistribution
 from distant_sunburn.simple_1d_env.environment import (
     GameState,
     Player,
@@ -82,12 +82,12 @@ class TestSingleTransitionLossComputation:
         # Test correct expert
         state_copy = copy.deepcopy(transition.prev_metadata)
         correct_movement_expert(state_copy, transition.action)
-        correct_prediction = state_copy.player.position.values[0]  # type: ignore
+        correct_prediction = state_copy.player.position.support[0]  # type: ignore
 
         # Test incorrect expert
         state_copy = copy.deepcopy(transition.prev_metadata)
         incorrect_movement_expert_ignores_switch(state_copy, transition.action)
-        incorrect_prediction = state_copy.player.position.values[0]  # type: ignore
+        incorrect_prediction = state_copy.player.position.support[0]  # type: ignore
 
         # Predictions should be different
         assert correct_prediction != incorrect_prediction

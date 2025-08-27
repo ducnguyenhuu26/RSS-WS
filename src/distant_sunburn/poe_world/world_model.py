@@ -15,7 +15,7 @@ from distant_sunburn.poe_world.core import ObservableExtractorProtocol
 
 from ..typing_utils import implements
 from .core import (
-    RandomValues,
+    DiscreteDistribution,
     WeightedExpert,
     WorldModelProtocol,
     ObservableId,
@@ -138,14 +138,16 @@ class PoEWorldModel(Generic[SymbolicStateT, ActionT]):
 
     def _get_expert_predictions(
         self, state: SymbolicStateT, action: ActionT
-    ) -> Dict[ObservableId, list[RandomValues]]:
+    ) -> Dict[ObservableId, list[DiscreteDistribution]]:
         """
         Get predictions from all experts for the given state and action.
 
         Returns:
             Dictionary mapping attribute names to lists of expert predictions
         """
-        predictions_from_all_experts: dict[ObservableId, list[RandomValues]] = {}
+        predictions_from_all_experts: dict[ObservableId, list[DiscreteDistribution]] = (
+            {}
+        )
 
         for expert in self._experts:
             # Deep copy state and run expert
