@@ -194,17 +194,114 @@ ObservableId = NewType("ObservableId", str)
 
 
 class ObservableExtractorProtocol(Protocol[SymbolicStateT]):
+    """
+    Protocol for extracting observable attributes from symbolic states.
+
+    This protocol defines the interface for components that can:
+    1. Extract probabilistic predictions from states after expert execution
+    2. Extract ground truth observed values from states
+    3. Apply combined expert predictions to create new states
+
+    The ObservableExtractor is a core component of the PoE-World system that bridges
+    between environment-specific state representations and the generic expert prediction
+    framework. It handles the conversion between symbolic states and the observable
+    attributes that experts can predict.
+
+    Key Requirements:
+    - Must provide consistent ObservableId mappings across all methods
+    - Must handle both DiscreteDistribution predictions and primitive values
+    - Must ensure all observable attributes are covered in all methods
+    - Must preserve the structure and integrity of the symbolic state
+    """
+
     def extract_attribute_predictions(
         self, state: SymbolicStateT
-    ) -> Dict[ObservableId, DiscreteDistribution]: ...
+    ) -> Dict[ObservableId, DiscreteDistribution]:
+        """
+        Extract probabilistic predictions from a state after expert execution.
 
-    def get_observed_outcomes(
-        self, state: SymbolicStateT
-    ) -> Dict[ObservableId, int]: ...
+        This method is called after experts have modified a state by assigning
+        DiscreteDistribution objects to attributes they have opinions about.
+        The method should:
+        1. Identify all observable attributes in the state
+        2. Extract DiscreteDistribution predictions where experts made them
+        3. Create uniform distributions for attributes that experts didn't modify
+        4. Ensure all observable attributes are represented in the output
+
+        Args:
+            state: The symbolic state after expert execution. May contain both
+                   primitive values and DiscreteDistribution objects.
+
+        Returns:
+            Dictionary mapping ObservableId to DiscreteDistribution for each
+            observable attribute. All DiscreteDistribution objects should have
+            the same support (domain) for a given attribute across calls.
+
+        Requirements:
+            - Must return the same set of ObservableIds for the same state type
+            - Must handle both DiscreteDistribution and primitive value attributes
+            - Must create uniform distributions for unmodified attributes
+            - Must expand DiscreteDistribution support to full domain if needed
+        """
+        ...
+
+    def get_observed_outcomes(self, state: SymbolicStateT) -> Dict[ObservableId, int]:
+        """
+        Extract ground truth observed values from a symbolic state.
+
+        This method extracts the actual observed values from a state for use
+        in training and evaluation. It should return the same ObservableIds
+        as extract_attribute_predictions but with primitive integer values
+        instead of distributions.
+
+        Args:
+            state: The symbolic state containing ground truth values.
+                   Should contain only primitive values (no DiscreteDistribution).
+
+        Returns:
+            Dictionary mapping ObservableId to integer values for each
+            observable attribute.
+
+        Requirements:
+            - Must return the same ObservableIds as extract_attribute_predictions
+            - Must handle boolean values by converting to int (0/1)
+            - Must handle all observable attributes present in the state
+            - Should be deterministic for the same input state
+        """
+        ...
 
     def apply_expert_predictions(
         self,
         new_state: SymbolicStateT,
         expert_predictions: Dict[ObservableId, list[DiscreteDistribution]],
         weights: torch.Tensor,
-    ) -> SymbolicStateT: ...
+    ) -> SymbolicStateT:
+        """
+        Apply combined expert predictions to create a new state.
+
+        This method takes the predictions from multiple experts for each attribute,
+        combines them using the provided weights, and applies the results to
+        create a new state. It implements the core Product of Experts (PoE)
+        combination logic.
+
+        Args:
+            new_state: A copy of the current state to be modified. This state
+                       should contain primitive values and will be mutated in-place.
+            expert_predictions: Dictionary mapping ObservableId to list of
+                               DiscreteDistribution predictions from each expert.
+                               Each list should have the same length as the weights tensor.
+            weights: Tensor of expert weights [n_experts] with dtype=torch.float32.
+                     weights[i] determines how much expert i's prediction contributes.
+
+        Returns:
+            The modified state with sampled values from combined expert predictions.
+
+        Requirements:
+            - Must mutate new_state in-place and return it
+            - Must handle all ObservableIds present in expert_predictions
+            - Must combine predictions using the provided weights
+            - Must sample from combined distributions to get concrete values
+            - Must convert sampled values to appropriate types (e.g., bool for boolean attributes)
+            - Must preserve state structure and handle missing predictions gracefully
+        """
+        ...
