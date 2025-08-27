@@ -1,5 +1,3 @@
-from typing import Any, Dict
-
 import numpy as np
 import torch
 
@@ -9,6 +7,8 @@ from distant_sunburn.poe_world.weight_fitter import (
     expand_to_full_domain,
 )
 from distant_sunburn.simple_1d_env.environment import GameState
+from ..core import ObservableId, ObservableExtractorProtocol
+from ...typing_utils import implements
 
 
 class ObservableExtractor:
@@ -16,7 +16,9 @@ class ObservableExtractor:
         self.position_domain = np.arange(0, 12)  # [0, 1, 2, ..., 11]
         self.bool_domain = np.array([0, 1])  # [False, True]
 
-    def extract_attribute_predictions(self, state: GameState) -> Dict[str, Any]:
+    def extract_attribute_predictions(
+        self, state: GameState
+    ) -> dict[ObservableId, RandomValues]:
         """
         Extract RandomValues predictions from a state after expert execution.
 
@@ -53,7 +55,7 @@ class ObservableExtractor:
 
         return predictions
 
-    def get_observed_values(self, state: GameState) -> Dict[str, int]:
+    def get_observed_values(self, state: GameState) -> dict[ObservableId, int]:
         """Extract ground truth observed values from a state."""
         observed = {}
 
@@ -69,12 +71,12 @@ class ObservableExtractor:
     @staticmethod
     def apply_expert_predictions(
         new_state: GameState,
-        expert_predictions: Dict[str, Any],
+        expert_predictions: dict[ObservableId, list[RandomValues]],
         weights: torch.Tensor,
     ) -> GameState:
         # Sample player position
         if "player_position" in expert_predictions:
-            player_preds = expert_predictions["player_position"]
+            player_preds = expert_predictions[ObservableId("player_position")]
             combined_dist = combine_expert_predictions(player_preds, weights)
             new_state.player.position = combined_dist.sample()
 
@@ -82,8 +84,11 @@ class ObservableExtractor:
         for i, light in enumerate(new_state.lights):
             attr_name = f"light_{i}_is_on"
             if attr_name in expert_predictions:
-                light_preds = expert_predictions[attr_name]
+                light_preds = expert_predictions[ObservableId(attr_name)]
                 combined_dist = combine_expert_predictions(light_preds, weights)
                 new_state.lights[i].is_on = bool(combined_dist.sample())
 
         return new_state
+
+
+implements(ObservableExtractorProtocol[GameState])(ObservableExtractor)

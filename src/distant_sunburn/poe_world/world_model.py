@@ -18,6 +18,7 @@ from .core import (
     RandomValues,
     WeightedExpert,
     WorldModelProtocol,
+    ObservableId,
 )
 from .weight_fitter import (
     combine_expert_predictions,
@@ -135,7 +136,7 @@ class PoEWorldModel(Generic[SymbolicStateT, ActionT]):
 
     def _get_expert_predictions(
         self, state: SymbolicStateT, action: ActionT
-    ) -> Dict[str, list[RandomValues]]:
+    ) -> Dict[ObservableId, list[RandomValues]]:
         """
         Get predictions from all experts for the given state and action.
 

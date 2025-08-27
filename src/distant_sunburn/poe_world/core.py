@@ -6,6 +6,7 @@ across the PoE-World system, including the RandomValues class for probabilistic
 predictions and the ExpertFunction protocol.
 """
 
+from random import Random
 import numpy as np
 import numpy.typing as npt
 from scipy.special import logsumexp
@@ -141,17 +142,21 @@ class WeightFitterProtocol(Protocol[MetadataT]):
 SymbolicStateT = TypeVar("SymbolicStateT")
 ActionT = TypeVar("ActionT")
 
+from typing import NewType, TypeAlias, Union
+
+ObservableId = NewType("ObservableId", str)
+
 
 class ObservableExtractorProtocol(Protocol[SymbolicStateT]):
     def extract_attribute_predictions(
         self, state: SymbolicStateT
-    ) -> Dict[str, Any]: ...
+    ) -> Dict[ObservableId, RandomValues]: ...
 
-    def get_observed_values(self, state: SymbolicStateT) -> Dict[str, Any]: ...
+    def get_observed_values(self, state: SymbolicStateT) -> Dict[ObservableId, int]: ...
 
     def apply_expert_predictions(
         self,
         new_state: SymbolicStateT,
-        expert_predictions: Dict[str, Any],
+        expert_predictions: Dict[ObservableId, list[RandomValues]],
         weights: torch.Tensor,
     ) -> SymbolicStateT: ...
