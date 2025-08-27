@@ -83,24 +83,25 @@ class DiscreteDistribution:
 
     def sample(self) -> int:
         """Samples a value from the distribution."""
-        probabilities = np.exp(self.logscores - logsumexp(self.logscores))
+        probabilities = np.exp(self.log_probs)
         return np.random.choice(self.support, p=probabilities)
+
+    @property
+    def log_probs(self) -> npt.NDArray[np.float32]:
+        return self.logscores - logsumexp(self.logscores)
 
     def evaluate_log_probability(self, value: int) -> float:
         """Calculates the log-probability of a given value."""
         # Cache normalized log probabilities to avoid repeated logsumexp
-        if not hasattr(self, "_cached_log_probs"):
-            self._cached_log_probs = self.logscores - logsumexp(self.logscores)
-
         try:
             # Find the index of the value and return its log probability
-            return float(self._cached_log_probs[np.where(self.support == value)[0][0]])
+            return float(self.log_probs[np.where(self.support == value)[0][0]])
         except IndexError:
             # The value was not a possible outcome under this distribution
             return -np.inf
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(values={self.support}, logscores={self.logscores})"
+        return f"{self.__class__.__name__}(support={self.support}, logscores={self.logscores})"
 
 
 class ExpertFunction(Protocol[MetadataT]):
