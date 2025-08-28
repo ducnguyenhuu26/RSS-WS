@@ -42,7 +42,7 @@ class TestCorrectExperts:
         # Assert - Should predict moving one step right
         assert isinstance(state.player.position.x, DiscreteDistribution)
         assert state.player.position.x.support[0] == initial_x + 1
-        assert state.player.position.y.support[0] == initial_y
+        assert state.player.position.y.support[0] == initial_y  # type: ignore
 
     def test_correct_movement_expert_respects_boundaries(self):
         """Test that movement expert respects world boundaries."""

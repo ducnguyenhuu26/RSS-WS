@@ -20,15 +20,16 @@ import numpy as np
 
 from ..core import DiscreteDistribution
 from crafter.state_export import WorldState
+from crafter.constants import ActionT
 
 # Action types for Crafter
-Action = Literal[
-    "move_left", "move_right", "move_up", "move_down", "do", "sleep", "place", "make"
-]
+# Action = Literal[
+#     "move_left", "move_right", "move_up", "move_down", "do", "sleep", "place", "make"
+# ]
 
 
 def correct_player_movement_expert(
-    current_state: WorldState, action: Action, **context: Any
+    current_state: WorldState, action: ActionT, **context: Any
 ) -> None:
     """
     Correct expert that models player movement mechanics.
@@ -67,7 +68,7 @@ def correct_player_movement_expert(
 
 
 def correct_combat_damage_expert(
-    current_state: WorldState, action: Action, **context: Any
+    current_state: WorldState, action: ActionT, **context: Any
 ) -> None:
     """
     Correct expert that models combat damage mechanics.
@@ -117,7 +118,7 @@ def correct_combat_damage_expert(
 
 
 def correct_entity_ai_expert(
-    current_state: WorldState, action: Action, **context: Any
+    current_state: WorldState, action: ActionT, **context: Any
 ) -> None:
     """
     Correct expert that models entity AI behavior.
@@ -213,7 +214,7 @@ def correct_entity_ai_expert(
 
 
 def incorrect_player_movement_expert_teleports(
-    current_state: WorldState, action: Action, **context: Any
+    current_state: WorldState, action: ActionT, **context: Any
 ) -> None:
     """
     Incorrect expert that makes player teleport to random positions.
@@ -238,7 +239,7 @@ def incorrect_player_movement_expert_teleports(
 
 
 def incorrect_combat_damage_expert_instakills(
-    current_state: WorldState, action: Action, **context: Any
+    current_state: WorldState, action: ActionT, **context: Any
 ) -> None:
     """
     Incorrect expert that instantly kills any entity when attacked.
@@ -275,7 +276,7 @@ def incorrect_combat_damage_expert_instakills(
 
 
 def incorrect_entity_ai_expert_self_destructs(
-    current_state: WorldState, action: Action, **context: Any
+    current_state: WorldState, action: ActionT, **context: Any
 ) -> None:
     """
     Incorrect expert that makes entities self-destruct.
