@@ -391,7 +391,7 @@ class MaxLikelihoodWeightFitter(Generic[SymbolicStateT]):
                     # Skip loss computation for attributes that experts didn't predict
                     # This typically happens when entities spawn/despawn between states
                     logger.debug(
-                        f"Skipping loss computation for {attr_name} - missing expert predictions"
+                        f"Skipping loss computation for {attr_name} in transition {i}, likely due to entity spawn/despawn"
                     )
                     continue
 
