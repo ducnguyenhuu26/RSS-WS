@@ -289,6 +289,12 @@ Experts are synthesized separately for each object type, enabling modular learni
 The experience buffer accumulates all transitions and provides the data source for both expert synthesis and weight fitting.
 
 ## Goal Definition and Sources
+Goals are literally spatial contact - not complex state changes
+Success = bounding box overlap - no inventory changes, no crafting completion
+Reward = binary contact check - 100 points if touching, 0 if not
+No multi-step objectives - just "get close enough to touch"
+PoE World's goal system is fundamentally limited to simple object reachability
+PoE World's goals are purely spatial - they're about getting the player's bounding box to overlap with a target object's bounding box. 
 
 ### Goal Specification in PoE World
 
