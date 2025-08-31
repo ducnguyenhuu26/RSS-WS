@@ -38,6 +38,9 @@ sources = ["src"]
 testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
 addopts = "-v -ra --strict-markers"
+markers = [
+    "asyncio: mark test as async",
+]
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::UserWarning",
