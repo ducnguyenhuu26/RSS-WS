@@ -109,9 +109,48 @@ def _create_custom_view(self, state: WorldState) -> WorldState:
 
 **Assumption**: Each object type only sees its own objects. This is a key limitation that prevents the synthesis of cross-object-type rules (e.g., for AoE attacks).
 
-### Step 4: A Single, Generic Synthesizer
+### Step 4: Binary Interaction Synthesizer
 
-To avoid hardcoding domain knowledge, we will use a single, generic `ActionSynthesizer` for all object types and mechanics. This synthesizer will be responsible for generating rules based on observed changes to the limited set of attributes (position and health).
+To remain faithful to PoE-World's original design, we will include a `BinaryInteractionSynthesizer` that handles "touching" relationships between objects. This synthesizer is fundamental to PoE-World's approach and is not domain-specific knowledge, as it only requires spatial adjacency detection.
+
+```python
+class BinaryInteractionSynthesizer:
+    """Synthesizer for binary touching relationships between objects."""
+    
+    def _detect_touching_objects(self, state: WorldState) -> List[Tuple[str, str]]:
+        """Detect which objects are touching each other (Manhattan distance = 1)."""
+        touching = []
+        for obj1 in state.objects:
+            for obj2 in state.objects:
+                if obj1.entity_id != obj2.entity_id:
+                    # Check if objects are adjacent
+                    if abs(obj1.position.x - obj2.position.x) + abs(obj1.position.y - obj2.position.y) == 1:
+                        touching.append((f"{obj1.name}_{obj1.entity_id}", f"{obj2.name}_{obj2.entity_id}"))
+        return touching
+    
+    def synthesize(self, input_state: WorldState, action: str, output_state: WorldState) -> List[Expert]:
+        # Detect touching relationships in input state
+        touching_pairs = self._detect_touching_objects(input_state)
+        
+        # Generate rules based on touching relationships
+        # This preserves the original PoE-World approach
+        ...
+```
+
+This synthesizer enables rules like:
+```python
+def alter_player_objects(state: WorldState, action: str) -> WorldState:
+    if action == "attack":
+        player = state.player
+        for obj in state.objects:
+            if obj.name == "zombie" and obj.touches(player):
+                obj.health = max(0, obj.health - 20)
+    return state
+```
+
+### Step 5: Generic Action Synthesizer
+
+In addition to the binary interaction synthesizer, we will use a single, generic `ActionSynthesizer` for all other object types and mechanics. This synthesizer will be responsible for generating rules based on observed changes to the limited set of attributes (position and health).
 
 ```python
 # Inside ObjModelLearner
@@ -122,11 +161,18 @@ def _synthesize_for_transition(self, transition):
     custom_input_state = self._create_custom_view(input_state)
     custom_output_state = self._create_custom_view(output_state)
     
-    # Synthesize experts
-    synthesizer = ActionSynthesizer(self.obj_type, self.llm)
-    experts = synthesizer.synthesize(
+    # Synthesize experts using both synthesizers
+    interaction_synthesizer = BinaryInteractionSynthesizer(self.obj_type, self.llm)
+    action_synthesizer = ActionSynthesizer(self.obj_type, self.llm)
+    
+    interaction_experts = interaction_synthesizer.synthesize(
         custom_input_state, action, custom_output_state
     )
+    action_experts = action_synthesizer.synthesize(
+        custom_input_state, action, custom_output_state
+    )
+    
+    experts = interaction_experts + action_experts
     
     # Add experts to the model
     self.moe.add_experts(experts)
@@ -134,7 +180,7 @@ def _synthesize_for_transition(self, transition):
 
 This approach adheres to the constraint of not having specialized synthesizers for different mechanics, which would give the baseline an unfair advantage.
 
-### Step 5: LLM-Based Synthesis
+### Step 6: LLM-Based Synthesis
 
 The `ActionSynthesizer` will use a two-stage LLM process to generate experts:
 
@@ -184,7 +230,7 @@ def alter_zombie_objects(state: WorldState, action: str) -> WorldState:
     return state
 ```
 
-### Step 6: Expert Integration
+### Step 7: Expert Integration
 
 The generated experts will be added to the Mixture of Experts (MoE) model for the corresponding object type. The weights of the experts will then be fitted to the experience buffer to determine which experts are most accurate.
 
