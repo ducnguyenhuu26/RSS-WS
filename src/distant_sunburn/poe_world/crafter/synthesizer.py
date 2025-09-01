@@ -310,11 +310,3 @@ Generate only the function code:"""
             return True
         except SyntaxError:
             return False
-
-
-# Convenience function for creating a synthesizer
-def create_crafter_synthesizer(
-    llm_params: Optional[GeminiLiteLlmParams] = None,
-) -> ExpertSynthesizerProtocol:
-    """Create a Crafter expert synthesizer."""
-    return CrafterExpertSynthesizer(llm_params=llm_params)

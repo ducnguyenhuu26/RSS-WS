@@ -12,7 +12,6 @@ from crafter.state_export import WorldState
 from distant_sunburn.poe_world.crafter.synthesizer import (
     CrafterExpertSynthesizer,
     SynthesizedExpert,
-    create_crafter_synthesizer,
 )
 from distant_sunburn.poe_world.core import SymbolicTransition, DiscreteDistribution
 from distant_sunburn.litellm_utils import GeminiLiteLlmParams
@@ -26,11 +25,6 @@ class TestCrafterExpertSynthesizer:
         synthesizer = CrafterExpertSynthesizer()
         assert synthesizer is not None
         assert synthesizer.llm_params is not None
-
-    def test_create_crafter_synthesizer(self):
-        """Test the convenience function for creating a synthesizer."""
-        synthesizer = create_crafter_synthesizer()
-        assert isinstance(synthesizer, CrafterExpertSynthesizer)
 
     def test_extract_state_changes(self, cow_attack_scenario):
         """Test that state changes are correctly extracted for observable attributes only."""
