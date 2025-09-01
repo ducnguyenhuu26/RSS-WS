@@ -7,6 +7,7 @@ for a specific object type, following the PoE-World design document.
 
 from typing import List, Optional
 from loguru import logger
+import copy
 
 from crafter.state_export import WorldState
 from ..core import SymbolicTransition, WorldModelProtocol, WeightedExpert
@@ -77,7 +78,7 @@ class ObjModelLearner:
             return []
 
         # Synthesize experts for surprising transitions
-        new_experts = []
+        new_experts: List[SynthesizedExpert] = []
         for transition in surprising_transitions:
             try:
                 experts = await self._synthesize_for_transition(transition)
@@ -103,7 +104,7 @@ class ObjModelLearner:
         A transition is considered surprising if the log probability of the observed
         outcome, according to the current mixture of experts, is below the threshold.
         """
-        surprising = []
+        surprising: List[SymbolicTransition[WorldState]] = []
 
         for transition in transitions:
             try:
@@ -169,7 +170,6 @@ class ObjModelLearner:
         This follows the PoE-World design principle that each object type only sees
         its own objects, preventing cross-object-type rules.
         """
-        import copy
 
         # Create a deep copy to avoid modifying the original state
         custom_state = copy.deepcopy(state)
@@ -188,10 +188,8 @@ class ObjModelLearner:
         This converts SynthesizedExpert objects to WeightedExpert objects
         and adds them to the world model. Initial weights are set to 1.0.
         """
-        from ..core import WeightedExpert
-
         # Convert SynthesizedExpert to WeightedExpert
-        weighted_experts = []
+        weighted_experts: list[WeightedExpert] = []
         for expert in experts:
             # TODO: Compile the expert code into an actual function
             # For now, we'll create a placeholder
