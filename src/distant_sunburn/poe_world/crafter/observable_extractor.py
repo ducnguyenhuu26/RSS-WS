@@ -17,6 +17,10 @@ environments.
 This corresponds to the player's position, health, and the position and health of nearby
 game entities. Like in PoE-World for physics-based environments, we will ignore static
 objects like tiles of the game world or crafting stations.
+
+Additionally, we track entity lifecycle observables to handle creation and deletion
+of entities, which is essential for evaluating expert predictions about entity
+creation/deletion events.
 """
 
 from ...typing_utils import implements
@@ -32,6 +36,15 @@ class ObservableExtractor:
         # Using reasonable defaults without reading from game state
         self.position_domain = np.arange(0, 101)  # [0, 1, 2, ..., 100]
         self.health_domain = np.arange(0, 101)  # [0, 1, 2, ..., 100]
+
+        # Define entity types available in Crafter
+        self.entity_types = ["cow", "zombie", "skeleton", "plant", "arrow", "fence"]
+
+        # Define domain for entity counts (reasonable range for Crafter)
+        self.entity_count_domain = np.arange(0, 6)  # [0, 1, 2, 3, 4, 5]
+
+        # Define domain for entity existence (0 = deleted, 1 = exists)
+        self.entity_existence_domain = np.array([0, 1])
 
     def extract_attribute_predictions(
         self, state: WorldState
@@ -72,6 +85,20 @@ class ObservableExtractor:
         else:
             predictions[ObservableId("player_health")] = (
                 DiscreteDistribution.from_uniform(self.health_domain)
+            )
+
+        # Extract entity lifecycle observables
+        # Track entity existence (per entity ID) - whether each specific entity exists
+        for entity in state.objects:
+            entity_id = entity.entity_id
+            predictions[ObservableId(f"entity_exists_{entity_id}")] = (
+                DiscreteDistribution.from_uniform(self.entity_existence_domain)
+            )
+
+        # Track entity counts (per entity type) - total count of each entity type
+        for entity_type in self.entity_types:
+            predictions[ObservableId(f"entity_count_{entity_type}")] = (
+                DiscreteDistribution.from_uniform(self.entity_count_domain)
             )
 
         # Extract entity positions and health
@@ -131,6 +158,24 @@ class ObservableExtractor:
         # Player health
         observed[ObservableId("player_health")] = state.player.health
 
+        # Extract entity lifecycle observables
+        # Count entities by type
+        entity_counts = {}
+        for entity in state.objects:
+            entity_type = entity.name  # "cow", "zombie", etc.
+            entity_counts[entity_type] = entity_counts.get(entity_type, 0) + 1
+
+        # Record entity counts
+        for entity_type in self.entity_types:
+            observed[ObservableId(f"entity_count_{entity_type}")] = entity_counts.get(
+                entity_type, 0
+            )
+
+        # Record entity existence (all entities in state exist)
+        for entity in state.objects:
+            entity_id = entity.entity_id
+            observed[ObservableId(f"entity_exists_{entity_id}")] = 1
+
         # Entity positions and health
         for entity in state.objects:
             if entity.entity_id == state.player.entity_id:
@@ -154,6 +199,11 @@ class ObservableExtractor:
     ) -> WorldState:
         """
         Apply combined expert predictions to create a new state.
+
+        Note: For entity lifecycle observables, we don't need to create/delete
+        entities here because experts predict by modifying state directly
+        (calling create_object(), setting deleted attribute, etc.).
+        Our observable extractor just observes what experts did to the state.
         """
         from ..weight_fitter import combine_expert_predictions_for_attr
 

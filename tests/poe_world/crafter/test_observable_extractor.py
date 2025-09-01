@@ -54,6 +54,26 @@ class TestObservableExtractor:
             predictions[ObservableId("player_health")].support, extractor.health_domain
         )
 
+        # Check that we get entity lifecycle predictions
+        # Entity existence predictions (per entity ID)
+        for entity in state.objects:
+            entity_id = entity.entity_id
+            entity_exists_id = ObservableId(f"entity_exists_{entity_id}")
+            assert entity_exists_id in predictions
+            assert isinstance(predictions[entity_exists_id], DiscreteDistribution)
+            assert np.array_equal(
+                predictions[entity_exists_id].support, extractor.entity_existence_domain
+            )
+
+        # Entity count predictions (per entity type)
+        for entity_type in extractor.entity_types:
+            entity_count_id = ObservableId(f"entity_count_{entity_type}")
+            assert entity_count_id in predictions
+            assert isinstance(predictions[entity_count_id], DiscreteDistribution)
+            assert np.array_equal(
+                predictions[entity_count_id].support, extractor.entity_count_domain
+            )
+
     def test_get_observed_outcomes(self):
         """Test extracting observed outcomes from a Crafter state."""
         # Create initial state
@@ -86,6 +106,26 @@ class TestObservableExtractor:
         assert observed[ObservableId("player_position_x")] == state.player.position.x
         assert observed[ObservableId("player_position_y")] == state.player.position.y
         assert observed[ObservableId("player_health")] == state.player.health
+
+        # Check entity lifecycle observables
+        # Entity existence (all entities in state should exist)
+        for entity in state.objects:
+            entity_id = entity.entity_id
+            entity_exists_id = ObservableId(f"entity_exists_{entity_id}")
+            assert entity_exists_id in observed
+            assert observed[entity_exists_id] == 1  # All entities exist
+
+        # Entity counts (should match actual counts in state)
+        entity_counts = {}
+        for entity in state.objects:
+            entity_type = entity.name
+            entity_counts[entity_type] = entity_counts.get(entity_type, 0) + 1
+
+        for entity_type in extractor.entity_types:
+            entity_count_id = ObservableId(f"entity_count_{entity_type}")
+            assert entity_count_id in observed
+            expected_count = entity_counts.get(entity_type, 0)
+            assert observed[entity_count_id] == expected_count
 
     def test_apply_expert_predictions(self):
         """Test applying expert predictions to create a new state."""
