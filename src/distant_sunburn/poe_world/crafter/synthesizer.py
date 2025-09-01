@@ -135,6 +135,7 @@ class CrafterExpertSynthesizer:
                 expert_function=expert_function,
                 weight=1.0,
                 is_fitted=False,
+                expert_source_code=expert_code,
             )
 
         except Exception as e:
@@ -155,18 +156,33 @@ Your task is to generate a Python function that modifies a WorldState object to 
 
 The function should be named `alter_{object_type}_objects` where {object_type} is the type of object being modified.
 
-IMPORTANT: Only modify observable attributes that are tracked by the system:
-- player_position_x, player_position_y, player_health
-- entity_{entity_id}_position_x, entity_{entity_id}_position_y, entity_{entity_id}_health
+IMPORTANT: Use the correct attribute paths that match the actual WorldState structure:
+
+**Player attributes:**
+- current_state.player.position.x, current_state.player.position.y
+- current_state.player.health
+- current_state.player.facing.x, current_state.player.facing.y
+
+**Entity attributes (for objects in current_state.objects):**
+- Find entities by iterating through current_state.objects
+- Access: obj.position.x, obj.position.y, obj.health
+- Example: for obj in current_state.objects: if obj.name == "cow": obj.health = new_value
+
+**World attributes:**
+- current_state.size[0], current_state.size[1] (world dimensions)
+- current_state.daylight, current_state.step_count
 
 Do NOT modify inventory, achievements, or other non-observable attributes.
 
 Example:
 ```python
-def alter_player_objects(current_state: WorldState, action: str) -> None:
-    if action == "move_right":
-        new_x = min(current_state.size[0] - 1, current_state.player.position.x + 1)
-        current_state.player.position.x = DiscreteDistribution(support=[new_x])
+def alter_cow_objects(current_state: WorldState, action: str) -> None:
+    if action == "do":
+        # Find the cow and modify its health
+        for obj in current_state.objects:
+            if obj.name == "cow":
+                obj.health = DiscreteDistribution(support=[max(0, obj.health - 2)])
+                break
 ```
 
 Generate only the function code, no explanations or markdown formatting."""
@@ -194,9 +210,10 @@ Please generate a Python function named `alter_{object_type}_objects` that expla
 - Take `current_state: WorldState` and `action: str` as parameters
 - Modify the current_state in-place by assigning DiscreteDistribution objects to relevant attributes
 - Return None
-- Only modify observable attributes that are relevant to the observed changes:
-  * player_position_x, player_position_y, player_health
-  * entity_{{entity_id}}_position_x, entity_{{entity_id}}_position_y, entity_{{entity_id}}_health
+- Use the correct attribute paths:
+  * Player: current_state.player.position.x, current_state.player.position.y, current_state.player.health
+  * Entities: Iterate through current_state.objects and access obj.position.x, obj.position.y, obj.health
+  * Example: for obj in current_state.objects: if obj.name == "cow": obj.health = new_value
 
 Generate only the function code:"""
 

@@ -11,6 +11,7 @@ authors = []
 dependencies = [
     "12-distant-sunburn-gameenv",
     "anthropic[balrog]>=0.64.0",
+    "backoff>=2.2.1",
     "crafter",
     "google-generativeai[balrog]>=0.8.5",
     "gymnasium>=1.2.0",
@@ -29,6 +30,7 @@ dependencies = [
     "safetensors>=0.6.2",
     "scipy>=1.16.1",
     "setuptools>=79.0.1",
+    "tenacity>=9.1.2",
     "tensordict>=0.9.1",
     "vllm>=0.10.0; sys_platform == 'linux'",
 ]

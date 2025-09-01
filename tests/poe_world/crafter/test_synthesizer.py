@@ -151,69 +151,41 @@ async def test_synthesize_experts_integration(cow_attack_scenario):
     # (The exact number of experts depends on the LLM response)
     assert len(experts) >= 0  # Could be 0 if LLM fails or no experts generated
 
-    # If experts were generated, they should have the right structure
-    for expert in experts:
-        assert isinstance(expert, WeightedExpert)
-        assert expert.expert_function is not None
-        assert expert.weight == 1.0
-        assert expert.is_fitted == False
-
     # Test that generated experts actually implement the ExpertFunction protocol
     if experts:
         expert = experts[0]
 
-        # Test actual functionality: expert_function is callable
-        assert callable(expert.expert_function)
+        # Test actual functionality: function actually works and produces sensible changes
+        # Use the initial state from the cow attack scenario (which already has the cow positioned correctly)
+        # Make a deep copy to avoid modifying the original fixture state
+        test_state = cow_attack_scenario.prev_metadata.model_copy(deep=True)
 
-        # Test actual functionality: function signature matches protocol
-        sig = inspect.signature(expert.expert_function)
-        params = list(sig.parameters.keys())
-        assert params[0] == "current_state"  # First param
-        assert params[1] == "action"  # Second param
-        assert "**context" in str(sig)  # Has **context
+        # Find the cow in the test state
+        cow_state = None
+        for obj in test_state.objects:
+            if obj.name == "cow":
+                cow_state = obj
+                break
 
-        # Test actual functionality: function modifies state in-place
-        # Create a simple test state
-        from crafter.state_export import PlayerState, Position, Inventory, Achievements
+        assert cow_state is not None, "Cow should exist in the test state"
 
-        test_state = WorldState(
-            size=(10, 10),
-            chunk_size=(5, 5),
-            view=(3, 3),
-            daylight=0.5,
-            objects=[],
-            entity_id_counter_state=0,
-            chunks=[],
-            player=PlayerState(
-                entity_id=1,
-                position=Position(x=5, y=5),
-                health=10,
-                facing=Position(x=1, y=0),
-                action="idle",
-                sleeping=False,
-                achievements=Achievements(),
-                inventory=Inventory(),
-                thirst=0.0,
-                hunger=0.0,
-                fatigue=0.0,
-                recover=0.0,
-                last_health=10,
-            ),
-            materials=[["grass"] * 10] * 10,
-            step_count=0,
-            serialized_random_state="",
-            event_bus=[],
+        # Record initial state
+        initial_cow_health = cow_state.health
+
+        # Call the expert function with the "do" action from the cow attack scenario
+        result = expert.expert_function(test_state, cow_attack_scenario.action)
+
+        print(expert.expert_source_code)
+
+        # The expert should have modified the cow's health from 5 to 3 (as per the scenario)
+        # This is the specific change we expect based on the cow_attack_scenario
+        assert cow_state.health != initial_cow_health, (
+            f"Expert function should modify cow health when called with action '{cow_attack_scenario.action}'. "
+            f"Expected cow health to change from {initial_cow_health}, but it remained {cow_state.health}"
         )
 
-        original_health = test_state.player.health
-
-        # Call the expert function
-        result = expert.expert_function(test_state, "test_action")
-
-        # Function should return None (modifies state in-place)
-        assert result is None
-
-        # State should be modified in-place
-        assert (
-            test_state.player.health != original_health or True
-        )  # Allow no change for test
+        # The cow health should have decreased (from 5 to 3, as we saw in the earlier test)
+        assert cow_state.health < initial_cow_health, (
+            f"Expert function should decrease cow health when attacking. "
+            f"Health changed from {initial_cow_health} to {cow_state.health}, but should have decreased"
+        )

@@ -157,6 +157,7 @@ class WeightedExpert:
 
     expert_function: Any  # ExpertFunction - avoiding generic issue
     weight: float
+    expert_source_code: str
     is_fitted: bool = False
 
 
