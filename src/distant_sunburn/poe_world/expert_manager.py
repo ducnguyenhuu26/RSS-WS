@@ -6,15 +6,13 @@ MaxLikelihoodWeightFitter and PoEWorldModel components. It provides the
 interface needed by ObjectModelOrchestrator to manage experts and their weights.
 """
 
-import copy
 import os
 from typing import Generic, List, TypeVar
 
 import torch
 from loguru import logger
 
-from .core import SymbolicTransition, WeightedExpert
-from .object_model_learner import ExpertManagerProtocol
+from .core import SymbolicTransition, WeightedExpert, ObservableExtractorProtocol
 from .weight_fitter import MaxLikelihoodWeightFitter
 from .world_model import PoEWorldModel
 
@@ -41,7 +39,7 @@ class ExpertManager(Generic[SymbolicStateT, ActionT]):
 
     def __init__(
         self,
-        observable_extractor,
+        observable_extractor: ObservableExtractorProtocol[SymbolicStateT],
         weight_fitter: MaxLikelihoodWeightFitter[SymbolicStateT],
         weight_threshold: float = 0.01,
     ):
@@ -58,7 +56,9 @@ class ExpertManager(Generic[SymbolicStateT, ActionT]):
         self.weight_threshold = weight_threshold
 
         # Initialize world model with empty expert list
-        self.world_model = PoEWorldModel(observable_extractor, [])
+        self.world_model = PoEWorldModel[SymbolicStateT, ActionT](
+            observable_extractor, []
+        )
 
         # Track which experts have been fitted
         self._fitted_experts = set()
@@ -347,8 +347,3 @@ class ExpertManager(Generic[SymbolicStateT, ActionT]):
         self.world_model = PoEWorldModel(self.observable_extractor, updated_experts)
 
         logger.debug(f"Updated weights for {len(new_weighted_experts)} new experts")
-
-
-# Type annotation to indicate this implements the protocol
-# Note: We can't use @implements decorator here due to generic type issues
-ExpertManager.__implements__ = ExpertManagerProtocol

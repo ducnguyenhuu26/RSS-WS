@@ -32,6 +32,7 @@ from distant_sunburn.poe_world.simple_1d_env.handwritten_experts import (
     CORRECT_EXPERTS,
     INCORRECT_EXPERTS,
 )
+from pathlib import Path
 
 
 class MockExpertSynthesizer:
@@ -73,7 +74,7 @@ def generate_test_transitions(
     return transitions
 
 
-def test_expert_manager_with_orchestrator(tmp_path):
+def test_expert_manager_with_orchestrator(tmp_path: Path):
     """
     Integration test that validates ExpertManager works with ObjectModelOrchestrator.
 
