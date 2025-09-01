@@ -15,8 +15,9 @@ The experts focus on observable mechanics:
 - Entity AI behavior (movement and health changes)
 """
 
-from typing import Any, Literal
+from typing import Any, Literal, Callable, TypeVar
 import numpy as np
+import inspect
 
 from ..core import DiscreteDistribution
 from crafter.state_export import WorldState
@@ -303,17 +304,74 @@ def incorrect_entity_ai_expert_self_destructs(
         entity.health = DiscreteDistribution(support=[0])  # type: ignore
 
 
+def incorrect_entity_lifecycle_expert_spurious_spawning(
+    current_state: WorldState, action: ActionT, **context: Any
+) -> None:
+    """
+    Incorrect expert that makes spurious predictions about entity spawning and deletion.
+
+    This expert is obviously wrong - it predicts that entities will be created
+    or deleted in situations where they shouldn't be, specifically:
+    - Predicts cows spawn when player moves
+    - Predicts zombies disappear when player attacks
+    - Predicts skeletons multiply when player sleeps
+
+    Args:
+        current_state: The current game state to modify in-place
+        action: The action being taken
+        **context: Additional context (unused)
+    """
+    # Bad prediction: Cows spawn when player moves
+    if action in ["move_left", "move_right", "move_up", "move_down"]:
+        # This is wrong - movement shouldn't create cows
+        # We can't actually create entities here, but we can predict their existence
+        # by setting their health to a non-zero value (indicating they should exist)
+        for entity in current_state.objects:
+            if entity.name == "cow":
+                # Predict cow will exist with high health (wrong prediction)
+                entity.health = DiscreteDistribution(support=[50])  # type: ignore
+
+    # Bad prediction: Zombies disappear when player attacks
+    if action == "do":
+        # This is wrong - attacking shouldn't make zombies disappear
+        for entity in current_state.objects:
+            if entity.name == "zombie":
+                # Predict zombie will be deleted (wrong prediction)
+                entity.health = DiscreteDistribution(support=[0])  # type: ignore
+
+    # Bad prediction: Skeletons multiply when player sleeps
+    if action == "sleep":
+        # This is wrong - sleeping shouldn't create skeletons
+        for entity in current_state.objects:
+            if entity.name == "skeleton":
+                # Predict skeleton will exist with high health (wrong prediction)
+                entity.health = DiscreteDistribution(support=[30])  # type: ignore
+
+
+# Add __source_code__ property to all expert functions
+CallableT = TypeVar("CallableT", bound=Callable)
+
+
+def _add_source_code_to_expert(
+    expert_func: CallableT,
+) -> CallableT:
+    """Helper function to add __source_code__ property to expert functions."""
+    setattr(expert_func, "__source_code__", inspect.getsource(expert_func))
+    return expert_func
+
+
 # Collection of all experts for easy access
 CORRECT_EXPERTS = [
-    correct_player_movement_expert,
-    correct_combat_damage_expert,
-    correct_entity_ai_expert,
+    _add_source_code_to_expert(correct_player_movement_expert),
+    _add_source_code_to_expert(correct_combat_damage_expert),
+    _add_source_code_to_expert(correct_entity_ai_expert),
 ]
 
 INCORRECT_EXPERTS = [
-    incorrect_player_movement_expert_teleports,
-    incorrect_combat_damage_expert_instakills,
-    incorrect_entity_ai_expert_self_destructs,
+    _add_source_code_to_expert(incorrect_player_movement_expert_teleports),
+    _add_source_code_to_expert(incorrect_combat_damage_expert_instakills),
+    _add_source_code_to_expert(incorrect_entity_ai_expert_self_destructs),
+    _add_source_code_to_expert(incorrect_entity_lifecycle_expert_spurious_spawning),
 ]
 
 ALL_EXPERTS = CORRECT_EXPERTS + INCORRECT_EXPERTS

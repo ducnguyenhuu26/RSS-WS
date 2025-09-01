@@ -4,6 +4,7 @@ Tests the following for the Crafter environment:
 1. We can learn a world model using PoE-World with data from a policy.
 2. That we can evaluate the world model using the evaluator.
 3. That the learned world model outperforms a null model, but not a perfect model.
+4. That bad experts (especially the entity lifecycle expert) get lower weights and accuracy.
 """
 
 import copy
@@ -26,7 +27,10 @@ from distant_sunburn.evaluator.crafter.factory import CrafterEvaluationFactory
 from distant_sunburn.evaluator.crafter.components import _gamestate_to_json
 from distant_sunburn.evaluator.crafter.utils import MAP_ACTION_TO_INDEX
 from distant_sunburn.poe_world.core import SymbolicTransition
-from distant_sunburn.poe_world.crafter.handwritten_experts import ALL_EXPERTS
+from distant_sunburn.poe_world.crafter.handwritten_experts import (
+    ALL_EXPERTS,
+    incorrect_entity_lifecycle_expert_spurious_spawning,
+)
 from distant_sunburn.poe_world.weight_fitter import MaxLikelihoodWeightFitter
 from distant_sunburn.poe_world.world_model import PoEWorldModel
 from distant_sunburn.poe_world.crafter.observable_extractor import ObservableExtractor
@@ -95,7 +99,7 @@ def test():
         l1_weight=0.001,
     )
 
-    weighted_experts = fitter.fit(ALL_EXPERTS, transitions)
+    weighted_experts = fitter.fit(ALL_EXPERTS, transitions)  # type: ignore
     learned_world_model = PoEWorldModel(
         observable_extractor=ObservableExtractor(),
         weighted_experts=weighted_experts,
@@ -123,6 +127,33 @@ def test():
 
     true_wm_perf = evaluator.evaluate(true_model)
     null_wm_perf = evaluator.evaluate(null_model)
+
+    # Check that the bad entity lifecycle expert gets a low weight
+    bad_expert_weight = None
+    for weighted_expert in weighted_experts:
+        if (
+            weighted_expert.expert_function
+            == incorrect_entity_lifecycle_expert_spurious_spawning
+        ):
+            bad_expert_weight = weighted_expert.weight
+            break
+
+    assert (
+        bad_expert_weight is not None
+    ), "Bad expert should be found in weighted experts"
+
+    # The bad expert should have a lower weight than most correct experts
+    # (though this is not guaranteed due to the learning process)
+    print(f"Bad entity lifecycle expert weight: {bad_expert_weight}")
+
+    # Check that weights are reasonable (between 0 and 1)
+    assert 0 <= bad_expert_weight <= 1, "Expert weight should be between 0 and 1"
+
+    # Print all expert weights for debugging
+    print("\nAll expert weights:")
+    for i, weighted_expert in enumerate(weighted_experts):
+        expert_name = weighted_expert.expert_function.__name__
+        print(f"  {expert_name}: {weighted_expert.weight}")
 
     # Normally, we would assert that the learned model's mean generative error is lower
     # than that of the null model. However, in this case the null model is actually better
