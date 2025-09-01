@@ -61,7 +61,6 @@ class ObjectModelOrchestratorConfig:
     batch_size: int = 10
     save_freq: int = 100
     surprise_threshold: float = -2.0
-    fast_update_frequency: int = 5
 
 
 class ObjectModelOrchestrator(Generic[SymbolicStateT, ActionT]):

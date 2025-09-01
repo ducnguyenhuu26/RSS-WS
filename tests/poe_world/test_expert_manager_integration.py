@@ -142,7 +142,6 @@ def test_crafter_integration_with_real_synthesizer(tmp_path: Path):
         batch_size=2,  # Small batch size for our 2 transitions
         save_freq=10,
         surprise_threshold=-0.5,  # Low threshold to ensure synthesis is triggered
-        fast_update_frequency=2,
     )
 
     # Create orchestrator with temporary checkpoint directory
@@ -263,7 +262,6 @@ def test_fast_inference_with_crafter_expert_manager(tmp_path: Path):
         batch_size=2,
         save_freq=10,
         surprise_threshold=-0.5,
-        fast_update_frequency=2,
     )
 
     # Create orchestrator with temporary checkpoint directory
