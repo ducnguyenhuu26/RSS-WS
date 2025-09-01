@@ -122,7 +122,6 @@ def test_expert_manager_with_orchestrator(tmp_path: Path):
         save_freq=20,
         surprise_threshold=-1.0,  # Lower threshold to trigger synthesis
         fast_update_frequency=3,
-        max_experts_per_object_type=10,
     )
 
     # Create orchestrator with temporary checkpoint directory
@@ -209,7 +208,6 @@ def test_fast_inference_with_expert_manager(tmp_path):
         save_freq=10,
         surprise_threshold=-1.0,
         fast_update_frequency=2,
-        max_experts_per_object_type=5,
     )
 
     # Create orchestrator with temporary checkpoint directory

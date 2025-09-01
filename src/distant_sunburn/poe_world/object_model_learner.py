@@ -62,7 +62,6 @@ class ObjectModelOrchestratorConfig:
     save_freq: int = 100
     surprise_threshold: float = -2.0
     fast_update_frequency: int = 5
-    max_experts_per_object_type: int = 100
 
 
 class ObjectModelOrchestrator(Generic[SymbolicStateT, ActionT]):
