@@ -25,30 +25,17 @@ The structure mirrors external poe-world:
 """
 
 import asyncio
-from typing import List, Optional, Protocol, TypeVar, Generic, Dict, Any
+from typing import List, Optional, TypeVar, Generic, Dict, Any
 from dataclasses import dataclass
 from loguru import logger
+
+from distant_sunburn.poe_world.core import ExpertSynthesizerProtocol
 
 from .core import SymbolicTransition, WeightedExpert
 from .expert_manager import ExpertManager
 
 SymbolicStateT = TypeVar("SymbolicStateT")
 ActionT = TypeVar("ActionT")
-
-
-class ExpertSynthesizerProtocol(Protocol[SymbolicStateT]):
-    """
-    Protocol for expert synthesizers that can generate new experts from transitions.
-
-    This corresponds to the synthesizer modules in external poe-world that generate
-    Python code from observed transitions.
-    """
-
-    async def synthesize_experts(
-        self, transitions: List[SymbolicTransition[SymbolicStateT]], object_type: str
-    ) -> List[WeightedExpert]:
-        """Synthesize expert programs from state transitions."""
-        ...
 
 
 @dataclass
@@ -60,8 +47,6 @@ class ObjectTypeModel(Generic[SymbolicStateT, ActionT]):
     - object_type: The type of object this model handles (e.g., "player", "ball")
     - non_creation_experts: Experts for predicting how existing objects change
     - creation_experts: Experts for predicting when new objects appear
-
-    Note: Constraints are omitted for simplicity, matching our design decision.
     """
 
     object_type: str

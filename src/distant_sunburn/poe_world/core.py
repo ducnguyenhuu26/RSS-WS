@@ -10,6 +10,7 @@ from typing import (
     Any,
     Dict,
     Generic,
+    List,
     NewType,
     Optional,
     Protocol,
@@ -320,4 +321,19 @@ class ObservableExtractorProtocol(Protocol[SymbolicStateT]):
             - Must convert sampled values to appropriate types (e.g., bool for boolean attributes)
             - Must preserve state structure and handle missing predictions gracefully
         """
+        ...
+
+
+class ExpertSynthesizerProtocol(Protocol[SymbolicStateT]):
+    """
+    Protocol for expert synthesizers that can generate new experts from transitions.
+
+    This corresponds to the synthesizer modules in external poe-world that generate
+    Python code from observed transitions.
+    """
+
+    async def synthesize_experts(
+        self, transitions: List[SymbolicTransition[SymbolicStateT]], object_type: str
+    ) -> List[WeightedExpert]:
+        """Synthesize expert programs from state transitions."""
         ...
