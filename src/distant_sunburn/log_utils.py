@@ -13,9 +13,31 @@ LOGURU_FORMAT = (
     "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
 )
 
+# Format that includes extras at the end
+LOGURU_FORMAT_WITH_EXTRAS = (
+    "<green>{time:YYYY-MM-DD HH:mm:ss.SSS Z}</green> | "
+    "<level>{level: <8}</level> | "
+    "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
+    "<yellow> | {extra}</yellow>"
+)
+
 # Type for the filter dictionary, not importable from loguru
 # for some reason.
 FilterDict = dict[Optional[str], Union[str, int, bool]]
+
+
+def configure_logger_with_extras():
+    """
+    Configure the logger to display extras in a pretty format at the end of messages.
+
+    This removes the default handler and adds a new one that shows bound extra fields.
+    Call this early in your application to set up the logging format.
+    """
+    # Remove the default handler
+    logger.remove()
+
+    # Add the new handler with extras format
+    logger.add(sys.stderr, format=LOGURU_FORMAT_WITH_EXTRAS, colorize=True)
 
 
 @contextmanager
@@ -39,8 +61,13 @@ def change_log_level(changes: dict[str, Sequence[ModuleType | str]]):
     try:
         logger.remove(0)
 
-        handler_id = logger.add(sys.stderr, filter=level_filtering)
+        handler_id = logger.add(
+            sys.stderr,
+            filter=level_filtering,
+            format=LOGURU_FORMAT_WITH_EXTRAS,
+            colorize=True,
+        )
         yield
     finally:
         logger.remove(handler_id)  # type: ignore[possibly-unbound]
-        logger.add(sys.stderr)
+        logger.add(sys.stderr, format=LOGURU_FORMAT_WITH_EXTRAS, colorize=True)

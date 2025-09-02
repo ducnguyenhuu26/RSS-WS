@@ -1,0 +1,33 @@
+---
+description: "How to use context-based logging with loguru"
+globs: 
+alwaysApply: false
+---
+# Context-Based Logging with Loguru
+The `distant_sunburn` codebase uses Loguru with automatic extras support. You can bind contextual information to your logger and have it automatically displayed in all log messages.
+
+```python
+from distant_sunburn import logger
+
+# Bind context information
+logger = logger.bind(ip="192.168.1.1", user="john_doe")
+logger.info("User logged in successfully")
+```
+
+For usage in classes, assign the bound logger to the class and use it thereafter.
+Example:
+```python
+class MyClass:
+    def __init__(self, some_important_metadata: str):
+        self.logger = logger.bind(well_chosen_name=some_important_metadata)
+
+    def do_thing(self):
+        self.logger.info("Doing thing") # will include "well_chosen_name=some_important_metadata" in the log message
+```
+
+
+## Best Practices
+1. **Bind early**: Bind context as soon as you have it (e.g., at request start)
+2. **Use descriptive names**: Choose clear, meaningful field names
+3. **Consistent patterns**: Use similar field names across your codebase
+4. **Don't over-bind**: Only bind information that's actually useful for debugging/monitoring
