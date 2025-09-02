@@ -4,6 +4,8 @@ Tests for Crafter scenarios that verify actual behavior and outcomes.
 
 import pytest
 
+from distant_sunburn.evaluator.crafter import scenarios
+
 from distant_sunburn.evaluator.crafter.scenarios import (
     CraftWoodenPickaxeScenario,
     CowMovementScenario,
@@ -237,20 +239,22 @@ class TestScenarioRunner:
 @pytest.mark.parametrize(
     "scenario_cls",
     [
-        CraftWoodenPickaxeScenario,
-        CowMovementScenario,
-        RandomMovementScenario,
-        ZombieDefeatScenario,
-        DefeatSkeletonScenario,
-        EatCowScenario,
-        CollectCoalScenario,
-        UnsuccessfulCollectCoalScenario,
-        CollectDiamondScenario,
-        UnsuccessfulCollectDiamondScenario,
-        CollectIronScenario,
-        UnsuccessfulCollectIronScenario,
-        CollectStoneScenario,
-        UnsuccessfulCollectStoneScenario,
+        scenarios.CraftWoodenPickaxeScenario,
+        scenarios.CowMovementScenario,
+        scenarios.RandomMovementScenario,
+        scenarios.ZombieDefeatScenario,
+        scenarios.DefeatSkeletonScenario,
+        scenarios.EatCowScenario,
+        scenarios.CollectCoalScenario,
+        scenarios.UnsuccessfulCollectCoalScenario,
+        scenarios.CollectDiamondScenario,
+        scenarios.UnsuccessfulCollectDiamondScenario,
+        scenarios.CollectIronScenario,
+        scenarios.UnsuccessfulCollectIronScenario,
+        scenarios.CollectStoneScenario,
+        scenarios.UnsuccessfulCollectStoneScenario,
+        scenarios.CollectDrinkScenario,
+        scenarios.CollectWoodScenario,
     ],
 )
 def test_collection_scenario(scenario_cls: Type[Scenario]):
