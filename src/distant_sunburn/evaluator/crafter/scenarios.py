@@ -32,7 +32,7 @@ import random
 import functools
 from typing import Sequence
 from crafter.constants import ActionT as CrafterAction
-from crafter.constants import MaterialT
+from crafter.constants import MaterialT, CraftingStationT
 from crafter import objects as crafter_objects
 from crafter import engine as crafter_engine
 
@@ -978,6 +978,9 @@ class CollectDrinkScenario:
         return GoalChecked(False, "Drink not collected")
 
 
+implements(Scenario)(CollectDrinkScenario)
+
+
 class CollectWoodScenario:
     def __init__(self, max_steps: int = 1):
         self.max_steps = max_steps
@@ -1003,6 +1006,9 @@ class CollectWoodScenario:
         if next_state.player.inventory.wood == 1:
             return GoalChecked(True, "Wood collected")
         return GoalChecked(False, "Wood not collected")
+
+
+implements(Scenario)(CollectWoodScenario)
 
 
 class EatPlantScenario:
@@ -1062,6 +1068,9 @@ class EatPlantScenario:
                 return GoalChecked(False, "Food not collected and plant not reset")
             case _:
                 assert_never(food_collected, plant_reset)
+
+
+implements(Scenario)(EatPlantScenario)
 
 
 class UnsuccessfulEatPlantScenario:
@@ -1133,3 +1142,79 @@ class UnsuccessfulEatPlantScenario:
                 )
             case _:
                 assert_never(food_collected, plant_reset)
+
+
+implements(Scenario)(UnsuccessfulEatPlantScenario)
+
+
+class CraftIronPickaxeScenario:
+    def __init__(self, max_steps: int = 1):
+        self.max_steps = max_steps
+
+    @property
+    def name(self) -> str:
+        return "craft_iron_pickaxe"
+
+    def get_initial_state(self) -> WorldState:
+        world, player, view = create_collection_scenario_base_state("table")
+
+        # Set the player to have the required resources
+        player_utils.set_player_inventory_item(player, "wood", 1)
+        player_utils.set_player_inventory_item(player, "coal", 1)
+        player_utils.set_player_inventory_item(player, "iron", 1)
+
+        # Add a furnace to the left of the player
+        world_utils.set_tile_material(world, player.pos - np.array([1, 0]), "furnace")
+
+        state = export_world_state(world, view=view, step_count=0)
+        return state
+
+    def policy(self, state: WorldState) -> ActionT:
+        return "make_iron_pickaxe"
+
+    def goal_test(
+        self, transitions: list[SymbolicTransition[WorldState, CrafterAction]]
+    ) -> GoalChecked:
+        first_transition = transitions[0]
+        next_state = first_transition.next_metadata
+        if next_state.player.inventory.iron_pickaxe == 1:
+            return GoalChecked(True, "Iron pickaxe crafted")
+        return GoalChecked(False, "Iron pickaxe not crafted")
+
+
+implements(Scenario)(CraftIronPickaxeScenario)
+
+
+class UnsuccessfulCraftIronPickaxeScenario:
+    def __init__(self, max_steps: int = 1):
+        self.max_steps = max_steps
+
+    @property
+    def name(self) -> str:
+        return "craft_iron_pickaxe"
+
+    def get_initial_state(self) -> WorldState:
+        world, player, view = create_collection_scenario_base_state("table")
+
+        # Ensure the player is missing a required resource
+        player_utils.set_player_inventory_item(player, "wood", 0)
+        player_utils.set_player_inventory_item(player, "coal", 1)
+        player_utils.set_player_inventory_item(player, "iron", 1)
+
+        # Add a furnace to the left of the player
+        world_utils.set_tile_material(world, player.pos - np.array([1, 0]), "furnace")
+
+        state = export_world_state(world, view=view, step_count=0)
+        return state
+
+    def policy(self, state: WorldState) -> ActionT:
+        return "make_iron_pickaxe"
+
+    def goal_test(
+        self, transitions: list[SymbolicTransition[WorldState, CrafterAction]]
+    ) -> GoalChecked:
+        first_transition = transitions[0]
+        next_state = first_transition.next_metadata
+        if next_state.player.inventory.iron_pickaxe == 1:
+            return GoalChecked(False, "Iron pickaxe crafted")
+        return GoalChecked(True, "Iron pickaxe not crafted")

@@ -257,6 +257,8 @@ class TestScenarioRunner:
         scenarios.CollectWoodScenario,
         scenarios.EatPlantScenario,
         scenarios.UnsuccessfulEatPlantScenario,
+        scenarios.CraftIronPickaxeScenario,
+        scenarios.UnsuccessfulCraftIronPickaxeScenario,
     ],
 )
 def test_collection_scenario(scenario_cls: Type[Scenario]):
@@ -268,4 +270,4 @@ def test_collection_scenario(scenario_cls: Type[Scenario]):
     results = run_scenarios([scenario])
 
     # Assert - Verify the goal test succeeded (item collected)
-    assert results[0].goal_test, "Item should be collected during collection scenario"
+    assert results[0].goal_test
