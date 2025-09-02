@@ -841,6 +841,9 @@ class CollectIronScenario:
         return GoalChecked(False, "Iron not collected")
 
 
+implements(Scenario)(CollectIronScenario)
+
+
 class UnsuccessfulCollectIronScenario:
     def __init__(self, max_steps: int = 1):
         self.max_steps = max_steps
@@ -871,3 +874,74 @@ class UnsuccessfulCollectIronScenario:
         if next_state.player.inventory.iron == 0:
             return GoalChecked(True, "Iron not collected")
         return GoalChecked(False, "Iron collected")
+
+
+implements(Scenario)(UnsuccessfulCollectIronScenario)
+
+
+class CollectStoneScenario:
+    def __init__(self, max_steps: int = 1):
+        self.max_steps = max_steps
+
+    @property
+    def name(self) -> str:
+        return "collect_stone"
+
+    def get_initial_state(self) -> WorldState:
+        world, player, view = create_collection_scenario_base_state("stone")
+
+        # Give the player a wood pickaxe
+        player_utils.set_player_inventory_item(player, "wood_pickaxe", 1)
+
+        state = export_world_state(world, view=view, step_count=0)
+        return state
+
+    def policy(self, state: WorldState) -> ActionT:
+        return "do"
+
+    def goal_test(
+        self, transitions: list[SymbolicTransition[WorldState, CrafterAction]]
+    ) -> GoalChecked:
+        first_transition = transitions[0]
+        next_state = first_transition.next_metadata
+        if next_state.player.inventory.stone == 1:
+            return GoalChecked(True, "Stone collected")
+        return GoalChecked(False, "Stone not collected")
+
+
+implements(Scenario)(CollectStoneScenario)
+
+
+class UnsuccessfulCollectStoneScenario:
+    def __init__(self, max_steps: int = 1):
+        self.max_steps = max_steps
+
+    @property
+    def name(self) -> str:
+        return "collect_stone"
+
+    def get_initial_state(self) -> WorldState:
+        world, player, view = create_collection_scenario_base_state("stone")
+
+        # Make sure a player has no pickaxe strong enough to collect the stone
+        player_utils.set_player_inventory_item(player, "wood_pickaxe", 0)
+        player_utils.set_player_inventory_item(player, "stone_pickaxe", 0)
+        player_utils.set_player_inventory_item(player, "iron_pickaxe", 0)
+
+        state = export_world_state(world, view=view, step_count=0)
+        return state
+
+    def policy(self, state: WorldState) -> ActionT:
+        return "do"
+
+    def goal_test(
+        self, transitions: list[SymbolicTransition[WorldState, CrafterAction]]
+    ) -> GoalChecked:
+        first_transition = transitions[0]
+        next_state = first_transition.next_metadata
+        if next_state.player.inventory.stone == 0:
+            return GoalChecked(True, "Stone not collected")
+        return GoalChecked(False, "Stone collected")
+
+
+implements(Scenario)(UnsuccessfulCollectStoneScenario)

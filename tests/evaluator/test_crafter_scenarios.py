@@ -16,6 +16,9 @@ from distant_sunburn.evaluator.crafter.scenarios import (
     CollectDiamondScenario,
     UnsuccessfulCollectDiamondScenario,
     CollectIronScenario,
+    UnsuccessfulCollectIronScenario,
+    CollectStoneScenario,
+    UnsuccessfulCollectStoneScenario,
 )
 from distant_sunburn.evaluator.crafter.scenarios import run_scenarios
 
@@ -185,3 +188,45 @@ def test_collect_iron_scenario():
 
     # Assert - Verify the goal test succeeded (iron collected)
     assert results[0].goal_test, "Iron should be collected during iron collect scenario"
+
+
+def test_unsuccessful_collect_iron_scenario():
+    """Test that the iron collect scenario results in the iron being collected."""
+    # Arrange
+    scenario = UnsuccessfulCollectIronScenario()
+
+    # Act
+    results = run_scenarios([scenario])
+
+    # Assert - Verify the goal test succeeded (iron not collected)
+    assert results[
+        0
+    ].goal_test, "Iron should not be collected during iron collect scenario"
+
+
+def test_collect_stone_scenario():
+    """Test that the stone collect scenario results in the stone being collected."""
+    # Arrange
+    scenario = CollectStoneScenario()
+
+    # Act
+    results = run_scenarios([scenario])
+
+    # Assert - Verify the goal test succeeded (stone collected)
+    assert results[
+        0
+    ].goal_test, "Stone should be collected during stone collect scenario"
+
+
+def test_unsuccessful_collect_stone_scenario():
+    """Test that the stone collect scenario results in the stone being collected."""
+    # Arrange
+    scenario = UnsuccessfulCollectStoneScenario()
+
+    # Act
+    results = run_scenarios([scenario])
+
+    # Assert - Verify the goal test succeeded (stone not collected)
+    assert results[
+        0
+    ].goal_test, "Stone should not be collected during stone collect scenario"
