@@ -694,4 +694,55 @@ class CollectCoalScenario:
         return GoalChecked(False, "Coal not collected")
 
 
+class UnsuccessfulCollectCoalScenario:
+    def __init__(self, max_steps: int = 1):
+        self.max_steps = max_steps
+
+    @property
+    def name(self) -> str:
+        return "collect_coal"
+
+    def get_initial_state(self) -> WorldState:
+        view = (9, 9)
+        state = initial_state(area=(9, 9), view=view, seed=1)
+        world = reconstruct_world_from_state(state)
+
+        player = find_player(world)
+        player_utils.set_player_position(player, (5, 5))
+
+        # Clear all the other tiles around the world to be grass
+        for x in range(view[0]):
+            for y in range(view[1]):
+                world_utils.set_tile_material(world, (x, y), "grass")
+
+        # Set the tile to the right of the player to coal
+        world_utils.set_tile_material(world, (6, 5), "coal")
+
+        # Make sure a player has no pickaxe
+        player_utils.set_player_inventory_item(player, "wood_pickaxe", 0)
+        player_utils.set_player_inventory_item(player, "stone_pickaxe", 0)
+        player_utils.set_player_inventory_item(player, "iron_pickaxe", 0)
+
+        # Make the player face the coal
+        player_utils.set_player_facing(player, (1, 0))
+
+        state = export_world_state(world, view=view, step_count=0)
+        return state
+
+    def policy(self, state: WorldState) -> ActionT:
+        return "do"
+
+    def goal_test(
+        self, transitions: list[SymbolicTransition[WorldState, CrafterAction]]
+    ) -> GoalChecked:
+
+        first_transition = transitions[0]
+
+        next_state = first_transition.next_metadata
+
+        if next_state.player.inventory.coal == 0:
+            return GoalChecked(True, "Coal not collected")
+        return GoalChecked(False, "Coal not collected")
+
+
 implements(Scenario)(CollectCoalScenario)
