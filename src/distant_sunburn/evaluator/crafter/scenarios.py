@@ -35,7 +35,7 @@ from crafter import objects as crafter_objects
 from crafter import engine as crafter_engine
 
 
-def create_crafting_scenario_base_state(
+def create_collection_scenario_base_state(
     target_material: MaterialT,
 ) -> tuple[crafter_engine.World, crafter_objects.Player, tuple[int, int]]:
     view = (9, 9)
@@ -681,7 +681,7 @@ class CollectCoalScenario:
         return "collect_coal"
 
     def get_initial_state(self) -> WorldState:
-        world, player, view = create_crafting_scenario_base_state("coal")
+        world, player, view = create_collection_scenario_base_state("coal")
 
         # Give the player a wood pickaxe
         player_utils.set_player_inventory_item(player, "wood_pickaxe", 1)
@@ -717,7 +717,7 @@ class UnsuccessfulCollectCoalScenario:
         return "collect_coal"
 
     def get_initial_state(self) -> WorldState:
-        world, player, view = create_crafting_scenario_base_state("coal")
+        world, player, view = create_collection_scenario_base_state("coal")
 
         # Make sure a player has no pickaxe strong enough to collect the coal
         player_utils.set_player_inventory_item(player, "wood_pickaxe", 0)
@@ -755,7 +755,7 @@ class CollectDiamondScenario:
         return "collect_diamond"
 
     def get_initial_state(self) -> WorldState:
-        world, player, view = create_crafting_scenario_base_state("diamond")
+        world, player, view = create_collection_scenario_base_state("diamond")
 
         # Give the player an iron pickaxe
         player_utils.set_player_inventory_item(player, "iron_pickaxe", 1)
@@ -788,7 +788,7 @@ class UnsuccessfulCollectDiamondScenario:
         return "collect_diamond"
 
     def get_initial_state(self) -> WorldState:
-        world, player, view = create_crafting_scenario_base_state("diamond")
+        world, player, view = create_collection_scenario_base_state("diamond")
 
         # Make sure a player has no pickaxe strong enough to collect the diamond
         player_utils.set_player_inventory_item(player, "wood_pickaxe", 1)
@@ -809,3 +809,65 @@ class UnsuccessfulCollectDiamondScenario:
         if next_state.player.inventory.diamond == 0:
             return GoalChecked(True, "Diamond not collected")
         return GoalChecked(False, "Diamond collected")
+
+
+class CollectIronScenario:
+    def __init__(self, max_steps: int = 1):
+        self.max_steps = max_steps
+
+    @property
+    def name(self) -> str:
+        return "collect_iron"
+
+    def get_initial_state(self) -> WorldState:
+        world, player, view = create_collection_scenario_base_state("iron")
+
+        # Give the player a stone pickaxe
+        player_utils.set_player_inventory_item(player, "stone_pickaxe", 1)
+
+        state = export_world_state(world, view=view, step_count=0)
+        return state
+
+    def policy(self, state: WorldState) -> ActionT:
+        return "do"
+
+    def goal_test(
+        self, transitions: list[SymbolicTransition[WorldState, CrafterAction]]
+    ) -> GoalChecked:
+        first_transition = transitions[0]
+        next_state = first_transition.next_metadata
+        if next_state.player.inventory.iron == 1:
+            return GoalChecked(True, "Iron collected")
+        return GoalChecked(False, "Iron not collected")
+
+
+class UnsuccessfulCollectIronScenario:
+    def __init__(self, max_steps: int = 1):
+        self.max_steps = max_steps
+
+    @property
+    def name(self) -> str:
+        return "collect_iron"
+
+    def get_initial_state(self) -> WorldState:
+        world, player, view = create_collection_scenario_base_state("iron")
+
+        # Make sure a player has no pickaxe strong enough to collect the iron
+        player_utils.set_player_inventory_item(player, "wood_pickaxe", 1)
+        player_utils.set_player_inventory_item(player, "stone_pickaxe", 0)
+        player_utils.set_player_inventory_item(player, "iron_pickaxe", 0)
+
+        state = export_world_state(world, view=view, step_count=0)
+        return state
+
+    def policy(self, state: WorldState) -> ActionT:
+        return "do"
+
+    def goal_test(
+        self, transitions: list[SymbolicTransition[WorldState, CrafterAction]]
+    ) -> GoalChecked:
+        first_transition = transitions[0]
+        next_state = first_transition.next_metadata
+        if next_state.player.inventory.iron == 0:
+            return GoalChecked(True, "Iron not collected")
+        return GoalChecked(False, "Iron collected")
