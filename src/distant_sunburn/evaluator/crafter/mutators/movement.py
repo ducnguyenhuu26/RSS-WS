@@ -21,6 +21,13 @@ NON_MOVEMENT_ACTIONS: set[ActionT] = {
     "make_iron_sword",
 }
 
+MOVEMENT_ACTIONS: set[ActionT] = {
+    "move_left",
+    "move_right",
+    "move_up",
+    "move_down",
+}
+
 DIRECTIONS = (
     Position(x=0, y=1),
     Position(x=1, y=0),
