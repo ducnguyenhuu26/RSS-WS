@@ -273,6 +273,8 @@ class TestScenarioRunner:
         scenarios.UnsuccessfulPlaceFurnaceScenario,
         scenarios.PlacePlantScenario,
         scenarios.UnsuccessfulPlacePlantScenario,
+        scenarios.PlaceStoneScenario,
+        scenarios.UnsuccessfulPlaceStoneScenario,
     ],
 )
 def test_collection_scenario(scenario_cls: Type[Scenario]):
