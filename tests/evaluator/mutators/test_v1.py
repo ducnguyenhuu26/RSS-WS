@@ -53,9 +53,9 @@ def test_add_illegal_item_mutator():
     mutator = AddIllegalItemMutator("wood", 2)
 
     # Ensure precondition passes
-    assert mutator.precondition("noop", initial_state_obj)
+    assert mutator.precondition(initial_state_obj, "noop")
 
-    mutated_state = mutator(initial_state_obj)
+    mutated_state = mutator(initial_state_obj, "noop")
 
     # 3. Assert
     # Check that wood was added
@@ -76,9 +76,9 @@ def test_teleport_entity_mutator():
     mutator = TeleportEntityToIllegalTileMutator(seed=42)
 
     # Ensure precondition passes
-    assert mutator.precondition("noop", initial_state_obj)
+    assert mutator.precondition(initial_state_obj, "noop")
 
-    mutated_state = mutator(initial_state_obj)
+    mutated_state = mutator(initial_state_obj, "noop")
 
     # 3. Assert
     # Find the cow in the new state
@@ -108,7 +108,7 @@ def test_teleport_entity_mutator_precondition_no_cow():
 
     # 2. Act & Assert
     mutator = TeleportEntityToIllegalTileMutator(seed=42)
-    assert not mutator.precondition("noop", initial_state_obj)
+    assert not mutator.precondition(initial_state_obj, "noop")
 
 
 def test_teleport_entity_mutator_precondition_no_illegal_tiles():
@@ -131,4 +131,4 @@ def test_teleport_entity_mutator_precondition_no_illegal_tiles():
 
     # 2. Act & Assert
     mutator = TeleportEntityToIllegalTileMutator(seed=42)
-    assert not mutator.precondition("noop", initial_state_obj)
+    assert not mutator.precondition(initial_state_obj, "noop")

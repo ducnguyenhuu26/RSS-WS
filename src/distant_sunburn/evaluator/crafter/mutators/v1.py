@@ -19,11 +19,11 @@ class Mutator(Protocol):
 
     category: str
 
-    def precondition(self, action: ActionT, state: WorldState) -> bool:
+    def precondition(self, state: WorldState, action: ActionT) -> bool:
         """Check if this mutator can be applied to the given state."""
         ...
 
-    def __call__(self, state: WorldState) -> WorldState:
+    def __call__(self, state: WorldState, action: ActionT) -> WorldState:
         """Apply the mutation to a copy of the state and return the modified copy."""
         ...
 
@@ -45,11 +45,11 @@ class AddIllegalItemMutator:
         self.amount = amount
         self.category = "Player State"
 
-    def precondition(self, action: ActionT, state: WorldState) -> bool:
+    def precondition(self, state: WorldState, action: ActionT) -> bool:
         # This mutator is general and can apply to any action.
         return True
 
-    def __call__(self, state: WorldState) -> WorldState:
+    def __call__(self, state: WorldState, action: ActionT) -> WorldState:
         mutated_state = copy.deepcopy(state)
         current_amount = getattr(mutated_state.player.inventory, self.item_name)
         setattr(
@@ -68,7 +68,7 @@ class TeleportEntityToIllegalTileMutator:
         self.rng = random.Random(seed)
         self.category = "Entity State"
 
-    def precondition(self, action: ActionT, state: WorldState) -> bool:
+    def precondition(self, state: WorldState, action: ActionT) -> bool:
         # This mutator is only interesting if a cow exists and there is a non-walkable tile.
         if not find_all_objects_for_type(state, CowState):
             return False
@@ -81,7 +81,7 @@ class TeleportEntityToIllegalTileMutator:
                     return True
         return False
 
-    def __call__(self, state: WorldState) -> WorldState:
+    def __call__(self, state: WorldState, action: ActionT) -> WorldState:
         mutated_state = copy.deepcopy(state)
 
         # Find a cow

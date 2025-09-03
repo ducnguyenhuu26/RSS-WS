@@ -3,7 +3,11 @@ import jsonpatch
 import random
 
 from ..core import DistractorGenerator, SymbolicTransition
-from .mutators.v1 import Mutator, AddIllegalItemMutator, TeleportEntityToIllegalTileMutator
+from .mutators.v1 import (
+    Mutator,
+    AddIllegalItemMutator,
+    TeleportEntityToIllegalTileMutator,
+)
 from crafter.constants import ActionT as CrafterAction
 from ...typing_utils import implements
 
@@ -90,10 +94,10 @@ class CrafterDistractorGenerator:
             mutator = self.rng.choice(self.mutators)
 
             # Check if the mutator can be applied
-            if mutator.precondition(transition.action, transition.next_metadata):
+            if mutator.precondition(transition.prev_metadata, transition.action):
                 try:
                     # Apply the mutation
-                    mutated_state = mutator(transition.next_metadata)
+                    mutated_state = mutator(transition.prev_metadata, transition.action)
 
                     # Ensure we don't return the original state
                     if mutated_state != transition.next_metadata:
