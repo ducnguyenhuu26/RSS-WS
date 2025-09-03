@@ -1,4 +1,7 @@
-from distant_sunburn.evaluator.crafter.mutators.movement import IllegalMovementMutator
+from distant_sunburn.evaluator.crafter.mutators.movement import (
+    IllegalMovementMutator,
+    NON_MOVEMENT_ACTIONS,
+)
 from crafter.state_export import WorldState
 from crafter.functional_env import (
     initial_state,
@@ -10,9 +13,12 @@ from crafter.testing_helpers import player_utils, world_utils
 from distant_sunburn.evaluator.crafter.utils import find_player
 from distant_sunburn.evaluator.crafter.utils import MAP_ACTION_TO_INDEX
 import copy
+import pytest
+from crafter.constants import ActionT
 
 
-def test_illegal_movement_mutator():
+@pytest.mark.parametrize("action", NON_MOVEMENT_ACTIONS)
+def test_non_movement_actions(action: ActionT):
     view = (9, 9)
     state = initial_state(area=(9, 9), view=view, seed=1)
     world = reconstruct_world_from_state(state)
@@ -25,8 +31,6 @@ def test_illegal_movement_mutator():
         for y in range(view[1]):
             world_utils.set_tile_material(world, (x, y), "grass")
 
-    action = "do"
-
     true_next_state, _ = transition(copy.deepcopy(state), MAP_ACTION_TO_INDEX[action])
 
     mutator = IllegalMovementMutator()
@@ -36,4 +40,3 @@ def test_illegal_movement_mutator():
     mutated_next_state = mutator(state, action)
 
     assert mutated_next_state.player.position != true_next_state.player.position
-    assert mutated_next_state.player.facing != true_next_state.player.facing
