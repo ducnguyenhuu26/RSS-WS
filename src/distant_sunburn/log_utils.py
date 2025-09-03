@@ -25,6 +25,8 @@ LOGURU_FORMAT_WITH_EXTRAS = (
 # for some reason.
 FilterDict = dict[Optional[str], Union[str, int, bool]]
 
+STDOUT_HANDLER_ID: Optional[int] = None
+
 
 def configure_logger_with_extras():
     """
@@ -33,11 +35,14 @@ def configure_logger_with_extras():
     This removes the default handler and adds a new one that shows bound extra fields.
     Call this early in your application to set up the logging format.
     """
+    global STDOUT_HANDLER_ID
     # Remove the default handler
     logger.remove()
 
     # Add the new handler with extras format
-    logger.add(sys.stderr, format=LOGURU_FORMAT_WITH_EXTRAS, colorize=True)
+    STDOUT_HANDLER_ID = logger.add(
+        sys.stderr, format=LOGURU_FORMAT_WITH_EXTRAS, colorize=True
+    )
 
 
 @contextmanager
@@ -48,6 +53,7 @@ def change_log_level(changes: dict[str, Sequence[ModuleType | str]]):
     Note: This removes the default handler and then adds it back.
     This might lead to loss of logs, so be careful.
     """
+    global STDOUT_HANDLER_ID
 
     level_filtering: FilterDict = {}
     for level, modules in changes.items():
@@ -59,15 +65,40 @@ def change_log_level(changes: dict[str, Sequence[ModuleType | str]]):
             level_filtering[module_name] = level
 
     try:
-        logger.remove(0)
+        if STDOUT_HANDLER_ID is not None:
+            logger.remove(STDOUT_HANDLER_ID)
+        else:
+            logger.remove(0)
 
-        handler_id = logger.add(
-            sys.stderr,
-            filter=level_filtering,
-            format=LOGURU_FORMAT_WITH_EXTRAS,
-            colorize=True,
-        )
+        handler_id = None
+
+        try:
+            # Add a handler filtered to the specific level
+            handler_id = logger.add(
+                sys.stderr,
+                filter=level_filtering,
+                format=LOGURU_FORMAT_WITH_EXTRAS,
+                colorize=True,
+            )
+        except Exception:
+            # This branch doesn't really make sense, because it means we've removed the
+            # handler that was there before but failed to add a new one. Not sure what to
+            # do here, since in principle we cannot log anything if this happens.
+            logger.opt(exception=True).error("Error adding log handler, not filtering.")
+            yield
+        finally:
+            if not handler_id:
+                return
+            logger.remove(handler_id)
+            # Restore the default handler
+            STDOUT_HANDLER_ID = logger.add(
+                sys.stderr, format=LOGURU_FORMAT_WITH_EXTRAS, colorize=True
+            )
+
+        yield
+    except Exception:
+        logger.opt(exception=True).error("Error removing log handler, not filtering.")
         yield
     finally:
-        logger.remove(handler_id)  # type: ignore[possibly-unbound]
-        logger.add(sys.stderr, format=LOGURU_FORMAT_WITH_EXTRAS, colorize=True)
+        # Nothing to do, so we pass
+        pass
