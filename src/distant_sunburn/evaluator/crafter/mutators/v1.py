@@ -11,7 +11,7 @@ from typing import Protocol
 
 from crafter.state_export import WorldState, CowState, Position
 from crafter.constants import ActionT
-from .utils import find_all_objects_for_type, find_object_in_state
+from ..utils import find_all_objects_for_type, find_object_in_state
 
 
 class Mutator(Protocol):

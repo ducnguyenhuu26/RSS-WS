@@ -3,7 +3,7 @@ import jsonpatch
 import random
 
 from ..core import DistractorGenerator, SymbolicTransition
-from .mutators import Mutator, AddIllegalItemMutator, TeleportEntityToIllegalTileMutator
+from .mutators.v1 import Mutator, AddIllegalItemMutator, TeleportEntityToIllegalTileMutator
 from crafter.constants import ActionT as CrafterAction
 from ...typing_utils import implements
 

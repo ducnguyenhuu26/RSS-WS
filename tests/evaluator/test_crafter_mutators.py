@@ -15,7 +15,7 @@ from crafter.functional_env import (
 from crafter.testing_helpers import player_utils, world_utils
 from crafter import objects
 
-from distant_sunburn.evaluator.crafter.mutators import (
+from distant_sunburn.evaluator.crafter.mutators.v1 import (
     AddIllegalItemMutator,
     TeleportEntityToIllegalTileMutator,
 )
