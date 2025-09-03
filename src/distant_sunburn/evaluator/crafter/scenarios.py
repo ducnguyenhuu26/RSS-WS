@@ -173,60 +173,60 @@ def run_scenarios(scenarios: Sequence[Scenario]) -> list[ScenarioRunResult]:
     return results
 
 
-class CraftWoodenPickaxeScenario:
-    """Scenario for testing crafting a wooden pickaxe."""
+# class CraftWoodenPickaxeScenario:
+#     """Scenario for testing crafting a wooden pickaxe."""
 
-    @property
-    def name(self) -> str:
-        return "craft_wooden_pickaxe"
+#     @property
+#     def name(self) -> str:
+#         return "craft_wooden_pickaxe"
 
-    def get_initial_state(self) -> WorldState:
-        """
-        Creates a temporary environment, configures it to the desired
-        starting conditions, and returns the resulting WorldState.
-        """
-        view = (9, 9)
-        state = initial_state(area=(9, 9), view=view, seed=1)
-        world = reconstruct_world_from_state(state)
+#     def get_initial_state(self) -> WorldState:
+#         """
+#         Creates a temporary environment, configures it to the desired
+#         starting conditions, and returns the resulting WorldState.
+#         """
+#         view = (9, 9)
+#         state = initial_state(area=(9, 9), view=view, seed=1)
+#         world = reconstruct_world_from_state(state)
 
-        player = find_player(world)
-        player_utils.set_player_position(player, (5, 5))
-        player_utils.set_player_facing(player, (0, 1))
-        world_utils.set_tile_material(world, (5, 6), "table")
-        player_utils.set_player_inventory_item(player, "wood", 2)
-        player_utils.set_player_inventory_item(player, "wood_pickaxe", 0)
+#         player = find_player(world)
+#         player_utils.set_player_position(player, (5, 5))
+#         player_utils.set_player_facing(player, (0, 1))
+#         world_utils.set_tile_material(world, (5, 6), "table")
+#         player_utils.set_player_inventory_item(player, "wood", 2)
+#         player_utils.set_player_inventory_item(player, "wood_pickaxe", 0)
 
-        return export_world_state(world, view=view, step_count=0)
+#         return export_world_state(world, view=view, step_count=0)
 
-    def policy(self, state: WorldState) -> ActionT:
-        """Returns the action to take at the given state."""
-        return "make_wood_pickaxe"
+#     def policy(self, state: WorldState) -> ActionT:
+#         """Returns the action to take at the given state."""
+#         return "make_wood_pickaxe"
 
-    def goal_test(
-        self, transitions: list[SymbolicTransition[WorldState, CrafterAction]]
-    ) -> GoalChecked:
-        if transitions[0].prev_metadata.player.inventory.wood_pickaxe != 0:
-            return GoalChecked(
-                False,
-                "Player already has a wooden pickaxe",
-            )
+#     def goal_test(
+#         self, transitions: list[SymbolicTransition[WorldState, CrafterAction]]
+#     ) -> GoalChecked:
+#         if transitions[0].prev_metadata.player.inventory.wood_pickaxe != 0:
+#             return GoalChecked(
+#                 False,
+#                 "Player already has a wooden pickaxe",
+#             )
 
-        post_pickaxe_count = transitions[0].next_metadata.player.inventory.wood_pickaxe
-        if post_pickaxe_count != 1:
-            return GoalChecked(
-                False,
-                f"Player has {post_pickaxe_count} wooden pickaxes instead of 1",
-            )
+#         post_pickaxe_count = transitions[0].next_metadata.player.inventory.wood_pickaxe
+#         if post_pickaxe_count != 1:
+#             return GoalChecked(
+#                 False,
+#                 f"Player has {post_pickaxe_count} wooden pickaxes instead of 1",
+#             )
 
-        return GoalChecked(True, "Player has a wooden pickaxe")
+#         return GoalChecked(True, "Player has a wooden pickaxe")
 
-    @property
-    def max_steps(self) -> int:
-        """Returns the maximum number of steps to take in the scenario."""
-        return 1
+#     @property
+#     def max_steps(self) -> int:
+#         """Returns the maximum number of steps to take in the scenario."""
+#         return 1
 
 
-implements(Scenario)(CraftWoodenPickaxeScenario)
+# implements(Scenario)(CraftWoodenPickaxeScenario)
 
 
 class ZombieDefeatScenario:
@@ -1559,3 +1559,160 @@ class UnsuccessfulCraftWoodenSwordScenario:
         if next_state.player.inventory.wood_sword == 1:
             return GoalChecked(False, "Wooden sword crafted")
         return GoalChecked(True, "Wooden sword not crafted")
+
+
+class PlaceFurnaceScenario:
+    def __init__(self, max_steps: int = 1):
+        self.max_steps = max_steps
+
+    @property
+    def name(self) -> str:
+        return "place_furnace"
+
+    def get_initial_state(self) -> WorldState:
+        world, player, view = create_collection_scenario_base_state("grass")
+
+        # Set the player to have the required resources
+        player_utils.set_player_inventory_item(player, "stone", 4)
+
+        state = export_world_state(world, view=view, step_count=0)
+        return state
+
+    def policy(self, state: WorldState) -> ActionT:
+        return "place_furnace"
+
+    def goal_test(
+        self, transitions: list[SymbolicTransition[WorldState, CrafterAction]]
+    ) -> GoalChecked:
+        first_transition = transitions[0]
+        next_state = first_transition.next_metadata
+        target_tile, _ = next_state.get_target_tile()
+        if target_tile == "furnace":
+            return GoalChecked(True, "Furnace placed")
+        return GoalChecked(False, f"Furnace not placed, target tile: {target_tile}")
+
+
+implements(Scenario)(PlaceFurnaceScenario)
+
+
+class UnsuccessfulPlaceFurnaceScenario:
+    def __init__(self, max_steps: int = 1):
+        self.max_steps = max_steps
+
+    @property
+    def name(self) -> str:
+        return "place_furnace"
+
+    def get_initial_state(self) -> WorldState:
+        world, player, view = create_collection_scenario_base_state("grass")
+
+        # Ensure the player is missing a required resource
+        player_utils.set_player_inventory_item(player, "stone", 3)
+
+        state = export_world_state(world, view=view, step_count=0)
+        return state
+
+    def policy(self, state: WorldState) -> ActionT:
+        return "place_furnace"
+
+    def goal_test(
+        self, transitions: list[SymbolicTransition[WorldState, CrafterAction]]
+    ) -> GoalChecked:
+        first_transition = transitions[0]
+        next_state = first_transition.next_metadata
+        target_tile, _ = next_state.get_target_tile()
+        if target_tile == "furnace":
+            return GoalChecked(False, "Furnace placed")
+        return GoalChecked(True, f"Furnace not placed, target tile: {target_tile}")
+
+
+implements(Scenario)(UnsuccessfulPlaceFurnaceScenario)
+
+
+class PlacePlantScenario:
+    def __init__(self, max_steps: int = 1):
+        self.max_steps = max_steps
+
+    @property
+    def name(self) -> str:
+        return "place_plant"
+
+    def get_initial_state(self) -> WorldState:
+        world, player, view = create_collection_scenario_base_state("grass")
+
+        # Set the player to have the required resources
+        player_utils.set_player_inventory_item(player, "sapling", 1)
+
+        state = export_world_state(world, view=view, step_count=0)
+        return state
+
+    def policy(self, state: WorldState) -> ActionT:
+        return "place_plant"
+
+    def goal_test(
+        self, transitions: list[SymbolicTransition[WorldState, CrafterAction]]
+    ) -> GoalChecked:
+        first_transition = transitions[0]
+        next_state = first_transition.next_metadata
+        tile, entity = next_state.get_target_tile()
+
+        match entity:
+            case PlantState():
+                return GoalChecked(True, "Plant placed")
+            case None:
+                return GoalChecked(
+                    False,
+                    f"Plant not placed; target_tile: {tile} is occupied by no entity.",
+                )
+            case _:
+                return GoalChecked(
+                    False,
+                    f"Plant not placed; target_tile: {tile} is occupied by an unexpected entity: {entity}",
+                )
+
+
+implements(Scenario)(PlacePlantScenario)
+
+
+class UnsuccessfulPlacePlantScenario:
+    def __init__(self, max_steps: int = 1):
+        self.max_steps = max_steps
+
+    @property
+    def name(self) -> str:
+        return "place_plant"
+
+    def get_initial_state(self) -> WorldState:
+        world, player, view = create_collection_scenario_base_state("grass")
+
+        # Ensure the player is missing a required resource
+        player_utils.set_player_inventory_item(player, "sapling", 0)
+
+        state = export_world_state(world, view=view, step_count=0)
+        return state
+
+    def policy(self, state: WorldState) -> ActionT:
+        return "place_plant"
+
+    def goal_test(
+        self, transitions: list[SymbolicTransition[WorldState, CrafterAction]]
+    ) -> GoalChecked:
+        first_transition = transitions[0]
+        next_state = first_transition.next_metadata
+        tile, entity = next_state.get_target_tile()
+        match entity:
+            case PlantState():
+                return GoalChecked(False, "Plant placed")
+            case None:
+                return GoalChecked(
+                    True,
+                    f"Plant not placed; target_tile: {tile} is occupied by no entity.",
+                )
+            case _:
+                return GoalChecked(
+                    True,
+                    f"Plant could not be placed; target_tile: {tile} is occupied by an entity that is not a plant: {entity}",
+                )
+
+
+implements(Scenario)(UnsuccessfulPlacePlantScenario)
