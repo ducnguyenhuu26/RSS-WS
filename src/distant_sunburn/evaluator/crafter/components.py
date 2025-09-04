@@ -65,12 +65,6 @@ class CrafterDistractorGenerator:
     def __init__(self, seed: int = 42, mutators: Optional[Sequence[Mutator]] = None):
         self.rng = random.Random(seed)
         self.mutators = mutators or DEFAULT_MUTATORS
-        # self.mutators: list[Mutator] = [
-        #     AddIllegalItemMutator("wood", 1),
-        #     AddIllegalItemMutator("stone", 1),
-        #     AddIllegalItemMutator("iron_pickaxe", 1),
-        #     TeleportEntityToIllegalTileMutator(seed=seed),
-        # ]
         self.logger = logger.bind(mutator=self.__class__.__name__)
         self.logger.info(
             f"Initialized {self.__class__.__name__} with {len(self.mutators)} mutators"

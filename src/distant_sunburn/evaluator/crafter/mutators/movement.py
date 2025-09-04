@@ -1,5 +1,5 @@
 from ....typing_utils import implements
-from .v1 import Mutator
+from .interface import Mutator
 from crafter.state_export import WorldState, Position
 from crafter.constants import ActionT
 import random

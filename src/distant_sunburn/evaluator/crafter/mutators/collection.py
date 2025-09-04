@@ -1,4 +1,4 @@
-from .v1 import Mutator
+from .interface import Mutator
 from ....typing_utils import implements
 from crafter.state_export import WorldState
 from crafter.constants import ActionT, CollectableT, collect

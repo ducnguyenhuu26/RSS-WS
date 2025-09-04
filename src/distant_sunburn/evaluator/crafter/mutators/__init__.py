@@ -1,7 +1,7 @@
 from .collection import CollectIllegalMaterialMutator
 from .crafting import CraftIllegalItemMutator
 from .movement import IllegalMovementMutator
-from .v1 import Mutator
+from .interface import Mutator
 
 DEFAULT_MUTATORS = [
     CollectIllegalMaterialMutator(),
