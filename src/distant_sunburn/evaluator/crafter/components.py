@@ -1,15 +1,14 @@
 from crafter.state_export import WorldState
 import jsonpatch
 import random
+from typing import Optional
 
 from ..core import DistractorGenerator, SymbolicTransition
-from .mutators.v1 import (
-    Mutator,
-    AddIllegalItemMutator,
-    TeleportEntityToIllegalTileMutator,
-)
+from .mutators import DEFAULT_MUTATORS, Mutator
 from crafter.constants import ActionT as CrafterAction
 from ...typing_utils import implements
+from loguru import logger
+from typing import Sequence
 
 
 # Note: This is almost a copy of the format_state function used to generate
@@ -59,14 +58,32 @@ class CrafterDistractorGenerator:
     Generates distractors for Crafter evaluation by applying mutators to ground truth states.
     """
 
-    def __init__(self, seed: int = 42):
+    def __init__(self, seed: int = 42, mutators: Optional[Sequence[Mutator]] = None):
         self.rng = random.Random(seed)
-        self.mutators: list[Mutator] = [
-            AddIllegalItemMutator("wood", 1),
-            AddIllegalItemMutator("stone", 1),
-            AddIllegalItemMutator("iron_pickaxe", 1),
-            TeleportEntityToIllegalTileMutator(seed=seed),
+        self.mutators = mutators or DEFAULT_MUTATORS
+        # self.mutators: list[Mutator] = [
+        #     AddIllegalItemMutator("wood", 1),
+        #     AddIllegalItemMutator("stone", 1),
+        #     AddIllegalItemMutator("iron_pickaxe", 1),
+        #     TeleportEntityToIllegalTileMutator(seed=seed),
+        # ]
+        self.logger = logger.bind(mutator=self.__class__.__name__)
+        self.logger.info(
+            f"Initialized {self.__class__.__name__} with {len(self.mutators)} mutators"
+        )
+
+    def _log_mutator_active_states(
+        self, mutator_active_states: dict[tuple[int, Mutator], bool]
+    ):
+        # Split them into two lists, one for active mutators and one for inactive mutators
+        active_mutators = [
+            mutator for mutator, active in mutator_active_states.items() if active
         ]
+        inactive_mutators = [
+            mutator for mutator, active in mutator_active_states.items() if not active
+        ]
+        self.logger.trace(f"Active mutators: {active_mutators}")
+        self.logger.trace(f"Inactive mutators: {inactive_mutators}")
 
     def __call__(
         self,
@@ -86,28 +103,30 @@ class CrafterDistractorGenerator:
             List of mutated states that are plausible but incorrect
         """
         distractors: list[WorldState] = []
-        max_attempts = num_distractors * 10  # Prevent infinite loops
-        attempts = 0
 
-        while len(distractors) < num_distractors and attempts < max_attempts:
-            # Sample a random mutator
-            mutator = self.rng.choice(self.mutators)
+        # Collect some logging information about which mutators were active
+        # for the transition.
 
-            # Check if the mutator can be applied
+        mutator_active_states: dict[tuple[int, Mutator], bool] = dict()
+
+        for idx, mutator in enumerate(self.mutators):
             if mutator.precondition(transition.prev_metadata, transition.action):
-                try:
-                    # Apply the mutation
-                    mutated_state = mutator(transition.prev_metadata, transition.action)
+                mutator_active_states[(idx, mutator)] = True
+                mutated_state = mutator(transition.prev_metadata, transition.action)
+                if mutated_state == transition.next_metadata:
+                    self.logger.warning(
+                        f"Mutator {mutator.__class__.__name__} generated a state that is the same as the true next state."
+                    )
+                    continue
+                else:
+                    distractors.append(mutated_state)
+            else:
+                mutator_active_states[(idx, mutator)] = False
 
-                    # Ensure we don't return the original state
-                    if mutated_state != transition.next_metadata:
-                        distractors.append(mutated_state)
+            if len(distractors) >= num_distractors:
+                break
 
-                except Exception:
-                    # If mutation fails, continue to next attempt
-                    pass
-
-            attempts += 1
+        self._log_mutator_active_states(mutator_active_states)
 
         return distractors
 
