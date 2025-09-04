@@ -168,6 +168,11 @@ def run_scenarios(scenarios: Sequence[Scenario]) -> list[ScenarioRunResult]:
             goal_test = scenario.goal_test(transitions)
             if goal_test:
                 break
+        else:
+            # The scenario was not completed within the maximum number of steps
+            logger.warning(
+                f"Scenario {scenario.name} was not completed within the maximum number of steps"
+            )
 
         results.append(ScenarioRunResult(scenario, transitions, goal_test, step + 1))
 
@@ -1880,7 +1885,7 @@ class WakeUpScenario:
         return state
 
     def policy(self, state: WorldState) -> ActionT:
-        self.logger.info(
+        self.logger.debug(
             {
                 "step_count": state.step_count,
                 "energy": state.player.inventory.energy,

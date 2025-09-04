@@ -46,10 +46,14 @@ def _gamestate_to_json(state: WorldState) -> dict:
 
 
 class JSONPatchEditDistance:
-    def __call__(self, state1: WorldState, state2: WorldState) -> int:
+    @staticmethod
+    def _make_patch(state1: WorldState, state2: WorldState) -> jsonpatch.JsonPatch:
         json1 = _gamestate_to_json(state1)
         json2 = _gamestate_to_json(state2)
-        patch = jsonpatch.make_patch(json1, json2)
+        return jsonpatch.make_patch(json1, json2)
+
+    def __call__(self, state1: WorldState, state2: WorldState) -> int:
+        patch = self._make_patch(state1, state2)
         return len(list(patch))
 
 

@@ -28,7 +28,9 @@ def test_evaluating_true_vs_null_world_model():
         next_state, _ = crafter_transition_fn(state, MAP_ACTION_TO_INDEX[action])
         return next_state
 
-    true_model = TrueTransitionWorldModel(wrap_true_transition_fn, equality_check)
+    true_model = TrueTransitionWorldModel(
+        wrap_true_transition_fn, equal_fn=equality_check
+    )
     null_model = NullWorldModel(equality_check)
 
     evaluator = Evaluator(context)
@@ -37,10 +39,9 @@ def test_evaluating_true_vs_null_world_model():
 
     null_wm_perf = evaluator.evaluate(null_model)
 
-    # True model should have perfect discriminative accuracy
     assert (
         true_wm_perf.discriminative_accuracy == 1.0
-    ), "True transition model should have perfect discriminative accuracy"
+    ), "True transition model should have accuracy greater than 0.5"
 
     #
     assert (

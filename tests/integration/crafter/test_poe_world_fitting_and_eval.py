@@ -34,6 +34,7 @@ from distant_sunburn.poe_world.crafter.handwritten_experts import (
 from distant_sunburn.poe_world.weight_fitter import MaxLikelihoodWeightFitter
 from distant_sunburn.poe_world.world_model import PoEWorldModel
 from distant_sunburn.poe_world.crafter.observable_extractor import ObservableExtractor
+import rich
 
 
 def generate_random_data(
@@ -108,7 +109,7 @@ def test():
     # Now we create an evaluation factory for evaluating the world model.
     evaluation_factory = CrafterEvaluationFactory(env_config=env_config, policy_seed=42)
     evaluation_context = evaluation_factory.create_context(
-        config=EvaluationConfig(num_distractors=2), num_transitions_per_scenario=30
+        config=EvaluationConfig(num_distractors=10), num_transitions_per_scenario=30
     )
 
     evaluator = Evaluator(evaluation_context)
@@ -155,6 +156,21 @@ def test():
         expert_name = weighted_expert.expert_function.__name__
         print(f"  {expert_name}: {weighted_expert.weight}")
 
+    # Print all performance metrics for debugging as a dictionary
+    rich.print(
+        {
+            "edit_distance": {
+                "true_wm": true_wm_perf.mean_generative_error,
+                "null_wm": null_wm_perf.mean_generative_error,
+                "learned_wm": learned_wm_perf.mean_generative_error,
+            },
+            "discriminative_accuracy": {
+                "true_wm": true_wm_perf.discriminative_accuracy,
+                "null_wm": null_wm_perf.discriminative_accuracy,
+                "learned_wm": learned_wm_perf.discriminative_accuracy,
+            },
+        }
+    )
     # Normally, we would assert that the learned model's mean generative error is lower
     # than that of the null model. However, in this case the null model is actually better
     # than the learned model, so we skip this assertion.

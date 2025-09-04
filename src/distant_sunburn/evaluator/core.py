@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from typing import Any, Generic, Protocol, TypeVar
 import numpy as np
 from icecream import ic
+import random
+import copy
 
 SymbolicStateT = TypeVar("SymbolicStateT")
 SymbolicStateT_contra = TypeVar("SymbolicStateT_contra", contravariant=True)
@@ -133,10 +135,16 @@ class Evaluator(Generic[SymbolicStateT, ActionT]):
         discriminative_successes: list[bool] = []
         distractor_type_results: dict[str, list[bool]] = defaultdict(list)
 
+        # TODO: This function does a _bunch_ of deepcopies. This is because
+        # we can't trust that the world model and the methods the world model
+        # uses are not mutating the input states. This is technically also true for the distractor
+        # generator, except that is human-written code so we can confirm that it
+        # is not mutating the input state.
+
         for idx, transition in enumerate(self.ctx.test_transitions):
             # 2. Generate prediction
             pred_state = world_model.sample_next_state(
-                transition.prev_metadata, transition.action
+                copy.deepcopy(transition.prev_metadata), transition.action
             )
 
             # 3. Measure generative error using injected calculator
@@ -150,25 +158,53 @@ class Evaluator(Generic[SymbolicStateT, ActionT]):
                 transition, self.ctx.test_transitions, self.ctx.config.num_distractors
             )
 
-            # 5. Construct candidate set
-            candidates = [transition.next_metadata, pred_state] + distractors
+            # 5. Construct candidate set and whether they are the true next state
+            candidates = [(transition.next_metadata, True), (pred_state, False)] + [
+                (distractor, False) for distractor in distractors
+            ]
+
+            # Shuffle the candidates
+            random.shuffle(candidates)
 
             # 6. Evaluate log probabilities using indices
             log_probs: list[float] = []
-            for candidate in candidates:
+            for candidate, _ in candidates:
                 log_prob = world_model.evaluate_log_probability(
-                    state=transition.prev_metadata,
+                    state=copy.deepcopy(transition.prev_metadata),
                     action=transition.action,
-                    next_state=candidate,
+                    next_state=copy.deepcopy(candidate),
                 )
                 log_probs.append(log_prob)
 
             # 7. Check discriminative success
-            # Index 0 is the true next state, index 1 is the predicted state
             max_prob_idx = max(range(len(log_probs)), key=lambda i: log_probs[i])
-            discriminative_successes.append(
-                max_prob_idx == 0
-            )  # True state should have highest probability
+            # The true next state should have the highest probability
+            # In the case where the true and predicted states
+            # are the same, we could wrongly penalize the model for picking
+            # the predicted state instead of the true state.
+            max_prob_candidate, chose_true_next_state = candidates[max_prob_idx]
+            pred_next_state_eq_true_next_state = (
+                max_prob_candidate == transition.next_metadata
+            )
+            match (chose_true_next_state, pred_next_state_eq_true_next_state):
+                case (True, _):
+                    # The model correctly chose the true next step,
+                    # so nothing else matters and we can mark as successful
+                    discriminative_successes.append(True)
+                case (False, True):
+                    # The max probability candidate chosen by the model is equivalent
+                    # to the true next state! This can happen in the case where the
+                    # model perfectly predicts the true next state, or where one of the
+                    # distractors is equivalent to the true next state (though this is rare)
+                    discriminative_successes.append(True)
+                case (False, False):
+                    # The model predicted a next state that was not the true next state
+                    # and the chosen candidate is not equivalent to the true next state
+                    # Therefore, this is a prediction error
+                    # import ipdb
+
+                    # ipdb.set_trace()
+                    discriminative_successes.append(False)
 
         # Convert distractor type results to means
         distractor_type_means = {
