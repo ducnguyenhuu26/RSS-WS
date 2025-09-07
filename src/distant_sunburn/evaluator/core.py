@@ -12,6 +12,7 @@ import numpy as np
 from icecream import ic
 import random
 import copy
+from loguru import logger
 
 SymbolicStateT = TypeVar("SymbolicStateT")
 SymbolicStateT_contra = TypeVar("SymbolicStateT_contra", contravariant=True)
@@ -141,6 +142,8 @@ class Evaluator(Generic[SymbolicStateT, ActionT]):
         # generator, except that is human-written code so we can confirm that it
         # is not mutating the input state.
 
+        n_distractors: list[int] = []
+
         for idx, transition in enumerate(self.ctx.test_transitions):
             # 2. Generate prediction
             pred_state = world_model.sample_next_state(
@@ -165,6 +168,8 @@ class Evaluator(Generic[SymbolicStateT, ActionT]):
 
             # Shuffle the candidates
             random.shuffle(candidates)
+
+            n_distractors.append(len(distractors) + 1)
 
             # 6. Evaluate log probabilities using indices
             log_probs: list[float] = []
@@ -201,9 +206,6 @@ class Evaluator(Generic[SymbolicStateT, ActionT]):
                     # The model predicted a next state that was not the true next state
                     # and the chosen candidate is not equivalent to the true next state
                     # Therefore, this is a prediction error
-                    # import ipdb
-
-                    # ipdb.set_trace()
                     discriminative_successes.append(False)
 
         # Convert distractor type results to means
@@ -211,6 +213,16 @@ class Evaluator(Generic[SymbolicStateT, ActionT]):
             distractor_type: float(np.mean(results))
             for distractor_type, results in distractor_type_results.items()
         }
+
+        logger.info(
+            "Distractor Stats",
+            distractor_stats={
+                "mean": float(np.mean(n_distractors)),
+                "max": float(np.max(n_distractors)),
+                "min": float(np.min(n_distractors)),
+                "std": float(np.std(n_distractors)),
+            },
+        )
 
         return EvaluationResults(
             mean_generative_error=float(np.mean(generative_errors)),

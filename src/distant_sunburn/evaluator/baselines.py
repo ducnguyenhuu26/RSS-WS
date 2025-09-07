@@ -95,8 +95,11 @@ class RandomWorldModel(Generic[SymbolicStateT, ActionT]):
     def evaluate_log_probability(
         self, state: SymbolicStateT, action: ActionT, next_state: SymbolicStateT
     ) -> float:
-        """Return random log probability."""
-        return self.rng.uniform(-10.0, 0.0)
+        """Return the same log probability for all states.
+
+        This is equivalent to random guessing in a multiple choice evaluation.
+        """
+        return 0.0
 
 
 implements(EvaluatableWorldModel)(RandomWorldModel)

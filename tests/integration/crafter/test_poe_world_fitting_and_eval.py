@@ -35,6 +35,7 @@ from distant_sunburn.poe_world.weight_fitter import MaxLikelihoodWeightFitter
 from distant_sunburn.poe_world.world_model import PoEWorldModel
 from distant_sunburn.poe_world.crafter.observable_extractor import ObservableExtractor
 import rich
+from distant_sunburn.evaluator.baselines import RandomWorldModel
 
 
 def generate_random_data(
@@ -156,6 +157,10 @@ def test():
         expert_name = weighted_expert.expert_function.__name__
         print(f"  {expert_name}: {weighted_expert.weight}")
 
+    # Also check perf of random world model just for debugging purposes
+    random_world_model = RandomWorldModel()
+    random_wm_perf = evaluator.evaluate(random_world_model)
+
     # Print all performance metrics for debugging as a dictionary
     rich.print(
         {
@@ -163,11 +168,13 @@ def test():
                 "true_wm": true_wm_perf.mean_generative_error,
                 "null_wm": null_wm_perf.mean_generative_error,
                 "learned_wm": learned_wm_perf.mean_generative_error,
+                "random_wm": random_wm_perf.mean_generative_error,
             },
             "discriminative_accuracy": {
                 "true_wm": true_wm_perf.discriminative_accuracy,
                 "null_wm": null_wm_perf.discriminative_accuracy,
                 "learned_wm": learned_wm_perf.discriminative_accuracy,
+                "random_wm": random_wm_perf.discriminative_accuracy,
             },
         }
     )
