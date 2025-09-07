@@ -1,4 +1,7 @@
-from distant_sunburn.json_utils import flatten_json_to_pathmap
+from distant_sunburn.json_utils import (
+    flatten_json_to_pathmap,
+    compute_patch_intersection_over_union,
+)
 import jsonpatch
 
 
@@ -442,3 +445,102 @@ def test_path_consistency_with_jsonpatch():
     print("✓ All JsonPatch paths are consistent with flattened paths")
     print("✓ Array indexing follows JsonPatch conventions")
     print("✓ Nested object paths follow JsonPatch conventions")
+
+
+def test_patch_iou_identical_patches():
+    """Test that identical patches have IoU = 1.0."""
+    original = {"name": "Alice", "age": 30}
+
+    # Create two identical modifications
+    modified1 = {"name": "Alice", "age": 31}
+    modified2 = {"name": "Alice", "age": 31}
+
+    patch1 = jsonpatch.make_patch(original, modified1)
+    patch2 = jsonpatch.make_patch(original, modified2)
+
+    iou = compute_patch_intersection_over_union(patch1, patch2, original)
+    assert iou == 1.0, f"Identical patches should have IoU=1.0, got {iou}"
+
+
+def test_patch_iou_completely_different_patches():
+    """Test that completely different patches have IoU = 0.0."""
+    original = {"name": "Alice", "age": 30, "email": "alice@example.com"}
+
+    # Create patches that modify different fields
+    modified1 = {
+        "name": "Alice",
+        "age": 31,
+        "email": "alice@example.com",
+    }  # Changes age
+    modified2 = {
+        "name": "Alice",
+        "age": 30,
+        "email": "alice.new@example.com",
+    }  # Changes email
+
+    patch1 = jsonpatch.make_patch(original, modified1)
+    patch2 = jsonpatch.make_patch(original, modified2)
+
+    iou = compute_patch_intersection_over_union(patch1, patch2, original)
+    assert iou == 0.0, f"Completely different patches should have IoU=0.0, got {iou}"
+
+
+def test_patch_iou_partial_overlap():
+    """Test that partially overlapping patches have IoU between 0 and 1."""
+    original = {
+        "name": "Alice",
+        "age": 30,
+        "email": "alice@example.com",
+        "preferences": {"theme": "dark", "notifications": True},
+    }
+
+    # Patch 1: Changes age and theme
+    modified1 = {
+        "name": "Alice",
+        "age": 31,  # Changed
+        "email": "alice@example.com",
+        "preferences": {"theme": "light", "notifications": True},  # Changed
+    }
+
+    # Patch 2: Changes age and notifications (overlaps on age)
+    modified2 = {
+        "name": "Alice",
+        "age": 31,  # Same change as patch1
+        "email": "alice@example.com",
+        "preferences": {"theme": "dark", "notifications": False},  # Different change
+    }
+
+    patch1 = jsonpatch.make_patch(original, modified1)
+    patch2 = jsonpatch.make_patch(original, modified2)
+
+    iou = compute_patch_intersection_over_union(patch1, patch2, original)
+    # Should have 1 common operation (age change) out of 3 total unique operations
+    expected_iou = 1.0 / 3.0
+    assert (
+        abs(iou - expected_iou) < 0.001
+    ), f"Expected IoU≈{expected_iou:.3f}, got {iou}"
+
+
+def test_patch_iou_with_empty_patches():
+    """Test IoU calculation with empty patches."""
+    original = {"name": "Alice", "age": 30}
+    modified = {"name": "Alice", "age": 31}
+
+    patch_with_changes = jsonpatch.make_patch(original, modified)
+    empty_patch = jsonpatch.make_patch(original, original)  # No changes
+
+    # One patch empty, one with changes
+    iou_with_empty = compute_patch_intersection_over_union(
+        patch_with_changes, empty_patch, original
+    )
+    assert (
+        iou_with_empty == 0.0
+    ), f"Patch with empty patch should have IoU=0.0, got {iou_with_empty}"
+
+    # Both patches empty
+    iou_both_empty = compute_patch_intersection_over_union(
+        empty_patch, empty_patch, original
+    )
+    assert (
+        iou_both_empty == 1.0
+    ), f"Both empty patches should have IoU=1.0, got {iou_both_empty}"
