@@ -268,3 +268,177 @@ def test_edit_distance_normalization():
     print("JsonPatch operations:")
     for op in patch.patch:
         print(f"  {op['op']} {op['path']}: {op.get('value', 'N/A')}")
+
+
+def test_path_consistency_with_jsonpatch():
+    """Test that flatten_json_to_pathmap generates paths consistent with JsonPatch."""
+    # Create a complex JSON structure
+    json_data = {
+        "user": {
+            "id": 123,
+            "name": "John Doe",
+            "profile": {
+                "age": 30,
+                "address": {
+                    "street": "123 Main St",
+                    "city": "New York",
+                    "coordinates": [40.7128, -74.0060],
+                },
+                "preferences": {"theme": "dark", "languages": ["en", "es", "fr"]},
+            },
+        },
+        "orders": [
+            {
+                "id": "order-1",
+                "items": [
+                    {"name": "laptop", "price": 999.99},
+                    {"name": "mouse", "price": 29.99},
+                ],
+            },
+            {"id": "order-2", "items": []},
+        ],
+    }
+
+    # Flatten the JSON to get all paths
+    flattened = flatten_json_to_pathmap(json_data)
+    flattened_paths = set(flattened.keys())
+
+    # Create a modified version to generate JsonPatch operations
+    modified_json = {
+        "user": {
+            "id": 456,  # Changed
+            "name": "John Doe",
+            "profile": {
+                "age": 30,
+                "address": {
+                    "street": "123 Main St",
+                    "city": "San Francisco",  # Changed
+                    "coordinates": [40.7128, -74.0060],
+                },
+                "preferences": {
+                    "theme": "light",  # Changed
+                    "languages": ["en", "es", "fr"],
+                },
+            },
+        },
+        "orders": [
+            {
+                "id": "order-1",
+                "items": [
+                    {"name": "laptop", "price": 1099.99},  # Changed
+                    {"name": "mouse", "price": 29.99},
+                ],
+            },
+            {"id": "order-2", "items": []},
+        ],
+    }
+
+    # Generate JsonPatch to see what paths it uses
+    patch = jsonpatch.make_patch(json_data, modified_json)
+    jsonpatch_paths = set()
+
+    # Extract all paths from JsonPatch operations
+    for operation in patch.patch:
+        jsonpatch_paths.add(operation["path"])
+
+    # Also test with a patch that adds/removes elements to see more path patterns
+    json_with_additions = {
+        "user": {
+            "id": 123,
+            "name": "John Doe",
+            "email": "john@example.com",  # Added
+            "profile": {
+                "age": 30,
+                "address": {
+                    "street": "123 Main St",
+                    "city": "New York",
+                    "coordinates": [40.7128, -74.0060],
+                },
+                "preferences": {"theme": "dark", "languages": ["en", "es", "fr"]},
+            },
+        },
+        "orders": [
+            {
+                "id": "order-1",
+                "items": [
+                    {"name": "laptop", "price": 999.99},
+                    {"name": "mouse", "price": 29.99},
+                ],
+            }
+            # Removed order-2
+        ],
+    }
+
+    patch_with_additions = jsonpatch.make_patch(json_data, json_with_additions)
+    for operation in patch_with_additions.patch:
+        jsonpatch_paths.add(operation["path"])
+
+    # Verify that all JsonPatch paths for existing elements exist in our flattened paths
+    # Note: JsonPatch may reference paths that don't exist in the original structure
+    # (e.g., when adding new elements or removing existing ones)
+    print(f"JsonPatch operations:")
+    for operation in patch.patch:
+        print(f"  {operation['op']} {operation['path']}")
+    for operation in patch_with_additions.patch:
+        print(f"  {operation['op']} {operation['path']}")
+
+    # For replace operations, the paths should exist in our flattened structure
+    replace_paths = set()
+    for operation in patch.patch + patch_with_additions.patch:
+        if operation["op"] == "replace":
+            replace_paths.add(operation["path"])
+
+    missing_replace_paths = replace_paths - flattened_paths
+    assert (
+        not missing_replace_paths
+    ), f"JsonPatch replace operations used paths not found in flattened structure: {missing_replace_paths}"
+
+    # Verify that our flattened paths are valid JsonPatch paths
+    # (This is a weaker test since we might have paths that JsonPatch doesn't use)
+    print(f"Flattened paths count: {len(flattened_paths)}")
+    print(f"JsonPatch paths count: {len(jsonpatch_paths)}")
+    print(f"JsonPatch paths: {sorted(jsonpatch_paths)}")
+
+    # Test specific path patterns that JsonPatch uses for existing elements
+    expected_path_patterns = [
+        "/user/id",
+        "/user/profile/address/city",
+        "/user/profile/preferences/theme",
+        "/orders/0/items/0/price",
+    ]
+
+    for expected_path in expected_path_patterns:
+        assert (
+            expected_path in flattened_paths
+        ), f"Expected path {expected_path} not found in flattened paths"
+
+    # Test that array indices are handled correctly
+    array_paths = [
+        path
+        for path in flattened_paths
+        if "/" in path and any(part.isdigit() for part in path.split("/"))
+    ]
+    assert len(array_paths) > 0, "Should have array index paths"
+
+    # Verify specific array paths exist
+    expected_array_paths = [
+        "/user/profile/address/coordinates/0",
+        "/user/profile/address/coordinates/1",
+        "/user/profile/preferences/languages/0",
+        "/user/profile/preferences/languages/1",
+        "/user/profile/preferences/languages/2",
+        "/orders/0/items/0/name",
+        "/orders/0/items/0/price",
+        "/orders/0/items/1/name",
+        "/orders/0/items/1/price",
+        "/orders/1/items",
+    ]
+
+    for expected_array_path in expected_array_paths:
+        assert (
+            expected_array_path in flattened_paths
+        ), f"Expected array path {expected_array_path} not found"
+
+    print("✓ All JsonPatch paths are consistent with flattened paths")
+    print("✓ Array indexing follows JsonPatch conventions")
+    print("✓ Nested object paths follow JsonPatch conventions")
