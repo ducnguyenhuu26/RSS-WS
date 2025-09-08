@@ -66,6 +66,7 @@ class EditDistance:
     raw: float
     normalized: float
     total_elements: float
+    intersection_over_union: float
 
     @classmethod
     def reduce(cls: type[Self], edit_distances: list[Self]) -> Self:
@@ -73,6 +74,9 @@ class EditDistance:
             raw=float(np.mean([ed.raw for ed in edit_distances])),
             normalized=float(np.mean([ed.normalized for ed in edit_distances])),
             total_elements=float(np.mean([ed.total_elements for ed in edit_distances])),
+            intersection_over_union=float(
+                np.mean([ed.intersection_over_union for ed in edit_distances])
+            ),
         )
 
 

@@ -24,7 +24,7 @@ from ...simple_1d_env.environment import (
     Action,
     WorldConfig,
 )
-from ...json_utils import flatten_json_to_pathmap
+from ...json_utils import flatten_json_to_pathmap, compute_patch_intersection_over_union
 
 SymbolicStateT = TypeVar("SymbolicStateT")
 
@@ -90,6 +90,17 @@ class JSONPatchEditDistance:
         total_elements = len(flattened)
         return raw_edit_distance / total_elements, total_elements
 
+    def _calc_intersection_over_union(
+        self, state: GameState, true_next_state: GameState, pred_next_state: GameState
+    ) -> float:
+        state_json = self._gamestate_to_json(state)
+        true_next_state_json = self._gamestate_to_json(true_next_state)
+        pred_next_state_json = self._gamestate_to_json(pred_next_state)
+        return compute_patch_intersection_over_union(
+            jsonpatch.make_patch(state_json, true_next_state_json),
+            jsonpatch.make_patch(state_json, pred_next_state_json),
+        )
+
     def __call__(
         self, state: GameState, true_next_state: GameState, pred_next_state: GameState
     ) -> EditDistance:
@@ -101,10 +112,16 @@ class JSONPatchEditDistance:
         normalized_edit_distance, total_elements = self._calc_normalized_edit_distance(
             raw_edit_distance, true_next_state
         )
+
+        intersection_over_union = self._calc_intersection_over_union(
+            state, true_next_state, pred_next_state
+        )
+
         return EditDistance(
             raw=raw_edit_distance,
             normalized=normalized_edit_distance,
             total_elements=total_elements,
+            intersection_over_union=intersection_over_union,
         )
 
 
