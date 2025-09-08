@@ -58,7 +58,8 @@ class PatchOperation(NamedTuple):
 
 
 def compute_patch_intersection_over_union(
-    patch1: jsonpatch.JsonPatch, patch2: jsonpatch.JsonPatch, source_json: dict | list
+    patch1: jsonpatch.JsonPatch,
+    patch2: jsonpatch.JsonPatch,
 ) -> float:
     """
     Compute the intersection over union (IoU) of two JSON patches.
@@ -69,11 +70,6 @@ def compute_patch_intersection_over_union(
     Args:
         patch1: First JsonPatch object
         patch2: Second JsonPatch object
-        source_json: The original JSON structure that both patches were applied to.
-                    This is used to get the total number of attributes for normalization.
-                    Note: The JSON should terminate in primitive values (strings, numbers,
-                    booleans, null) at all leaf nodes, which should always be the case
-                    for valid JSON structures.
 
     Returns:
         float: IoU value between 0.0 and 1.0, where:

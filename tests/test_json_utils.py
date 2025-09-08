@@ -458,7 +458,7 @@ def test_patch_iou_identical_patches():
     patch1 = jsonpatch.make_patch(original, modified1)
     patch2 = jsonpatch.make_patch(original, modified2)
 
-    iou = compute_patch_intersection_over_union(patch1, patch2, original)
+    iou = compute_patch_intersection_over_union(patch1, patch2)
     assert iou == 1.0, f"Identical patches should have IoU=1.0, got {iou}"
 
 
@@ -481,7 +481,7 @@ def test_patch_iou_completely_different_patches():
     patch1 = jsonpatch.make_patch(original, modified1)
     patch2 = jsonpatch.make_patch(original, modified2)
 
-    iou = compute_patch_intersection_over_union(patch1, patch2, original)
+    iou = compute_patch_intersection_over_union(patch1, patch2)
     assert iou == 0.0, f"Completely different patches should have IoU=0.0, got {iou}"
 
 
@@ -513,7 +513,7 @@ def test_patch_iou_partial_overlap():
     patch1 = jsonpatch.make_patch(original, modified1)
     patch2 = jsonpatch.make_patch(original, modified2)
 
-    iou = compute_patch_intersection_over_union(patch1, patch2, original)
+    iou = compute_patch_intersection_over_union(patch1, patch2)
     # Should have 1 common operation (age change) out of 3 total unique operations
     expected_iou = 1.0 / 3.0
     assert (
@@ -531,16 +531,15 @@ def test_patch_iou_with_empty_patches():
 
     # One patch empty, one with changes
     iou_with_empty = compute_patch_intersection_over_union(
-        patch_with_changes, empty_patch, original
+        patch_with_changes,
+        empty_patch,
     )
     assert (
         iou_with_empty == 0.0
     ), f"Patch with empty patch should have IoU=0.0, got {iou_with_empty}"
 
     # Both patches empty
-    iou_both_empty = compute_patch_intersection_over_union(
-        empty_patch, empty_patch, original
-    )
+    iou_both_empty = compute_patch_intersection_over_union(empty_patch, empty_patch)
     assert (
         iou_both_empty == 1.0
     ), f"Both empty patches should have IoU=1.0, got {iou_both_empty}"
