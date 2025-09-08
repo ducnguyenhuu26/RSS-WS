@@ -74,16 +74,33 @@ class JSONPatchEditDistance:
             # Exclude the RNG state, which is not easy to serialize.
         }
 
-    def __call__(self, state1: GameState, state2: GameState) -> EditDistance:
-        """Compute the edit distance between two GameState objects using JSON patch."""
-        json1 = self._gamestate_to_json(state1)
-        json2 = self._gamestate_to_json(state2)
+    def _calc_raw_edit_distance(
+        self, pred_next_state: GameState, true_next_state: GameState
+    ) -> int:
+        json1 = self._gamestate_to_json(pred_next_state)
+        json2 = self._gamestate_to_json(true_next_state)
         patch = jsonpatch.make_patch(json1, json2)
-        raw_edit_distance = len(list(patch))
+        return len(list(patch))
 
-        flattened_json1 = flatten_json_to_pathmap(json1)
-        total_elements = len(flattened_json1)
-        normalized_edit_distance = raw_edit_distance / total_elements
+    def _calc_normalized_edit_distance(
+        self, raw_edit_distance: int, true_next_state: GameState
+    ) -> tuple[float, int]:
+        true_next_state_json = self._gamestate_to_json(true_next_state)
+        flattened = flatten_json_to_pathmap(true_next_state_json)
+        total_elements = len(flattened)
+        return raw_edit_distance / total_elements, total_elements
+
+    def __call__(
+        self, state: GameState, true_next_state: GameState, pred_next_state: GameState
+    ) -> EditDistance:
+        """Compute the edit distance between two GameState objects using JSON patch."""
+        raw_edit_distance = self._calc_raw_edit_distance(
+            pred_next_state, true_next_state
+        )
+
+        normalized_edit_distance, total_elements = self._calc_normalized_edit_distance(
+            raw_edit_distance, true_next_state
+        )
         return EditDistance(
             raw=raw_edit_distance,
             normalized=normalized_edit_distance,

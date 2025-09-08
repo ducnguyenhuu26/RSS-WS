@@ -80,7 +80,10 @@ class EditDistanceCalculator(Protocol[SymbolicStateT_contra]):
     """Protocol for computing edit distances between states."""
 
     def __call__(
-        self, state1: SymbolicStateT_contra, state2: SymbolicStateT_contra
+        self,
+        state: SymbolicStateT_contra,
+        true_next_state: SymbolicStateT_contra,
+        pred_next_state: SymbolicStateT_contra,
     ) -> EditDistance:
         """Compute structured edit distance between two states"""
         ...
@@ -168,7 +171,9 @@ class Evaluator(Generic[SymbolicStateT, ActionT]):
 
             # 3. Measure generative error using injected calculator
             edit_distance = self.ctx.edit_distance_calculator(
-                pred_state, transition.next_metadata
+                state=transition.prev_metadata,
+                true_next_state=transition.next_metadata,
+                pred_next_state=pred_state,
             )
             edit_distances.append(edit_distance)
 

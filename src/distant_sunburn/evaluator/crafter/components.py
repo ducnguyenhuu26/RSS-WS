@@ -14,7 +14,7 @@ from crafter.constants import ActionT as CrafterAction
 from ...typing_utils import implements
 from loguru import logger
 from typing import Sequence
-from ...json_utils import flatten_json_to_pathmap
+from ...json_utils import flatten_json_to_pathmap, compute_patch_intersection_over_union
 
 
 # Note: This is almost a copy of the format_state function used to generate
@@ -52,10 +52,15 @@ def _gamestate_to_json(state: WorldState) -> dict:
 
 
 class JSONPatchEditDistance:
-    def __call__(self, state1: WorldState, state2: WorldState) -> EditDistance:
+    def __call__(
+        self,
+        state: WorldState,
+        true_next_state: WorldState,
+        pred_next_state: WorldState,
+    ) -> EditDistance:
 
-        json1 = _gamestate_to_json(state1)
-        json2 = _gamestate_to_json(state2)
+        json1 = _gamestate_to_json(pred_next_state)
+        json2 = _gamestate_to_json(true_next_state)
         patch = jsonpatch.make_patch(json1, json2)
         raw_edit_distance = len(list(patch))
 

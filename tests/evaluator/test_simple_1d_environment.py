@@ -65,13 +65,13 @@ def test_edit_distance_calculation():
     calc = JSONPatchEditDistance()
 
     # Calculate distance
-    distance = calc(state1, state2)
+    distance = calc._calc_raw_edit_distance(state1, state2)
 
-    assert distance.raw >= 0
+    assert distance >= 0
 
     # Distance to self should be 0
-    self_distance = calc(state1, state1)
-    assert self_distance.raw == 0
+    self_distance = calc._calc_raw_edit_distance(state1, state1)
+    assert self_distance == 0
 
 
 def test_distractor_generation():
