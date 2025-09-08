@@ -543,3 +543,22 @@ def test_patch_iou_with_empty_patches():
     assert (
         iou_both_empty == 1.0
     ), f"Both empty patches should have IoU=1.0, got {iou_both_empty}"
+
+
+def test_patch_iou_with_object_value_triggers_unhashable_dict_error():
+    """Reproduce bug: IOU raises TypeError when operation value is a dict.
+
+    The JsonPatch diff can legally include object (dict) values for add/replace
+    operations. Our current IOU implementation attempts to put these values into
+    a set via a NamedTuple, which triggers `TypeError: unhashable type: 'dict'`.
+    """
+    original = {"user": {"profile": {}}}
+    modified1 = {"user": {"profile": {"settings": {"theme": "dark"}}}}
+    modified2 = {"user": {"profile": {"settings": {"theme": "light"}}}}
+
+    patch1 = jsonpatch.make_patch(original, modified1)
+    patch2 = jsonpatch.make_patch(original, modified2)
+
+    # This call currently raises: TypeError: unhashable type: 'dict'
+    # The test is meant to reproduce the bug; it will fail until the bug is fixed.
+    compute_patch_intersection_over_union(patch1, patch2)
