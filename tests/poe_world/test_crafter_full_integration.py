@@ -70,7 +70,7 @@ def _generate_cow_movement_transitions(
     transitions: List[SymbolicTransition[WorldState]] = []
 
     for a in chosen_actions:
-        idx = MAP_ACTION_TO_INDEX[a]
+        idx = MAP_ACTION_TO_INDEX[a]  # type: ignore[index]
         next_state, _ = transition(state, idx)
         transitions.append(
             SymbolicTransition(prev_metadata=state, action=a, next_metadata=next_state)
@@ -148,6 +148,11 @@ def test_crafter_full_integration_two_obj_types(tmp_path):
     )
     assert isinstance(lp_after, float)
     assert lp_after > baseline_lp
+
+    # Exercise public API: get_model() and sampling
+    retrieved = learner.get_model()
+    sampled_next = retrieved.sample_next_state(t.prev_metadata, t.action)
+    assert isinstance(sampled_next, WorldState)
 
     # Save and load checkpoints for each orchestrator
     for obj_type, orchestrator in orchestrators.items():

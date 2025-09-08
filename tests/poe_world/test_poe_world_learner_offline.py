@@ -111,6 +111,12 @@ def test_offline_synthesis_and_fast_update(tmp_path):
         t.prev_metadata, t.action, t.next_metadata
     )
 
+    # Exercise public API: get_model() and sample_next_state()
+    retrieved = learner.get_model()
+    next_state = retrieved.sample_next_state(t.prev_metadata, t.action)
+    assert isinstance(next_state, GameState)
+    assert 0 <= next_state.player.position < next_state.config.width
+
     # Add more data and do a fast update
     extra = _generate_transitions(10, seed=3)
     model2 = learner.update_world_model(extra, fast=True)
