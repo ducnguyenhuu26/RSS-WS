@@ -84,22 +84,40 @@ def compute_patch_intersection_over_union(
         >>> iou = compute_patch_intersection_over_union(patch1, patch2, source)
         >>> print(f"IoU: {iou:.2f}")  # Should be 0.5 (1 common operation out of 2 total)
     """
-    # Convert patches to sets of PatchOperation objects for comparison
-    operations1 = set()
-    for op in patch1.patch:
-        operations1.add(
-            PatchOperation(
-                path=op["path"], operation=op["op"], value=op.get("value", None)
-            )
-        )
+    # Convert patches to sets of hashable operation keys for comparison.
+    #
+    # Why not store raw values? In RFC 6902 JSON Patch, the "value" field for
+    # add/replace/test can be any JSON value, including objects and arrays.
+    # Python dicts/lists are unhashable, so attempting to put them directly in
+    # a set (e.g., within a NamedTuple) raises "TypeError: unhashable type: 'dict'".
+    #
+    # To support correct equality and hashing, we canonicalize each operation
+    # into a tuple of primitives:
+    #   (op, path, canonical_json_value_or_None, from_path_or_None)
+    # where the value (when present) is serialized with sorted keys and compact
+    # separators. This makes two semantically equal JSON values compare equal
+    # as strings, and remains hashable.
+    #
+    # We also include the optional "from" field for copy/move operations to
+    # distinguish otherwise identical operations with different sources.
 
-    operations2 = set()
-    for op in patch2.patch:
-        operations2.add(
-            PatchOperation(
-                path=op["path"], operation=op["op"], value=op.get("value", None)
+    def _operation_key(operation: dict) -> tuple[str, str, str | None, str | None]:
+        op_type = operation["op"]
+        path = operation["path"]
+        value_repr: str | None
+        # Only serialize if the key exists. This preserves distinction between
+        # missing value vs explicit null value (the latter becomes 'null').
+        if "value" in operation:
+            value_repr = json.dumps(
+                operation["value"], sort_keys=True, separators=(",", ":")
             )
-        )
+        else:
+            value_repr = None
+        from_path = operation.get("from", None)
+        return (op_type, path, value_repr, from_path)
+
+    operations1 = {_operation_key(op) for op in patch1.patch}
+    operations2 = {_operation_key(op) for op in patch2.patch}
 
     # Compute intersection and union
     intersection = operations1 & operations2
