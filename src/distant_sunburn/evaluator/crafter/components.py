@@ -52,6 +52,24 @@ def _gamestate_to_json(state: WorldState) -> dict:
 
 
 class JSONPatchEditDistance:
+    @staticmethod
+    def _calc_raw_edit_distance(
+        pred_next_state: WorldState, true_next_state: WorldState
+    ) -> int:
+        json1 = _gamestate_to_json(pred_next_state)
+        json2 = _gamestate_to_json(true_next_state)
+        patch = jsonpatch.make_patch(json1, json2)
+        return len(list(patch))
+
+    @staticmethod
+    def _calc_normalized_edit_distance(
+        raw_edit_distance: int, true_next_state: WorldState
+    ) -> tuple[float, int]:
+        true_next_state_json = _gamestate_to_json(true_next_state)
+        flattened = flatten_json_to_pathmap(true_next_state_json)
+        total_elements = len(flattened)
+        return raw_edit_distance / total_elements, total_elements
+
     def __call__(
         self,
         state: WorldState,
@@ -59,14 +77,13 @@ class JSONPatchEditDistance:
         pred_next_state: WorldState,
     ) -> EditDistance:
 
-        json1 = _gamestate_to_json(pred_next_state)
-        json2 = _gamestate_to_json(true_next_state)
-        patch = jsonpatch.make_patch(json1, json2)
-        raw_edit_distance = len(list(patch))
+        raw_edit_distance = self._calc_raw_edit_distance(
+            pred_next_state, true_next_state
+        )
 
-        flattened_json1 = flatten_json_to_pathmap(json1)
-        total_elements = len(flattened_json1)
-        normalized_edit_distance = raw_edit_distance / total_elements
+        normalized_edit_distance, total_elements = self._calc_normalized_edit_distance(
+            raw_edit_distance, true_next_state
+        )
 
         return EditDistance(
             raw=raw_edit_distance,
