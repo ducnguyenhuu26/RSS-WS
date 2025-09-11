@@ -9,23 +9,12 @@ in the Crafter environment.
 import ast
 from typing import List, Optional, Protocol
 
-from crafter.state_export import (
-    ArrowState,
-    CowState,
-    FenceState,
-    PlantState,
-    Position,
-    SkeletonState,
-    WorldState,
-    ZombieState,
-)
 from loguru import logger
 
 from ..litellm_utils import GeminiLiteLlmParams, LiteLlmMessage, LiteLlmRequest
 from ..local_code_execution import ExecWithLimitedNamespace
 from ..typing_utils import implements
 from .core import (
-    DiscreteDistribution,
     ExpertFunction,
     ExpertSynthesizerProtocol,
     SymbolicTransition,
