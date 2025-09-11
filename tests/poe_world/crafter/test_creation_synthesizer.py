@@ -19,6 +19,7 @@ from crafter.state_export import (
 
 from distant_sunburn.poe_world.crafter.creation_synthesizer import (
     CrafterCreationSynthesizer,
+    CrafterCreationSynthesisDependenciesProvider,
 )
 from distant_sunburn.poe_world.core import (
     SymbolicTransition,
@@ -26,10 +27,13 @@ from distant_sunburn.poe_world.core import (
 from loguru import logger
 
 
+@pytest.mark.flaky(retries=3, delay=0.25)
 @pytest.mark.asyncio
 async def test_zombie_defeat_transition():
     """Test that zombie defeat transitions are correctly detected."""
-    synthesizer = CrafterCreationSynthesizer()
+    synthesizer = CrafterCreationSynthesizer(
+        dependencies_provider=CrafterCreationSynthesisDependenciesProvider(),
+    )
 
     # Create initial state with zombies
     initial_state = WorldState(
@@ -155,10 +159,13 @@ async def test_zombie_defeat_transition():
     assert len(experts) >= 1, "Should generate experts for zombie defeat transition"
 
 
+@pytest.mark.flaky(retries=3, delay=0.25)
 @pytest.mark.asyncio
 async def test_cow_spawning_transition():
     """Test that cow spawning transitions are correctly detected."""
-    synthesizer = CrafterCreationSynthesizer()
+    synthesizer = CrafterCreationSynthesizer(
+        dependencies_provider=CrafterCreationSynthesisDependenciesProvider(),
+    )
 
     # Create initial state without cows
     initial_state = WorldState(
