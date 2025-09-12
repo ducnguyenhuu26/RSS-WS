@@ -70,7 +70,20 @@ def alter_cow_objects(current_state: WorldState, action: str) -> None:
                 break
 ```
 
-Generate only the function code, no explanations or markdown formatting."""
+Generate only the function code, no explanations or markdown formatting.
+
+Generate ONLY the function code. DO NOT re-write out the class definitions or state definition.
+Generate ONLY the function code.
+If you DO NOT generate only the function code, INCREDIBLY BAD THINGS WILL HAPPEN.
+!!! IMPORTANT !!!
+GENERATE ONLY THE FUNCTION CODE.
+!!! IMPORTANT !!!
+DO NOT USE ANY IMPORT STATEMENTS.
+DO NOT DEFINE ANY CLASSES.
+!!! IMPORTANT !!!
+
+All classes and all imports you might need are already defined!
+"""
 
     def get_synthesis_prompt(
         self,
