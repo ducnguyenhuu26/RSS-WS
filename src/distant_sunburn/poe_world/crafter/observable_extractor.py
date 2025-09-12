@@ -41,7 +41,7 @@ class ObservableExtractor:
         self.entity_types = ["cow", "zombie", "skeleton", "plant", "arrow", "fence"]
 
         # Define domain for entity counts (reasonable range for Crafter)
-        self.entity_count_domain = np.arange(0, 6)  # [0, 1, 2, 3, 4, 5]
+        self.entity_count_domain = np.arange(0, 50)  # [0, 1, 2, 3, 4, 5]
 
         # Define domain for entity existence (0 = deleted, 1 = exists)
         self.entity_existence_domain = np.array([0, 1])
