@@ -23,8 +23,58 @@ from .core import (
 from typing import TypeVar, Generic, Callable
 from ..litellm_utils import NonStreamingModelResponse
 from .core import ExpertFunctionWrapper
+import re
+from typing import Optional
 
 SymbolicStateT = TypeVar("SymbolicStateT")
+
+
+def extract_code_markdown(markdown_text: str) -> Optional[str]:
+    """
+    Extracts code from the first markdown fenced code block using line-by-line parsing.
+
+    This function is designed to be robust against malformed markdown,
+    such as a missing closing fence.
+
+    Args:
+        markdown_text: The string containing markdown text.
+
+    Returns:
+        The extracted code as a string. If a starting fence is found but
+        no closing fence, it returns all lines until the end of the string.
+        Returns None if no starting fence is found.
+    """
+    lines = markdown_text.splitlines()
+    code_lines = []
+
+    # Use an iterator to allow consuming lines within the loop
+    line_iterator = iter(lines)
+
+    opening_fence = None
+
+    # 1. Find the start of the first code block
+    for line in line_iterator:
+        stripped_line = line.strip()
+        if stripped_line.startswith("```"):
+            opening_fence = "```"
+            break
+        elif stripped_line.startswith("~~~"):
+            opening_fence = "~~~"
+            break
+
+    # If no opening fence was found in the entire text, return None
+    if opening_fence is None:
+        return None
+
+    # 2. Collect lines until the closing fence or end of text
+    for line in line_iterator:
+        # The closing fence must match the opening one and be on its own line
+        if line.strip().startswith(opening_fence):
+            # Found the end of the block
+            break
+        code_lines.append(line)
+
+    return "\n".join(code_lines)
 
 
 class SynthesisDependenciesProvider(Protocol[SymbolicStateT]):
@@ -182,8 +232,15 @@ class GenericSynthesizer(Generic[SymbolicStateT]):
     def _extract_expert_function(self, llm_response: str) -> Optional[str]:
         """Extract the expert function code from the LLM response using AST parsing."""
         try:
+
+            code = extract_code_markdown(llm_response)
+            if not code:
+                # Assume that the code is not markdown fenced and try to
+                # parse the whole response
+                code = llm_response
+
             # Parse the entire response to get the AST
-            tree = ast.parse(llm_response)
+            tree = ast.parse(code)
 
             # Find all function definitions
             functions = []
@@ -201,20 +258,18 @@ class GenericSynthesizer(Generic[SymbolicStateT]):
                 return functions[0]
             else:
                 logger.warning(
-                    "No functions starting with 'alter_' found in LLM response"
+                    f"No functions starting with 'alter_' found in LLM response: {llm_response}"
                 )
                 return None
 
         except SyntaxError as e:
             logger.error(f"Failed to parse LLM response as Python code: {e}")
-            logger.debug(
-                f"LLM response that caused syntax error: {llm_response[:200]}..."
-            )
+            logger.debug(f"LLM response that caused syntax error: {llm_response}...")
             return None
 
         except Exception as e:
             logger.error(f"Unexpected error during function extraction: {e}")
-            logger.debug(f"LLM response: {llm_response[:200]}...")
+            logger.debug(f"LLM response: {llm_response}...")
             return None
 
     def _validate_expert_code(self, code: str) -> bool:
@@ -242,6 +297,8 @@ class GenericSynthesizer(Generic[SymbolicStateT]):
             compiled_function = executor.namespace[function_name]
 
             expert_function = ExpertFunctionWrapper(compiled_function, code)
+
+            logger.success(f"Compiled expert function: {expert_function.__name__}")
 
             return expert_function
 
