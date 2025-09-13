@@ -29,6 +29,10 @@ from .core import (
 from tqdm.auto import tqdm
 
 
+# Global floor for logscores to prevent -inf/NaN from propagating through PoE
+LOGSCORE_FLOOR = -50.0  # ~1.9e-22 probability
+
+
 def combine_expert_predictions_for_attr(
     expert_predictions: list[DiscreteDistribution], weights: torch.Tensor
 ) -> DiscreteDistribution:
@@ -60,6 +64,13 @@ def combine_expert_predictions_for_attr(
             for pred in expert_predictions
         ]
     )
+    # Sanitize and clamp to avoid -inf/NaN dominating the combination
+    logscores_matrix = torch.where(
+        torch.isfinite(logscores_matrix),
+        logscores_matrix,
+        torch.full_like(logscores_matrix, LOGSCORE_FLOOR),
+    )
+    logscores_matrix = torch.clamp(logscores_matrix, min=LOGSCORE_FLOOR)
 
     # Matrix multiplication: [n_values, n_experts] @ [n_experts] = [n_values]
     # This computes: combined_logscores[value] = sum(weight[i] * expert_logscore[i][value])
@@ -107,6 +118,13 @@ def combine_expert_predictions_for_attr_torch(
             for pred in expert_predictions
         ]
     )
+    # Sanitize and clamp to avoid -inf/NaN dominating the combination
+    logscores_matrix = torch.where(
+        torch.isfinite(logscores_matrix),
+        logscores_matrix,
+        torch.full_like(logscores_matrix, LOGSCORE_FLOOR),
+    )
+    logscores_matrix = torch.clamp(logscores_matrix, min=LOGSCORE_FLOOR)
 
     # Matrix multiplication: [n_values, n_experts] @ [n_experts] = [n_values]
     # This computes: combined_logscores[value] = sum(weight[i] * expert_logscore[i][value])
@@ -399,6 +417,60 @@ class MaxLikelihoodWeightFitter(Generic[SymbolicStateT]):
                     attr_predictions = [
                         pred[attr_name] for pred in transition_predictions
                     ]
+
+                    ## BEGIN DEBUG INSTRUMENTATION ##
+
+                    # Debug instrumentation: sample every 100 transitions to limit log volume
+                    if False:
+                        # 1) Check supports are identical across experts
+                        same_support = all(
+                            np.array_equal(attr_predictions[0].support, p.support)
+                            for p in attr_predictions[1:]
+                        )
+                        if not same_support:
+                            with logger.contextualize(attribute=str(attr_name)):
+                                logger.warning("Support mismatch across experts")
+
+                        # 2) Check observed value is in support
+                        try:
+                            observed_int = int(observed_value)
+                        except Exception:
+                            observed_int = observed_value
+                        support_set = set(attr_predictions[0].support.tolist())
+                        if observed_int not in support_set:
+                            with logger.contextualize(
+                                attribute=str(attr_name), observed=observed_int
+                            ):
+                                logger.warning("Observed outcome not in support")
+
+                        # 3) Check for non-finite logscores
+                        bad_experts = [
+                            idx
+                            for idx, p in enumerate(attr_predictions)
+                            if not np.isfinite(p.logscores).all()
+                        ]
+                        if bad_experts:
+                            with logger.contextualize(
+                                attribute=str(attr_name), experts=bad_experts
+                            ):
+                                logger.warning("Non-finite logscores present")
+
+                        # 4) Check combined raw logscore at observed index
+                        values_tensor, combined_logscores = (
+                            combine_expert_predictions_for_attr_torch(
+                                attr_predictions, weights
+                            )
+                        )
+                        mask = values_tensor == observed_int
+                        if mask.any():
+                            combined_obs = combined_logscores[mask][0]
+                            if not torch.isfinite(combined_obs):
+                                with logger.contextualize(attribute=str(attr_name)):
+                                    logger.warning(
+                                        "Combined raw logscore at observed index is -inf"
+                                    )
+
+                    ## END DEBUG INSTRUMENTATION ##
 
                     log_prob = compute_log_prob_for_attr_from_expert_predictions_torch(
                         attr_predictions, weights, observed_value
