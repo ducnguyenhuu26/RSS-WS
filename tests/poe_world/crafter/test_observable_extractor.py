@@ -57,6 +57,9 @@ class TestObservableExtractor:
         # Check that we get entity lifecycle predictions
         # Entity existence predictions (per entity ID)
         for entity in state.objects:
+            # Skip player, is always present
+            if entity.entity_id == state.player.entity_id:
+                continue
             entity_id = entity.entity_id
             entity_exists_id = ObservableId(f"entity_exists_{entity_id}")
             assert entity_exists_id in predictions
@@ -110,6 +113,9 @@ class TestObservableExtractor:
         # Check entity lifecycle observables
         # Entity existence (all entities in state should exist)
         for entity in state.objects:
+            # Skip player, is always present
+            if entity.entity_id == state.player.entity_id:
+                continue
             entity_id = entity.entity_id
             entity_exists_id = ObservableId(f"entity_exists_{entity_id}")
             assert entity_exists_id in observed

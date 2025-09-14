@@ -32,6 +32,8 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
+# Define fixed domains for position and health attributes
+# Using reasonable defaults without reading from game state
 @dataclass(frozen=True)
 class ObservableExtractorConfig:
     position_domain: np.ndarray = field(default_factory=lambda: np.arange(0, 101))
@@ -47,8 +49,6 @@ class ObservableExtractorConfig:
 
 class ObservableExtractor:
     def __init__(self, config: Optional[ObservableExtractorConfig] = None):
-        # Define fixed domains for position and health attributes
-        # Using reasonable defaults without reading from game state
         config = config or ObservableExtractorConfig()
         self.position_domain = config.position_domain
         self.health_domain = config.health_domain
