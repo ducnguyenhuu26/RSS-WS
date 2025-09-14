@@ -28,23 +28,39 @@ from crafter.state_export import WorldState
 from ..core import ObservableExtractorProtocol, ObservableId, DiscreteDistribution
 import torch
 import numpy as np
+from dataclasses import dataclass, field
+from typing import Optional
+
+
+@dataclass(frozen=True)
+class ObservableExtractorConfig:
+    position_domain: np.ndarray = field(default_factory=lambda: np.arange(0, 101))
+    health_domain: np.ndarray = field(default_factory=lambda: np.arange(0, 101))
+    entity_types: list[str] = field(
+        default_factory=lambda: ["cow", "zombie", "skeleton", "plant", "arrow", "fence"]
+    )
+    entity_count_domain: np.ndarray = field(default_factory=lambda: np.arange(0, 50))
+    entity_existence_domain: np.ndarray = field(
+        default_factory=lambda: np.array([0, 1])
+    )
 
 
 class ObservableExtractor:
-    def __init__(self):
+    def __init__(self, config: Optional[ObservableExtractorConfig] = None):
         # Define fixed domains for position and health attributes
         # Using reasonable defaults without reading from game state
-        self.position_domain = np.arange(0, 101)  # [0, 1, 2, ..., 100]
-        self.health_domain = np.arange(0, 101)  # [0, 1, 2, ..., 100]
+        config = config or ObservableExtractorConfig()
+        self.position_domain = config.position_domain
+        self.health_domain = config.health_domain
 
         # Define entity types available in Crafter
-        self.entity_types = ["cow", "zombie", "skeleton", "plant", "arrow", "fence"]
+        self.entity_types = config.entity_types
 
         # Define domain for entity counts (reasonable range for Crafter)
-        self.entity_count_domain = np.arange(0, 50)  # [0, 1, 2, 3, 4, 5]
+        self.entity_count_domain = config.entity_count_domain
 
         # Define domain for entity existence (0 = deleted, 1 = exists)
-        self.entity_existence_domain = np.array([0, 1])
+        self.entity_existence_domain = config.entity_existence_domain
 
     def extract_attribute_predictions(
         self, state: WorldState
@@ -90,15 +106,24 @@ class ObservableExtractor:
         # Extract entity lifecycle observables
         # Track entity existence (per entity ID) - whether each specific entity exists
         for entity in state.objects:
+            if entity.entity_id == state.player.entity_id:
+                continue  # Skip player, is always present
             entity_id = entity.entity_id
             predictions[ObservableId(f"entity_exists_{entity_id}")] = (
-                DiscreteDistribution.from_uniform(self.entity_existence_domain)
+                DiscreteDistribution([1]).expand_support(self.entity_existence_domain)
             )
 
         # Track entity counts (per entity type) - total count of each entity type
+        entity_counts = {entity_type: 0 for entity_type in self.entity_types}
+        for entity in state.objects:
+            if entity.entity_id == state.player.entity_id:
+                continue  # Skip player, is always present
+            entity_counts[entity.name] += 1
         for entity_type in self.entity_types:
             predictions[ObservableId(f"entity_count_{entity_type}")] = (
-                DiscreteDistribution.from_uniform(self.entity_count_domain)
+                DiscreteDistribution([entity_counts[entity_type]]).expand_support(
+                    self.entity_count_domain
+                )
             )
 
         # Extract entity positions and health
@@ -160,10 +185,12 @@ class ObservableExtractor:
 
         # Extract entity lifecycle observables
         # Count entities by type
-        entity_counts = {}
+        entity_counts = {entity_type: 0 for entity_type in self.entity_types}
         for entity in state.objects:
-            entity_type = entity.name  # "cow", "zombie", etc.
-            entity_counts[entity_type] = entity_counts.get(entity_type, 0) + 1
+            if entity.entity_id == state.player.entity_id:
+                continue  # Skip player, is always present
+            entity_type = entity.name
+            entity_counts[entity_type] += 1
 
         # Record entity counts
         for entity_type in self.entity_types:
@@ -173,6 +200,8 @@ class ObservableExtractor:
 
         # Record entity existence (all entities in state exist)
         for entity in state.objects:
+            if entity.entity_id == state.player.entity_id:
+                continue  # Skip player, is always present
             entity_id = entity.entity_id
             observed[ObservableId(f"entity_exists_{entity_id}")] = 1
 
