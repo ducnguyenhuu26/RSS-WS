@@ -30,10 +30,17 @@ from ..our_method.core import (
 )
 from tqdm.auto import tqdm
 from typing import Sequence
+from dataclasses import dataclass
 
 
 # Global floor for logscores to prevent -inf/NaN from propagating through PoE
 LOGSCORE_FLOOR = -50.0  # ~1.9e-22 probability
+
+
+@dataclass
+class LawApplicationOutcome:
+    precondition_met: bool
+    observed_effects: dict[ObservableId, DiscreteDistribution] | None = None
 
 
 def combine_expert_predictions_for_attr(
@@ -356,32 +363,37 @@ class MaxLikelihoodWeightFitter(Generic[SymbolicStateT]):
         self,
         laws: Sequence[LawProtocol[SymbolicStateT]],
         transitions: Sequence[SymbolicTransition[SymbolicStateT]],
-    ) -> list[list[dict[ObservableId, DiscreteDistribution]]]:
+    ) -> list[list[LawApplicationOutcome]]:
         """
         Precompute expert predictions for all transitions to avoid repeated execution.
 
         Returns:
             List of expert predictions [n_transitions][n_experts][attribute_name]
         """
-        preds_for_all_transitions: list[
-            list[dict[ObservableId, DiscreteDistribution]]
-        ] = []
+        preds_for_all_transitions: list[list[LawApplicationOutcome]] = []
 
         for transition in tqdm(transitions, desc="Precomputing expert predictions"):
-            preds_for_transition: list[dict[ObservableId, DiscreteDistribution]] = []
+            preds_for_transition: list[LawApplicationOutcome] = []
 
-            # Each expert make a prediction for all observable attributes
             for law in laws:
-                # Deep copy state and run expert
                 state_copy = copy.deepcopy(transition.prev_state)
-                # TODO: This does not check the precondition of the law!
+                if not law.precondition(state_copy, transition.action):
+                    preds_for_transition.append(
+                        LawApplicationOutcome(precondition_met=False)
+                    )
+                    continue
+
                 law.effect(state_copy, transition.action)
 
                 # Extract predictions for each attribute
                 preds_from_law = (
                     self.observable_extractor.extract_attribute_predictions(state_copy)
                 )
-                preds_for_transition.append(preds_from_law)
+                preds_for_transition.append(
+                    LawApplicationOutcome(
+                        precondition_met=True, observed_effects=preds_from_law
+                    )
+                )
 
             preds_for_all_transitions.append(preds_for_transition)
 
@@ -391,9 +403,7 @@ class MaxLikelihoodWeightFitter(Generic[SymbolicStateT]):
         self,
         weights: torch.Tensor,
         transitions: Sequence[SymbolicTransition[SymbolicStateT]],
-        expert_preds_per_transition: Sequence[
-            Sequence[dict[ObservableId, DiscreteDistribution]]
-        ],
+        expert_preds_per_transition: Sequence[Sequence[LawApplicationOutcome]],
     ) -> torch.Tensor:
         """
         Compute the negative log-likelihood loss for the given weights.
@@ -417,25 +427,38 @@ class MaxLikelihoodWeightFitter(Generic[SymbolicStateT]):
 
             # Compute loss for each attribute
             for attr_name, observed_value in observed_values.items():
-                # Get expert predictions for this attribute
-                # Design choice: Wrap in try-except to handle cases where experts don't predict
-                # certain attributes (e.g., when entities spawn/despawn). We assume missing
-                # predictions are due to entity lifecycle changes and skip the loss computation.
-                try:
-                    attr_predictions = [
-                        pred[attr_name] for pred in transition_predictions
-                    ]
+                attr_predictions: list[DiscreteDistribution] = []
 
-                    log_prob = compute_log_prob_for_attr_from_expert_predictions_torch(
-                        attr_predictions, weights, observed_value
-                    )
+                active_laws: list[int] = []
 
-                    # Accumulate negative log-likelihood
-                    total_loss -= log_prob
-                except KeyError:
-                    # Skip loss computation for attributes that experts didn't predict
-                    # This typically happens when entities spawn/despawn between states
+                for law_idx, law_prediction in enumerate(transition_predictions):
+                    if not law_prediction.precondition_met:
+                        # This law did not make a prediction for this transitions
+                        continue
+                    try:
+                        assert law_prediction.observed_effects is not None
+                        attr_predictions.append(
+                            law_prediction.observed_effects[attr_name]
+                        )
+                    except KeyError:
+                        # This law did not make a prediction for this attribute
+                        continue
+                    else:
+                        active_laws.append(law_idx)
+
+                if not active_laws:
+                    # This transition did not have any laws that made a prediction for this attribute
                     continue
+
+                # Gather the weights for the active laws
+                active_weights = weights[active_laws]
+
+                log_prob = compute_log_prob_for_attr_from_expert_predictions_torch(
+                    attr_predictions, active_weights, observed_value
+                )
+
+                # Accumulate negative log-likelihood
+                total_loss -= log_prob
 
         return total_loss
 

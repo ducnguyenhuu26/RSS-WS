@@ -1,4 +1,5 @@
 import copy
+from collections import defaultdict
 from typing import Dict, Generic, TypeVar
 
 import torch
@@ -14,6 +15,7 @@ from .optimization import (
     combine_expert_predictions_for_attr,
 )
 from .core import WeightedLaw, WorldModelProtocol
+
 
 # Constants for log probability values
 LOG_IMPOSSIBLE_VALUE = -1000.0  # Very low probability for impossible transitions
@@ -62,11 +64,18 @@ class LawMixture(Generic[SymbolicStateT, ActionT]):
             return copy.deepcopy(current_state)
 
         # Get expert predictions
-        expert_predictions = self._get_law_predictions(current_state, action)
+        active_law_indices, expert_predictions = self._get_law_predictions(
+            current_state, action
+        )
 
         # Extract weights as tensor
         weights = torch.tensor(
-            [expert.weight for expert in self._laws], dtype=torch.float32
+            [
+                law.weight
+                for idx, law in enumerate(self._laws)
+                if idx in active_law_indices
+            ],
+            dtype=torch.float32,
         )
 
         # Create new state by sampling from combined distributions
@@ -96,11 +105,16 @@ class LawMixture(Generic[SymbolicStateT, ActionT]):
             return LOG_IMPOSSIBLE_VALUE
 
         # Get expert predictions
-        expert_predictions = self._get_law_predictions(state, action)
+        active_law_indices, law_predictions = self._get_law_predictions(state, action)
 
         # Extract weights as tensor
         weights = torch.tensor(
-            [expert.weight for expert in self._laws], dtype=torch.float32
+            [
+                law.weight
+                for idx, law in enumerate(self._laws)
+                if idx in active_law_indices
+            ],
+            dtype=torch.float32,
         )
 
         # Get observed values from next state
@@ -110,8 +124,8 @@ class LawMixture(Generic[SymbolicStateT, ActionT]):
 
         # Evaluate log-probability for each attribute
         for attr_name, observed_value in observed_values.items():
-            if attr_name in expert_predictions:
-                attr_predictions = expert_predictions[attr_name]
+            if attr_name in law_predictions:
+                attr_predictions = law_predictions[attr_name]
                 combined_dist = combine_expert_predictions_for_attr(
                     attr_predictions, weights
                 )
@@ -122,18 +136,29 @@ class LawMixture(Generic[SymbolicStateT, ActionT]):
 
     def _get_law_predictions(
         self, state: SymbolicStateT, action: ActionT
-    ) -> Dict[ObservableId, list[DiscreteDistribution]]:
+    ) -> tuple[set[int], dict[ObservableId, list[DiscreteDistribution]]]:
         """
         Get predictions from all experts for the given state and action.
 
         Returns:
-            Dictionary mapping attribute names to lists of law predictions
+            Tuple containing:
+            - List of indices of active laws (who made a prediction)
+            - Dictionary mapping attribute names to lists of law predictions
+                made by active laws
         """
-        predictions_from_all_laws: dict[ObservableId, list[DiscreteDistribution]] = {}
+        preds_from_active_laws: dict[ObservableId, list[DiscreteDistribution]] = (
+            defaultdict(list)
+        )
 
-        for weighted_law in self._laws:
+        active_law_indices: set[int] = set()
+
+        for law_idx, weighted_law in enumerate(self._laws):
             # Deep copy state and run expert
             state_copy = copy.deepcopy(state)
+
+            if not weighted_law.law.precondition(state_copy, action):
+                continue
+
             weighted_law.law.effect(state_copy, action)
 
             # Extract predictions for each attribute
@@ -141,13 +166,13 @@ class LawMixture(Generic[SymbolicStateT, ActionT]):
                 state_copy
             )
 
+            active_law_indices.add(law_idx)
+
             # Group by attribute name
             for attr_name, attr_prediction in attr_predictions.items():
-                if attr_name not in predictions_from_all_laws:
-                    predictions_from_all_laws[attr_name] = []
-                predictions_from_all_laws[attr_name].append(attr_prediction)
+                preds_from_active_laws[attr_name].append(attr_prediction)
 
-        return predictions_from_all_laws
+        return active_law_indices, preds_from_active_laws
 
 
 implements(WorldModelProtocol)(LawMixture)

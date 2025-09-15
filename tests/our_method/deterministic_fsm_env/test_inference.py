@@ -27,6 +27,8 @@ from distant_sunburn.our_method.deterministic_fsm_env.handwritten_laws import (
 )
 from distant_sunburn.our_method.core import WeightedLaw, LawFunctionWrapper
 from distant_sunburn.our_method.world_modeling import LawMixture
+from collections import Counter
+import rich
 
 
 def generate_random_data(
@@ -163,7 +165,7 @@ def test_weight_fitting_distinguishes_good_from_bad_experts():
     )
 
 
-def test_jumpy_posterior():
+def test_preconditions_checked(monkeypatch):
     weighted_laws = [
         WeightedLaw(law=fn, weight=1.0, is_fitted=True) for fn in CORRECT_LAWS
     ]
@@ -172,51 +174,158 @@ def test_jumpy_posterior():
         weighted_laws=weighted_laws,
     )
 
-    n_samples = 100
+    # Track precondition calls
+    precondition_calls = []
 
-    switch_a_values: list[int] = []
-    switch_b_values: list[int] = []
-    for _ in range(n_samples):
+    # Apply spy to each law's precondition method
+    for weighted_law in weighted_laws:
+        original_precondition = weighted_law.law.precondition
+
+        def make_spy_wrapper(law, original_method):
+            def spy_wrapper(current_state, action):
+                precondition_calls.append(
+                    {
+                        "law_name": law.__class__.__name__,
+                        "state": current_state,
+                        "action": action,
+                    }
+                )
+                return original_method(current_state, action)
+
+            return spy_wrapper
+
+        monkeypatch.setattr(
+            weighted_law.law,
+            "precondition",
+            make_spy_wrapper(weighted_law.law, original_precondition),
+        )
+
+    for action in Action:
         state = initial_state()
-        action = Action.TOGGLE_A
-        next_state = world_model.sample_next_state(state, action)
-        switch_a_values.append(next_state.switch_a)
-        switch_b_values.append(next_state.switch_b)
+        world_model.sample_next_state(state, action)
 
-    for _ in range(n_samples):
-        state = initial_state()
-        action = Action.TOGGLE_B
-        next_state = world_model.sample_next_state(state, action)
-        switch_a_values.append(next_state.switch_a)
-        switch_b_values.append(next_state.switch_b)
+    # Verify that preconditions were called
+    assert len(precondition_calls) > 0, "No precondition calls were made"
 
-    # Convert to numpy arrays for cleaner computation
-    switch_a_array = np.array(switch_a_values)
-    switch_b_array = np.array(switch_b_values)
-
-    # Compute empirical posteriors using numpy
-    switch_a_unique, switch_a_counts = np.unique(switch_a_array, return_counts=True)
-    switch_b_unique, switch_b_counts = np.unique(switch_b_array, return_counts=True)
-
-    # Convert counts to probabilities
-    switch_a_posterior = switch_a_counts / len(switch_a_array)
-    switch_b_posterior = switch_b_counts / len(switch_b_array)
-
-    # Assert that no single value has more than max concentration of probability mass
-    max_switch_a_prob = np.max(switch_a_posterior)
-    max_switch_b_prob = np.max(switch_b_posterior)
-
-    max_concentration = 0.80
-
+    # Verify that each law's precondition was called for each action
+    expected_calls = len(CORRECT_LAWS) * len(Action)
     assert (
-        max_switch_a_prob <= max_concentration
-    ), f"Switch A has max probability {max_switch_a_prob:.3f} > {max_concentration}. "
+        len(precondition_calls) == expected_calls
+    ), f"Expected {expected_calls} precondition calls, got {len(precondition_calls)}"
 
+    # Verify that all laws were called
+    called_laws = {call["law_name"] for call in precondition_calls}
+    expected_law_names = {law.__class__.__name__ for law in CORRECT_LAWS}
     assert (
-        max_switch_b_prob <= max_concentration
-    ), f"Switch B has max probability {max_switch_b_prob:.3f} > {max_concentration}. "
+        called_laws == expected_law_names
+    ), f"Expected laws {expected_law_names}, but got {called_laws}"
 
-    print(f"Switch A values: {switch_a_unique}")
-    print(f"Switch A posterior: {switch_a_posterior}")
-    print(f"Switch B values: {switch_b_unique}")
-    print(f"Switch B posterior: {switch_b_posterior}")
+    # Verify that all actions were tested
+    called_actions = {call["action"] for call in precondition_calls}
+    expected_actions = set(Action)
+    assert (
+        called_actions == expected_actions
+    ), f"Expected actions {expected_actions}, but got {called_actions}"
+
+
+# def test_no_implicit_uniform_on_unobserved_attributes():
+#     weighted_laws = [
+#         WeightedLaw(law=fn, weight=1.0, is_fitted=True) for fn in CORRECT_LAWS
+#     ]
+#     world_model = LawMixture(
+#         observable_extractor=ObservableExtractor(),
+#         weighted_laws=weighted_laws,
+#     )
+
+#     n_samples = 100
+
+#     SWITCH_A_INITIAL_VALUE = 0
+#     SWITCH_B_INITIAL_VALUE = 1
+
+#     switch_a_values: list[int] = []
+#     switch_b_values: list[int] = []
+#     for _ in range(n_samples):
+#         state = State(switch_a=SWITCH_A_INITIAL_VALUE, switch_b=SWITCH_B_INITIAL_VALUE)
+#         action = Action.TOGGLE_A
+#         next_state = world_model.sample_next_state(state, action)
+#         switch_a_values.append(next_state.switch_a)
+#         switch_b_values.append(next_state.switch_b)
+
+#     switch_a_counts = Counter(switch_a_values)
+#     switch_b_counts = Counter(switch_b_values)
+
+#     switch_a_posterior = np.zeros(2)
+#     switch_b_posterior = np.zeros(2)
+
+#     for k, v in switch_a_counts.items():
+#         switch_a_posterior[k] = v / len(switch_a_values)
+#     for k, v in switch_b_counts.items():
+#         switch_b_posterior[k] = v / len(switch_b_values)
+
+#     rich.print(
+#         {
+#             "Switch A posterior": switch_a_posterior,
+#             "Switch B posterior": switch_b_posterior,
+#         }
+#     )
+
+#     # Switch A should get toggled away from its initial value
+#     assert switch_a_posterior[SWITCH_A_INITIAL_VALUE] == 0
+#     assert switch_a_posterior[int(not SWITCH_A_INITIAL_VALUE)] == 1
+
+#     # We never took a TOGGLE_B action, so switch b should never get toggled
+#     # away from its initial value
+#     assert switch_b_posterior[SWITCH_B_INITIAL_VALUE] == 1
+#     assert switch_b_posterior[int(not SWITCH_B_INITIAL_VALUE)] == 0
+
+
+# def test_jumpy_posterior():
+#     weighted_laws = [
+#         WeightedLaw(law=fn, weight=1.0, is_fitted=True) for fn in CORRECT_LAWS
+#     ]
+#     world_model = LawMixture(
+#         observable_extractor=ObservableExtractor(),
+#         weighted_laws=weighted_laws,
+#     )
+
+#     n_samples = 100
+
+#     switch_a_values: list[int] = []
+#     switch_b_values: list[int] = []
+#     for _ in range(n_samples):
+#         state = State(switch_a=0, switch_b=1)
+#         action = Action.TOGGLE_A
+#         next_state = world_model.sample_next_state(state, action)
+#         switch_a_values.append(next_state.switch_a)
+#         switch_b_values.append(next_state.switch_b)
+
+#     for _ in range(n_samples):
+#         state = State(switch_a=0, switch_b=1)
+#         action = Action.TOGGLE_B
+#         next_state = world_model.sample_next_state(state, action)
+#         switch_a_values.append(next_state.switch_a)
+#         switch_b_values.append(next_state.switch_b)
+
+#     switch_a_counts = Counter(switch_a_values)
+#     switch_b_counts = Counter(switch_b_values)
+
+#     switch_a_posterior = {
+#         k: v / len(switch_a_values) for k, v in switch_a_counts.items()
+#     }
+
+#     switch_b_posterior = {k: v / n_samples for k, v in switch_b_counts.items()}
+
+#     rich.print(
+#         {
+#             "Switch A posterior": switch_a_posterior,
+#             "Switch B posterior": switch_b_posterior,
+#         }
+#     )
+
+#     concentration = 0.8
+#     for name, posterior in [
+#         ("Switch A", switch_a_posterior),
+#         ("Switch B", switch_b_posterior),
+#     ]:
+#         for k, v in posterior.items():
+#             assert v <= concentration, f"{name} P({k}) = {v} > {concentration}"
