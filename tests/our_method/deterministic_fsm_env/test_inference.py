@@ -18,7 +18,7 @@ from distant_sunburn.our_method.deterministic_fsm_env.handwritten_laws import (
 from distant_sunburn.our_method.optimization import (
     MaxLikelihoodWeightFitter,
 )
-from distant_sunburn.poe_world.deterministic_fsm_env.observable_extractor import (
+from distant_sunburn.our_method.deterministic_fsm_env.observable_extractor import (
     ObservableExtractor,
 )
 from distant_sunburn.our_method.deterministic_fsm_env.handwritten_laws import (
@@ -228,55 +228,55 @@ def test_preconditions_checked(monkeypatch):
     ), f"Expected actions {expected_actions}, but got {called_actions}"
 
 
-# def test_no_implicit_uniform_on_unobserved_attributes():
-#     weighted_laws = [
-#         WeightedLaw(law=fn, weight=1.0, is_fitted=True) for fn in CORRECT_LAWS
-#     ]
-#     world_model = LawMixture(
-#         observable_extractor=ObservableExtractor(),
-#         weighted_laws=weighted_laws,
-#     )
+def test_no_implicit_uniform_on_unobserved_attributes():
+    weighted_laws = [
+        WeightedLaw(law=fn, weight=1.0, is_fitted=True) for fn in CORRECT_LAWS
+    ]
+    world_model = LawMixture(
+        observable_extractor=ObservableExtractor(),
+        weighted_laws=weighted_laws,
+    )
 
-#     n_samples = 100
+    n_samples = 100
 
-#     SWITCH_A_INITIAL_VALUE = 0
-#     SWITCH_B_INITIAL_VALUE = 1
+    SWITCH_A_INITIAL_VALUE = 0
+    SWITCH_B_INITIAL_VALUE = 1
 
-#     switch_a_values: list[int] = []
-#     switch_b_values: list[int] = []
-#     for _ in range(n_samples):
-#         state = State(switch_a=SWITCH_A_INITIAL_VALUE, switch_b=SWITCH_B_INITIAL_VALUE)
-#         action = Action.TOGGLE_A
-#         next_state = world_model.sample_next_state(state, action)
-#         switch_a_values.append(next_state.switch_a)
-#         switch_b_values.append(next_state.switch_b)
+    switch_a_values: list[int] = []
+    switch_b_values: list[int] = []
+    for _ in range(n_samples):
+        state = State(switch_a=SWITCH_A_INITIAL_VALUE, switch_b=SWITCH_B_INITIAL_VALUE)
+        action = Action.TOGGLE_A
+        next_state = world_model.sample_next_state(state, action)
+        switch_a_values.append(next_state.switch_a)
+        switch_b_values.append(next_state.switch_b)
 
-#     switch_a_counts = Counter(switch_a_values)
-#     switch_b_counts = Counter(switch_b_values)
+    switch_a_counts = Counter(switch_a_values)
+    switch_b_counts = Counter(switch_b_values)
 
-#     switch_a_posterior = np.zeros(2)
-#     switch_b_posterior = np.zeros(2)
+    switch_a_posterior = np.zeros(2)
+    switch_b_posterior = np.zeros(2)
 
-#     for k, v in switch_a_counts.items():
-#         switch_a_posterior[k] = v / len(switch_a_values)
-#     for k, v in switch_b_counts.items():
-#         switch_b_posterior[k] = v / len(switch_b_values)
+    for k, v in switch_a_counts.items():
+        switch_a_posterior[k] = v / len(switch_a_values)
+    for k, v in switch_b_counts.items():
+        switch_b_posterior[k] = v / len(switch_b_values)
 
-#     rich.print(
-#         {
-#             "Switch A posterior": switch_a_posterior,
-#             "Switch B posterior": switch_b_posterior,
-#         }
-#     )
+    rich.print(
+        {
+            "Switch A posterior": switch_a_posterior,
+            "Switch B posterior": switch_b_posterior,
+        }
+    )
 
-#     # Switch A should get toggled away from its initial value
-#     assert switch_a_posterior[SWITCH_A_INITIAL_VALUE] == 0
-#     assert switch_a_posterior[int(not SWITCH_A_INITIAL_VALUE)] == 1
+    # Switch A should get toggled away from its initial value
+    assert switch_a_posterior[SWITCH_A_INITIAL_VALUE] == 0
+    assert switch_a_posterior[int(not SWITCH_A_INITIAL_VALUE)] == 1
 
-#     # We never took a TOGGLE_B action, so switch b should never get toggled
-#     # away from its initial value
-#     assert switch_b_posterior[SWITCH_B_INITIAL_VALUE] == 1
-#     assert switch_b_posterior[int(not SWITCH_B_INITIAL_VALUE)] == 0
+    # We never took a TOGGLE_B action, so switch b should never get toggled
+    # away from its initial value
+    assert switch_b_posterior[SWITCH_B_INITIAL_VALUE] == 1
+    assert switch_b_posterior[int(not SWITCH_B_INITIAL_VALUE)] == 0
 
 
 # def test_jumpy_posterior():

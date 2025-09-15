@@ -27,8 +27,6 @@ from distant_sunburn.poe_world.deterministic_fsm_env.handwritten_experts import 
 )
 from distant_sunburn.poe_world.core import ExpertFunctionWrapper, WeightedExpert
 from distant_sunburn.poe_world.world_model import PoEWorldModel
-from distant_sunburn.deterministic_fsm_env import initial_state
-from collections import Counter
 
 
 def generate_random_data(
