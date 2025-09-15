@@ -309,3 +309,67 @@ def test_jumpy_posterior():
 
     # Static switch is never modified, so it should be 0 --> 0 with high probability
     assert toggle_static_switch_posterior.static_switch_posterior[0] >= 0.9
+
+
+def test_posterior_after_fitting():
+    n_transitions = 100
+    transitions = generate_random_data(n_transitions, seed=42)
+
+    # Split into train/test (75/25)
+    split_point = int(0.75 * len(transitions))
+    train_transitions = transitions[:split_point]
+    test_transitions = transitions[split_point:]
+
+    print(f"Generated {len(transitions)} transitions")
+    print(f"Training on {len(train_transitions)} transitions")
+    print(f"Testing on {len(test_transitions)} transitions")
+
+    fitter = MaxLikelihoodWeightFitter(
+        observable_extractor=ObservableExtractor(),
+        learning_rate=0.1,
+        max_iterations=5,
+        batch_size=200,
+        l1_weight=0.001,
+    )
+
+    # Fit weights
+    weighted_laws = fitter.fit(ALL_LAWS, train_transitions)
+
+    world_model = LawMixture(
+        observable_extractor=ObservableExtractor(),
+        weighted_laws=weighted_laws,
+    )
+
+    n_test_samples = 100
+    seed = 42
+
+    toggle_deterministic_switch_posterior = compute_posterior_over_action(
+        Action.TOGGLE_DETERMINISTIC_SWITCH, world_model, n_test_samples, seed
+    )
+
+    # All distribution should be strongly peaked. Only the deterministic switch
+    # should be toggled from 0 --> 1
+    assert (
+        toggle_deterministic_switch_posterior.deterministic_switch_posterior[1] >= 0.9
+    )
+    assert toggle_deterministic_switch_posterior.stochastic_switch_posterior[0] >= 0.9
+    assert toggle_deterministic_switch_posterior.static_switch_posterior[0] >= 0.9
+
+    toggle_stochastic_switch_posterior = compute_posterior_over_action(
+        Action.TOGGLE_STOCHASTIC_SWITCH, world_model, n_test_samples, seed
+    )
+
+    # The static and deterministic switch should be strongly peaked on 0
+    # whereas the stochastic switch should be split between 0 and 1
+    assert toggle_stochastic_switch_posterior.deterministic_switch_posterior[0] >= 0.9
+    assert max(toggle_stochastic_switch_posterior.stochastic_switch_posterior) <= 0.7
+    assert toggle_stochastic_switch_posterior.static_switch_posterior[0] >= 0.9
+
+    toggle_static_switch_posterior = compute_posterior_over_action(
+        Action.TOGGLE_STATIC_SWITCH, world_model, n_test_samples, seed
+    )
+
+    # All distributions should be strongly peaked on zero.
+    assert toggle_static_switch_posterior.deterministic_switch_posterior[0] >= 0.9
+    assert toggle_static_switch_posterior.stochastic_switch_posterior[0] >= 0.9
+    assert toggle_static_switch_posterior.static_switch_posterior[0] >= 0.9

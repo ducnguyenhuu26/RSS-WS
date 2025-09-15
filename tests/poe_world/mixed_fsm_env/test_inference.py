@@ -323,3 +323,65 @@ def test_jumpy_posterior():
 
     # Static switch expert puts heavy probability mass on 0
     assert toggle_static_switch_posterior.static_switch_posterior[0] >= 0.9
+
+
+def test_posterior_after_fitting():
+    n_transitions = 100
+    transitions = generate_random_data(n_transitions, seed=42)
+
+    # Split into train/test (75/25)
+    split_point = int(0.75 * len(transitions))
+    train_transitions = transitions[:split_point]
+    test_transitions = transitions[split_point:]
+
+    print(f"Generated {len(transitions)} transitions")
+    print(f"Training on {len(train_transitions)} transitions")
+    print(f"Testing on {len(test_transitions)} transitions")
+
+    fitter = MaxLikelihoodWeightFitter(
+        observable_extractor=ObservableExtractor(),
+        learning_rate=0.1,
+        max_iterations=5,
+        batch_size=200,
+        l1_weight=0.001,
+    )
+
+    # Fit weights
+    weighted_experts = fitter.fit(ALL_EXPERTS, train_transitions)
+
+    world_model = PoEWorldModel(
+        observable_extractor=ObservableExtractor(),
+        weighted_experts=weighted_experts,
+    )
+
+    n_test_samples = 100
+    seed = 42
+
+    toggle_deterministic_switch_posterior = compute_posterior_over_action(
+        Action.TOGGLE_DETERMINISTIC_SWITCH, world_model, n_test_samples, seed
+    )
+
+    assert (
+        toggle_deterministic_switch_posterior.deterministic_switch_posterior[1] >= 0.9
+    )
+
+    toggle_stochastic_switch_posterior = compute_posterior_over_action(
+        Action.TOGGLE_STOCHASTIC_SWITCH, world_model, n_test_samples, seed
+    )
+
+    # Assert all observables are mixed between 0 and 1
+    # We can do this more easily by checking that the max probability is less than
+    # a concentration limit
+
+    assert max(toggle_stochastic_switch_posterior.deterministic_switch_posterior) <= 0.7
+    assert max(toggle_stochastic_switch_posterior.stochastic_switch_posterior) <= 0.7
+    assert max(toggle_stochastic_switch_posterior.static_switch_posterior) <= 0.7
+
+    toggle_static_switch_posterior = compute_posterior_over_action(
+        Action.TOGGLE_STATIC_SWITCH, world_model, n_test_samples, seed
+    )
+
+    assert max(toggle_static_switch_posterior.deterministic_switch_posterior) <= 0.7
+    assert max(toggle_static_switch_posterior.stochastic_switch_posterior) <= 0.7
+    # Only the static switch expert puts heavy probability mass on 0
+    assert toggle_static_switch_posterior.static_switch_posterior[0] >= 0.9
