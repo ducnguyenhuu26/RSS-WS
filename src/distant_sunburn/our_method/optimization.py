@@ -18,15 +18,18 @@ from loguru import logger
 
 from ..typing_utils import implements
 from ..poe_world.core import (
-    ExpertFunction,
     ObservableExtractorProtocol,
     DiscreteDistribution,
-    SymbolicTransition,
-    WeightedExpert,
-    WeightFitterProtocol,
     ObservableId,
 )
+from ..our_method.core import (
+    LawProtocol,
+    WeightedLaw,
+    SymbolicTransition,
+    LawOptimizerProtocol,
+)
 from tqdm.auto import tqdm
+from typing import Sequence
 
 
 # Global floor for logscores to prevent -inf/NaN from propagating through PoE
@@ -34,7 +37,7 @@ LOGSCORE_FLOOR = -50.0  # ~1.9e-22 probability
 
 
 def combine_expert_predictions_for_attr(
-    expert_predictions: list[DiscreteDistribution], weights: torch.Tensor
+    expert_predictions: Sequence[DiscreteDistribution], weights: torch.Tensor
 ) -> DiscreteDistribution:
     """
     Combine expert predictions for a single attribute using learned weights.
@@ -85,7 +88,7 @@ def combine_expert_predictions_for_attr(
 
 
 def combine_expert_predictions_for_attr_torch(
-    expert_predictions: list[DiscreteDistribution], weights: torch.Tensor
+    expert_predictions: Sequence[DiscreteDistribution], weights: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     PyTorch-native version of expert prediction combination that preserves gradients.
@@ -177,7 +180,7 @@ def eval_expert_predictions_logprob_for_attr_torch(
 
 
 def compute_log_prob_for_attr_from_expert_predictions_torch(
-    expert_predictions: list[DiscreteDistribution],
+    expert_predictions: Sequence[DiscreteDistribution],
     weights: torch.Tensor,
     observed_outcome: int,
 ) -> torch.Tensor:
@@ -241,59 +244,57 @@ class MaxLikelihoodWeightFitter(Generic[SymbolicStateT]):
         batch_size: int = 1000,
         l1_weight: float = 0.001,
         weight_bounds: Tuple[float, float] = (0.0, 10.0),
-        use_parallel_loss: bool = False,
     ):
         self.learning_rate = learning_rate
         self.max_iterations = max_iterations
         self.batch_size = batch_size
         self.l1_weight = l1_weight
         self.weight_bounds = weight_bounds
-        self.use_parallel_loss = use_parallel_loss
 
         self.observable_extractor = observable_extractor
 
     def fit(
         self,
-        experts: list[ExpertFunction[SymbolicStateT]],
-        transitions: list[SymbolicTransition[SymbolicStateT]],
-    ) -> list[WeightedExpert]:
+        laws: Sequence[LawProtocol[SymbolicStateT]],
+        transitions: Sequence[SymbolicTransition[SymbolicStateT]],
+    ) -> list[WeightedLaw[SymbolicStateT]]:
         """
-        Fit expert weights using maximum likelihood estimation.
+        Fit law weights using maximum likelihood estimation.
 
         Args:
-            experts: List of expert functions to fit weights for
+            laws: List of laws to fit weights for
             transitions: Training data as symbolic transitions
 
         Returns:
-            List of weighted experts with learned weights. The returned list maintains
-            the same order as the input experts list - experts[i] corresponds to
-            returned_weighted_experts[i].
+            List of weighted laws with learned weights. The returned list maintains
+            the same order as the input laws list - laws[i] corresponds to
+            returned_weighted_laws[i].
 
         Note:
-            All returned WeightedExpert instances have is_fitted=True to indicate
+            All returned WeightedLaw instances have is_fitted=True to indicate
             they have been fitted with learned weights.
         """
-        if not experts or not transitions:
+        if not laws or not transitions:
             return []
 
         logger.info(
-            f"Fitting weights for {len(experts)} experts on {len(transitions)} transitions"
+            f"Fitting weights for {len(laws)} experts on {len(transitions)} transitions"
         )
 
         # Precompute expert predictions for all transitions
-        expert_predictions = self._precompute_expert_predictions(experts, transitions)
+        law_predictions = self._precompute_law_predictions(laws, transitions)
 
         # Sample batch if dataset is large
         if len(transitions) > self.batch_size:
             indices = np.random.choice(len(transitions), self.batch_size, replace=False)
             sampled_transitions = [transitions[i] for i in indices]
-            sampled_predictions = [expert_predictions[i] for i in indices]
+            sampled_predictions = [law_predictions[i] for i in indices]
         else:
             sampled_transitions = transitions
-            sampled_predictions = expert_predictions
+            sampled_predictions = law_predictions
 
         # Initialize weights
-        weights = nn.Parameter(torch.ones(len(experts), dtype=torch.float32) * 0.5)
+        weights = nn.Parameter(torch.ones(len(laws), dtype=torch.float32) * 0.5)
 
         # Set up L-BFGS optimizer
         optimizer = optim.LBFGS(
@@ -337,24 +338,24 @@ class MaxLikelihoodWeightFitter(Generic[SymbolicStateT]):
 
         # Create weighted experts with final weights
         final_weights = weights.detach().numpy()
-        weighted_experts = []
+        weighted_laws = []
 
-        for i, (expert, weight) in enumerate(zip(experts, final_weights)):
-            weighted_experts.append(
-                WeightedExpert(
-                    expert_function=expert,
+        for i, (law, weight) in enumerate(zip(laws, final_weights)):
+            weighted_laws.append(
+                WeightedLaw(
+                    law=law,
                     weight=float(weight),
                     is_fitted=True,
                 )
             )
-            logger.debug(f"Expert {i}: weight = {weight:.4f}")
+            logger.debug(f"Law {i}: weight = {weight:.4f}")
 
-        return weighted_experts
+        return weighted_laws
 
-    def _precompute_expert_predictions(
+    def _precompute_law_predictions(
         self,
-        experts: list[ExpertFunction[SymbolicStateT]],
-        transitions: list[SymbolicTransition[SymbolicStateT]],
+        laws: Sequence[LawProtocol[SymbolicStateT]],
+        transitions: Sequence[SymbolicTransition[SymbolicStateT]],
     ) -> list[list[dict[ObservableId, DiscreteDistribution]]]:
         """
         Precompute expert predictions for all transitions to avoid repeated execution.
@@ -370,16 +371,17 @@ class MaxLikelihoodWeightFitter(Generic[SymbolicStateT]):
             preds_for_transition: list[dict[ObservableId, DiscreteDistribution]] = []
 
             # Each expert make a prediction for all observable attributes
-            for expert in experts:
+            for law in laws:
                 # Deep copy state and run expert
-                state_copy = copy.deepcopy(transition.prev_metadata)
-                expert(state_copy, transition.action)
+                state_copy = copy.deepcopy(transition.prev_state)
+                # TODO: This does not check the precondition of the law!
+                law.effect(state_copy, transition.action)
 
                 # Extract predictions for each attribute
-                preds_from_expert = (
+                preds_from_law = (
                     self.observable_extractor.extract_attribute_predictions(state_copy)
                 )
-                preds_for_transition.append(preds_from_expert)
+                preds_for_transition.append(preds_from_law)
 
             preds_for_all_transitions.append(preds_for_transition)
 
@@ -388,9 +390,9 @@ class MaxLikelihoodWeightFitter(Generic[SymbolicStateT]):
     def _compute_loss(
         self,
         weights: torch.Tensor,
-        transitions: list[SymbolicTransition[SymbolicStateT]],
-        expert_preds_per_transition: list[
-            list[dict[ObservableId, DiscreteDistribution]]
+        transitions: Sequence[SymbolicTransition[SymbolicStateT]],
+        expert_preds_per_transition: Sequence[
+            Sequence[dict[ObservableId, DiscreteDistribution]]
         ],
     ) -> torch.Tensor:
         """
@@ -410,7 +412,7 @@ class MaxLikelihoodWeightFitter(Generic[SymbolicStateT]):
 
             # Get observed values from next state
             observed_values = self.observable_extractor.get_observed_outcomes(
-                transition.next_metadata
+                transition.next_state
             )
 
             # Compute loss for each attribute
@@ -438,4 +440,4 @@ class MaxLikelihoodWeightFitter(Generic[SymbolicStateT]):
         return total_loss
 
 
-implements(WeightFitterProtocol)(MaxLikelihoodWeightFitter)
+implements(LawOptimizerProtocol)(MaxLikelihoodWeightFitter)
