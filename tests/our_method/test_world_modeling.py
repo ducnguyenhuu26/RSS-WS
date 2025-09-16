@@ -1,11 +1,16 @@
-from distant_sunburn.our_method.world_modeling import LawMixture
-from dataclasses import dataclass
-from distant_sunburn.our_method.core import LawFunctionWrapper, WeightedLaw
-from distant_sunburn.poe_world.core import ObservableId, DiscreteDistribution
+from dataclasses import dataclass, field
+
 import numpy as np
-from dataclasses import field
 import torch
+
+from distant_sunburn.our_method.core import LawFunctionWrapper, WeightedLaw
 from distant_sunburn.our_method.optimization import combine_expert_predictions_for_attr
+from distant_sunburn.our_method.world_modeling import LawMixture
+from distant_sunburn.poe_world.core import DiscreteDistribution, ObservableId
+from typing import TypeAlias
+
+
+ExpertIndex: TypeAlias = int
 
 
 @dataclass
@@ -52,12 +57,15 @@ class ObservableExtractor:
     def apply_expert_predictions(
         self,
         new_state: State,
-        expert_predictions: dict[ObservableId, list[DiscreteDistribution]],
+        expert_predictions: dict[ObservableId, dict[ExpertIndex, DiscreteDistribution]],
         weights: torch.Tensor,
     ) -> State:
         if "attr" in expert_predictions:
-            a_preds = expert_predictions[ObservableId("attr")]
-            combined_dist = combine_expert_predictions_for_attr(a_preds, weights)
+            law_id_to_preds = expert_predictions[ObservableId("attr")]
+            active_indices = list(law_id_to_preds.keys())
+            weights = weights[active_indices]
+            raw_preds = list(law_id_to_preds.values())
+            combined_dist = combine_expert_predictions_for_attr(raw_preds, weights)
             new_state.attr = combined_dist.sample()
 
         return new_state
