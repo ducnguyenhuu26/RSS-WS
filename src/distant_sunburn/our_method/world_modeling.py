@@ -2,9 +2,12 @@ import copy
 import itertools
 from loguru import logger
 from collections import defaultdict
-from typing import Dict, Generic, TypeVar
+from typing import Dict, Generic, Mapping, Sequence, TypeVar
 
 import torch
+
+from distant_sunburn.our_method.optimization import LOGSCORE_FLOOR
+from distant_sunburn.poe_world.core import DiscreteDistribution
 
 
 from .core import ObservableExtractorProtocol
@@ -13,9 +16,6 @@ from ..typing_utils import implements
 from ..poe_world.core import (
     DiscreteDistribution,
     ObservableId,
-)
-from .optimization import (
-    combine_expert_predictions_for_attr,
 )
 from .core import WeightedLaw, WorldModelProtocol
 from typing import TypeAlias
@@ -29,6 +29,92 @@ LOG_IMPOSSIBLE_VALUE = -1000.0  # Very low probability for impossible transition
 
 SymbolicStateT = TypeVar("SymbolicStateT")
 ActionT = TypeVar("ActionT")
+
+
+def combine_expert_predictions_for_attr(
+    expert_predictions: Sequence[DiscreteDistribution], weights: torch.Tensor
+) -> DiscreteDistribution:
+    """
+    Combine expert predictions for a single attribute using learned weights.
+
+    Implements Product of Experts (PoE) combination: weighted sum of expert log-probabilities.
+    Used for inference/evaluation. For optimization, use the _torch version.
+
+    WARNING: Breaks gradient flow with .detach().numpy().
+
+    Args:
+        expert_predictions: List of RandomValues from each expert for this attribute.
+            Each RandomValues contains predictions for the same set of possible values.
+        weights: Tensor of expert weights [n_experts] with dtype=torch.float32.
+            weights[i] determines how much expert i's prediction contributes.
+
+    Returns:
+        Combined RandomValues distribution representing the ensemble prediction.
+    """
+    if not expert_predictions:
+        raise ValueError("No expert predictions provided")
+
+    # Stack logscores from all experts into matrix [n_experts, n_values]
+    # Each row is one expert's predictions for all possible values
+    logscores_matrix = torch.stack(
+        [
+            torch.tensor(pred.logscores, dtype=torch.float32)
+            for pred in expert_predictions
+        ]
+    )
+    # Sanitize and clamp to avoid -inf/NaN dominating the combination
+    logscores_matrix = torch.where(
+        torch.isfinite(logscores_matrix),
+        logscores_matrix,
+        torch.full_like(logscores_matrix, LOGSCORE_FLOOR),
+    )
+    logscores_matrix = torch.clamp(logscores_matrix, min=LOGSCORE_FLOOR)
+
+    # Matrix multiplication: [n_values, n_experts] @ [n_experts] = [n_values]
+    # This computes: combined_logscores[value] = sum(weight[i] * expert_logscore[i][value])
+    try:
+        combined_logscores = logscores_matrix.T @ weights
+    except RuntimeError:
+        logger.opt(exception=True).error(
+            "Could not aggregate logscores",
+            extra={
+                "logscores_matrix": logscores_matrix.shape,
+                "weights": weights.shape,
+                "expert_predictions": [
+                    pred.logscores.shape for pred in expert_predictions
+                ],
+            },
+        )
+        raise
+
+    # Return combined distribution using the same values as the first expert
+    # WARNING: .detach().numpy() breaks gradient flow - use _torch version for optimization
+    return DiscreteDistribution(
+        support=expert_predictions[0].support,
+        logscores=combined_logscores.detach().numpy(),
+    )
+
+
+def combine_active_expert_predictions_for_attr(
+    predictions: Mapping[ExpertIndex, DiscreteDistribution],
+    weights: torch.Tensor,
+) -> DiscreteDistribution:
+    """
+    Aggregate predictions from the subset of experts that made predictions for a single observable.
+
+    This function assumes that the keys of `predictions` correspond to indices in `weights`.
+    Args:
+        predictions: Mapping from expert index to their DiscreteDistribution prediction.
+        weights: Tensor of expert weights [n_experts] with dtype=torch.float32.
+            weights[i] determines how much expert i's prediction contributes.
+
+    Returns:
+        Combined DiscreteDistribution representing the aggregated prediction.
+    """
+    active_indices = list(predictions.keys())
+    weights = weights[active_indices]
+    raw_preds = list(predictions.values())
+    return combine_expert_predictions_for_attr(raw_preds, weights)
 
 
 class LawMixture(Generic[SymbolicStateT, ActionT]):

@@ -1,15 +1,16 @@
 from ...typing_utils import implements
 from crafter.state_export import WorldState
 from ...poe_world.core import (
-    ObservableExtractorProtocol,
     ObservableId,
     DiscreteDistribution,
 )
+from ..core import ObservableExtractorProtocol
 import torch
 import numpy as np
 from dataclasses import dataclass, field
 from typing import Optional
-from ..optimization import combine_expert_predictions_for_attr
+from ..world_modeling import combine_active_expert_predictions_for_attr
+from typing import Mapping, TypeAlias
 from loguru import logger
 
 
@@ -26,6 +27,9 @@ class ObservableExtractorConfig:
     entity_existence_domain: np.ndarray = field(
         default_factory=lambda: np.array([0, 1])
     )
+
+
+ExpertIndex: TypeAlias = int
 
 
 class ObservableExtractor:
@@ -180,7 +184,9 @@ class ObservableExtractor:
     @staticmethod
     def apply_expert_predictions(
         new_state: WorldState,
-        expert_predictions: dict[ObservableId, list[DiscreteDistribution]],
+        expert_predictions: Mapping[
+            ObservableId, Mapping[ExpertIndex, DiscreteDistribution]
+        ],
         weights: torch.Tensor,
     ) -> WorldState:
         """
@@ -196,7 +202,7 @@ class ObservableExtractor:
         if "player_position_x" in expert_predictions:
             with logger.contextualize(attr_name="player_position_x"):
                 player_x_preds = expert_predictions[ObservableId("player_position_x")]
-                combined_dist = combine_expert_predictions_for_attr(
+                combined_dist = combine_active_expert_predictions_for_attr(
                     player_x_preds, weights
                 )
                 new_state.player.position.x = combined_dist.sample()
@@ -204,7 +210,7 @@ class ObservableExtractor:
         if "player_position_y" in expert_predictions:
             with logger.contextualize(attr_name="player_position_y"):
                 player_y_preds = expert_predictions[ObservableId("player_position_y")]
-                combined_dist = combine_expert_predictions_for_attr(
+                combined_dist = combine_active_expert_predictions_for_attr(
                     player_y_preds, weights
                 )
                 new_state.player.position.y = combined_dist.sample()
@@ -213,7 +219,7 @@ class ObservableExtractor:
         if "player_health" in expert_predictions:
             with logger.contextualize(attr_name="player_health"):
                 player_health_preds = expert_predictions[ObservableId("player_health")]
-                combined_dist = combine_expert_predictions_for_attr(
+                combined_dist = combine_active_expert_predictions_for_attr(
                     player_health_preds, weights
                 )
                 new_state.player.health = combined_dist.sample()
@@ -232,7 +238,7 @@ class ObservableExtractor:
                 if attr_name in expert_predictions:
                     with logger.contextualize(attr_name=attr_name):
                         entity_x_preds = expert_predictions[ObservableId(attr_name)]
-                        combined_dist = combine_expert_predictions_for_attr(
+                        combined_dist = combine_active_expert_predictions_for_attr(
                             entity_x_preds, weights
                         )
                         entity.position.x = combined_dist.sample()
@@ -242,7 +248,7 @@ class ObservableExtractor:
                 if attr_name in expert_predictions:
                     with logger.contextualize(attr_name=attr_name):
                         entity_y_preds = expert_predictions[ObservableId(attr_name)]
-                        combined_dist = combine_expert_predictions_for_attr(
+                        combined_dist = combine_active_expert_predictions_for_attr(
                             entity_y_preds, weights
                         )
                         entity.position.y = combined_dist.sample()
@@ -254,7 +260,7 @@ class ObservableExtractor:
                         entity_health_preds = expert_predictions[
                             ObservableId(attr_name)
                         ]
-                        combined_dist = combine_expert_predictions_for_attr(
+                        combined_dist = combine_active_expert_predictions_for_attr(
                             entity_health_preds, weights
                         )
                         entity.health = combined_dist.sample()

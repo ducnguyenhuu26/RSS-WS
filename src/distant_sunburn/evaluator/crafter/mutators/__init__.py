@@ -10,5 +10,5 @@ DEFAULT_MUTATORS = [
     CraftIllegalItemMutator(),
     IllegalMovementMutator(),
     EntityPositionMutator(),
-    # PlayerHealthMutator(),
+    PlayerHealthMutator(),
 ]

@@ -1,13 +1,17 @@
 from ...poe_world.core import (
-    ObservableExtractorProtocol,
     ObservableId,
     DiscreteDistribution,
 )
+from ..core import ObservableExtractorProtocol
 from ...mixed_fsm_env import State, Action
 from ...typing_utils import implements
 import numpy as np
 import torch
-from ..optimization import combine_expert_predictions_for_attr
+from ..world_modeling import combine_active_expert_predictions_for_attr
+from typing import Mapping, TypeAlias
+
+
+ExpertIndex: TypeAlias = int
 
 
 class ObservableExtractor:
@@ -50,14 +54,16 @@ class ObservableExtractor:
     @staticmethod
     def apply_expert_predictions(
         new_state: State,
-        expert_predictions: dict[ObservableId, list[DiscreteDistribution]],
+        expert_predictions: Mapping[
+            ObservableId, Mapping[ExpertIndex, DiscreteDistribution]
+        ],
         weights: torch.Tensor,
     ) -> State:
         if "deterministic_switch" in expert_predictions:
             deterministic_switch_preds = expert_predictions[
                 ObservableId("deterministic_switch")
             ]
-            combined_dist = combine_expert_predictions_for_attr(
+            combined_dist = combine_active_expert_predictions_for_attr(
                 deterministic_switch_preds, weights
             )
             new_state.deterministic_switch = combined_dist.sample()
@@ -66,14 +72,14 @@ class ObservableExtractor:
             stochastic_switch_preds = expert_predictions[
                 ObservableId("stochastic_switch")
             ]
-            combined_dist = combine_expert_predictions_for_attr(
+            combined_dist = combine_active_expert_predictions_for_attr(
                 stochastic_switch_preds, weights
             )
             new_state.stochastic_switch = combined_dist.sample()
 
         if "static_switch" in expert_predictions:
             static_switch_preds = expert_predictions[ObservableId("static_switch")]
-            combined_dist = combine_expert_predictions_for_attr(
+            combined_dist = combine_active_expert_predictions_for_attr(
                 static_switch_preds, weights
             )
             new_state.static_switch = combined_dist.sample()

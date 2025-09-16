@@ -16,9 +16,11 @@ import torch.nn as nn
 import torch.optim as optim
 from loguru import logger
 
+from distant_sunburn.poe_world.core import DiscreteDistribution
+
+
 from ..typing_utils import implements
 from ..poe_world.core import (
-    ObservableExtractorProtocol,
     DiscreteDistribution,
     ObservableId,
 )
@@ -27,9 +29,10 @@ from ..our_method.core import (
     WeightedLaw,
     SymbolicTransition,
     LawOptimizerProtocol,
+    ObservableExtractorProtocol,
 )
 from tqdm.auto import tqdm
-from typing import Sequence
+from typing import Sequence, Mapping
 from dataclasses import dataclass
 
 
@@ -40,71 +43,47 @@ LOGSCORE_FLOOR = -50.0  # ~1.9e-22 probability
 @dataclass
 class LawApplicationOutcome:
     precondition_met: bool
-    observed_effects: dict[ObservableId, DiscreteDistribution] | None = None
+    observed_effects: Mapping[ObservableId, DiscreteDistribution] | None = None
 
 
-def combine_expert_predictions_for_attr(
-    expert_predictions: Sequence[DiscreteDistribution], weights: torch.Tensor
-) -> DiscreteDistribution:
+def eval_expert_predictions_logprob_for_attr_torch(
+    support_tensor: torch.Tensor,
+    raw_logscores: torch.Tensor,
+    observed_outcome: int,
+) -> torch.Tensor:
     """
-    Combine expert predictions for a single attribute using learned weights.
+    Evaluate log-probability of observed outcome under combined expert predictions.
 
-    Implements Product of Experts (PoE) combination: weighted sum of expert log-probabilities.
-    Used for inference/evaluation. For optimization, use the _torch version.
-
-    WARNING: Breaks gradient flow with .detach().numpy().
+    Normalizes raw log-scores to log-probabilities using log-sum-exp, then extracts
+    probability for the observed outcome. Core computation for maximum likelihood fitting.
 
     Args:
-        expert_predictions: List of RandomValues from each expert for this attribute.
-            Each RandomValues contains predictions for the same set of possible values.
-        weights: Tensor of expert weights [n_experts] with dtype=torch.float32.
-            weights[i] determines how much expert i's prediction contributes.
+        support_tensor: Tensor of possible values [n_values] with dtype=torch.int32.
+            The support of the distribution - all possible values this attribute can take.
+            support_tensor[i] corresponds to raw_logscores[i].
+        raw_logscores: Tensor of raw log-scores [n_values] with dtype=torch.float32.
+            Raw log-scores from weighted expert combination (NOT normalized probabilities).
+        observed_outcome: The actual observed value to evaluate (e.g., ground truth).
+            Must be one of the values in support_tensor for finite log-probability.
 
     Returns:
-        Combined RandomValues distribution representing the ensemble prediction.
+        Log probability tensor [1] with dtype=torch.float32.
+        The log-probability of the observed_outcome under the normalized distribution.
+        Returns -inf if observed_outcome is not in support_tensor.
     """
-    if not expert_predictions:
-        raise ValueError("No expert predictions provided")
+    # Normalize to log probabilities using log-sum-exp trick for numerical stability
+    # log_probs[i] = raw_logscores[i] - log(sum(exp(raw_logscores)))
+    log_probs = raw_logscores - torch.logsumexp(raw_logscores, dim=0)
 
-    # Stack logscores from all experts into matrix [n_experts, n_values]
-    # Each row is one expert's predictions for all possible values
-    logscores_matrix = torch.stack(
-        [
-            torch.tensor(pred.logscores, dtype=torch.float32)
-            for pred in expert_predictions
-        ]
-    )
-    # Sanitize and clamp to avoid -inf/NaN dominating the combination
-    logscores_matrix = torch.where(
-        torch.isfinite(logscores_matrix),
-        logscores_matrix,
-        torch.full_like(logscores_matrix, LOGSCORE_FLOOR),
-    )
-    logscores_matrix = torch.clamp(logscores_matrix, min=LOGSCORE_FLOOR)
+    # Find the index of the observed value
+    mask = support_tensor == observed_outcome
 
-    # Matrix multiplication: [n_values, n_experts] @ [n_experts] = [n_values]
-    # This computes: combined_logscores[value] = sum(weight[i] * expert_logscore[i][value])
-    try:
-        combined_logscores = logscores_matrix.T @ weights
-    except RuntimeError:
-        logger.opt(exception=True).error(
-            "Could not aggregate logscores",
-            extra={
-                "logscores_matrix": logscores_matrix.shape,
-                "weights": weights.shape,
-                "expert_predictions": [
-                    pred.logscores.shape for pred in expert_predictions
-                ],
-            },
-        )
-        raise
-
-    # Return combined distribution using the same values as the first expert
-    # WARNING: .detach().numpy() breaks gradient flow - use _torch version for optimization
-    return DiscreteDistribution(
-        support=expert_predictions[0].support,
-        logscores=combined_logscores.detach().numpy(),
-    )
+    if mask.any():
+        # Return the log probability for the observed value
+        return log_probs[mask][0]  # Take first match
+    else:
+        # Value not possible under this distribution
+        return torch.tensor(-float("inf"), dtype=torch.float32)
 
 
 def combine_expert_predictions_for_attr_torch(
@@ -157,46 +136,6 @@ def combine_expert_predictions_for_attr_torch(
     values_tensor = torch.tensor(expert_predictions[0].support, dtype=torch.int32)
 
     return values_tensor, combined_logscores
-
-
-def eval_expert_predictions_logprob_for_attr_torch(
-    support_tensor: torch.Tensor,
-    raw_logscores: torch.Tensor,
-    observed_outcome: int,
-) -> torch.Tensor:
-    """
-    Evaluate log-probability of observed outcome under combined expert predictions.
-
-    Normalizes raw log-scores to log-probabilities using log-sum-exp, then extracts
-    probability for the observed outcome. Core computation for maximum likelihood fitting.
-
-    Args:
-        support_tensor: Tensor of possible values [n_values] with dtype=torch.int32.
-            The support of the distribution - all possible values this attribute can take.
-            support_tensor[i] corresponds to raw_logscores[i].
-        raw_logscores: Tensor of raw log-scores [n_values] with dtype=torch.float32.
-            Raw log-scores from weighted expert combination (NOT normalized probabilities).
-        observed_outcome: The actual observed value to evaluate (e.g., ground truth).
-            Must be one of the values in support_tensor for finite log-probability.
-
-    Returns:
-        Log probability tensor [1] with dtype=torch.float32.
-        The log-probability of the observed_outcome under the normalized distribution.
-        Returns -inf if observed_outcome is not in support_tensor.
-    """
-    # Normalize to log probabilities using log-sum-exp trick for numerical stability
-    # log_probs[i] = raw_logscores[i] - log(sum(exp(raw_logscores)))
-    log_probs = raw_logscores - torch.logsumexp(raw_logscores, dim=0)
-
-    # Find the index of the observed value
-    mask = support_tensor == observed_outcome
-
-    if mask.any():
-        # Return the log probability for the observed value
-        return log_probs[mask][0]  # Take first match
-    else:
-        # Value not possible under this distribution
-        return torch.tensor(-float("inf"), dtype=torch.float32)
 
 
 def compute_log_prob_for_attr_from_expert_predictions_torch(

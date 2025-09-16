@@ -4,6 +4,7 @@ from typing import Protocol, TypeVar, Any
 from pathlib import Path
 import cloudpickle
 from typing_extensions import Self, Generic
+
 from ..typing_utils import implements
 import inspect
 from typing import Type

@@ -353,17 +353,17 @@ class IncorrectEntityLifecycleLawSpuriousSpawning:
 
 CORRECT_EXPERTS = [
     LawFunctionWrapper.from_non_runtime_created(CorrectPlayerMovementLaw()),
-    # LawFunctionWrapper.from_non_runtime_created(CorrectCombatDamageLaw()),
+    LawFunctionWrapper.from_non_runtime_created(CorrectCombatDamageLaw()),
     LawFunctionWrapper.from_non_runtime_created(CorrectEntityAILaw()),
 ]
 
 INCORRECT_EXPERTS = [
-    # LawFunctionWrapper.from_non_runtime_created(IncorrectPlayerMovementLawTeleports()),
-    # LawFunctionWrapper.from_non_runtime_created(IncorrectCombatDamageLawInstakills()),
-    # LawFunctionWrapper.from_non_runtime_created(IncorrectEntityAiLawSelfDestructs()),
-    # LawFunctionWrapper.from_non_runtime_created(
-    #     IncorrectEntityLifecycleLawSpuriousSpawning()
-    # ),
+    LawFunctionWrapper.from_non_runtime_created(IncorrectPlayerMovementLawTeleports()),
+    LawFunctionWrapper.from_non_runtime_created(IncorrectCombatDamageLawInstakills()),
+    LawFunctionWrapper.from_non_runtime_created(IncorrectEntityAiLawSelfDestructs()),
+    LawFunctionWrapper.from_non_runtime_created(
+        IncorrectEntityLifecycleLawSpuriousSpawning()
+    ),
 ]
 
 ALL_EXPERTS = CORRECT_EXPERTS + INCORRECT_EXPERTS

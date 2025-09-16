@@ -1,13 +1,19 @@
 from ...poe_world.core import (
-    ObservableExtractorProtocol,
     ObservableId,
     DiscreteDistribution,
 )
 from ...deterministic_fsm_env import State, Action
 from ...typing_utils import implements
 import numpy as np
-from ..optimization import combine_expert_predictions_for_attr
+from ..world_modeling import (
+    combine_active_expert_predictions_for_attr,
+)
 import torch
+from ..core import ObservableExtractorProtocol
+from typing import Mapping, TypeAlias
+
+
+ExpertIndex: TypeAlias = int
 
 
 class ObservableExtractor:
@@ -41,18 +47,24 @@ class ObservableExtractor:
     def apply_expert_predictions(
         self,
         new_state: State,
-        expert_predictions: dict[ObservableId, list[DiscreteDistribution]],
+        expert_predictions: Mapping[
+            ObservableId, Mapping[ExpertIndex, DiscreteDistribution]
+        ],
         weights: torch.Tensor,
     ) -> State:
 
         if "switch_a" in expert_predictions:
             switch_a_preds = expert_predictions[ObservableId("switch_a")]
-            combined_dist = combine_expert_predictions_for_attr(switch_a_preds, weights)
+            combined_dist = combine_active_expert_predictions_for_attr(
+                switch_a_preds, weights
+            )
             new_state.switch_a = combined_dist.sample()
 
         if "switch_b" in expert_predictions:
             switch_b_preds = expert_predictions[ObservableId("switch_b")]
-            combined_dist = combine_expert_predictions_for_attr(switch_b_preds, weights)
+            combined_dist = combine_active_expert_predictions_for_attr(
+                switch_b_preds, weights
+            )
             new_state.switch_b = combined_dist.sample()
 
         return new_state

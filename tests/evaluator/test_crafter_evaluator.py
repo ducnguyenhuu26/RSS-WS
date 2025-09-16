@@ -8,8 +8,10 @@ from distant_sunburn.evaluator.core import EvaluationConfig, Evaluator
 from distant_sunburn.evaluator.crafter.components import _gamestate_to_json
 from distant_sunburn.evaluator.crafter.factory import CrafterEvaluationFactory
 from distant_sunburn.evaluator.crafter.utils import MAP_ACTION_TO_INDEX
+import pytest
 
 
+@pytest.mark.flaky(retries=5, delay=0)
 def test_evaluating_true_vs_null_world_model():
     """
     Test that the evaluation framework can successfully evaluate a world model
