@@ -80,7 +80,6 @@ def generate_random_data(
 def test():
     """Test that learned world model performs between null and true models."""
     env_config = EnvConfig(size=(9, 9), view=(9, 9))
-    num_eval_runs = 10
 
     # First we generate some data from a random policy and fit the world model.
     transitions = generate_random_data(env_config, n_transitions=100, policy_seed=42)
