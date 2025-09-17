@@ -7,9 +7,8 @@ environment-agnostic evaluation of symbolic world models.
 
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any, Generic, Protocol, TypeVar
+from typing import Generic, Protocol, TypeVar
 import numpy as np
-from icecream import ic
 import random
 import copy
 from loguru import logger
@@ -138,6 +137,7 @@ class EvaluationResults:
 
     edit_distance: EditDistance
     discriminative_accuracy: float
+    normalized_recall: float
     discriminative_accuracy_by_distractor_type: dict[str, float]
     total_transitions_evaluated: int
 
@@ -157,6 +157,7 @@ class Evaluator(Generic[SymbolicStateT, ActionT]):
 
         edit_distances: list[EditDistance] = []
         discriminative_successes: list[bool] = []
+        normalized_recalls: list[float] = []
         distractor_type_results: dict[str, list[bool]] = defaultdict(list)
 
         # TODO: This function does a _bunch_ of deepcopies. This is because
@@ -233,6 +234,51 @@ class Evaluator(Generic[SymbolicStateT, ActionT]):
                     # Therefore, this is a prediction error
                     discriminative_successes.append(False)
 
+            # Calculate the recall of the true next state. This is the
+            # rank at which the true next state appears in the candidate
+            # set if we order the candidates by log probability (highest to lowest)
+            # We must not penalize the model if it assigns higher probability
+            # to any candidate that is equivalent to the true next state.
+            # To handle this, we form the set of all candidates equal to the
+            # true next state and use the best (smallest) rank among them.
+            ordered_indices = sorted(
+                range(len(log_probs)), key=lambda i: log_probs[i], reverse=True
+            )
+            # Map candidate index -> 1-based rank
+            rank_by_index = {
+                idx: rank for rank, idx in enumerate(ordered_indices, start=1)
+            }
+            # Find all candidates equivalent to the true next state
+            equivalent_indices = [
+                i
+                for i, (candidate, _) in enumerate(candidates)
+                if candidate == transition.next_metadata
+            ]
+            # There should always be at least one (the true next state),
+            # but guard defensively and raise if none found.
+            if equivalent_indices:
+                best_rank = min(rank_by_index[i] for i in equivalent_indices)
+                # Normalize to [0, 1]: 1.0 if top-ranked, 0.0 if last
+                max_rank = len(candidates)
+                if max_rank > 1:
+                    normalized_recall = 1.0 - (best_rank - 1) / (max_rank - 1)
+                else:
+                    normalized_recall = 1.0
+                normalized_recalls.append(float(normalized_recall))
+            else:
+                # This should be impossible because the true next state is explicitly
+                # included in the candidates list. If it happens, it indicates a serious
+                # bug or state corruption. Log details and raise.
+                logger.error(
+                    "True next state was not found among candidates; this likely indicates"
+                    " that the __eq__ method is not implemented correctly.",
+                    transition_index=idx,
+                    num_candidates=len(candidates),
+                )
+                raise RuntimeError(
+                    f"True next state missing from candidates for transition index {idx}"
+                )
+
         # Convert distractor type results to means
         distractor_type_means = {
             distractor_type: float(np.mean(results))
@@ -280,6 +326,9 @@ class Evaluator(Generic[SymbolicStateT, ActionT]):
         return EvaluationResults(
             edit_distance=EditDistance.reduce(edit_distances),
             discriminative_accuracy=float(np.mean(discriminative_successes)),
+            normalized_recall=(
+                float(np.mean(normalized_recalls)) if normalized_recalls else 0.0
+            ),
             discriminative_accuracy_by_distractor_type=distractor_type_means,
             total_transitions_evaluated=len(self.ctx.test_transitions),
         )

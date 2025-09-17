@@ -53,6 +53,7 @@ def test_true_vs_null_world_model():
     assert (
         true_results.discriminative_accuracy - null_results.discriminative_accuracy
     ) > 0.5
+    assert true_results.normalized_recall > null_results.normalized_recall
 
 
 def test_edit_distance_calculation():

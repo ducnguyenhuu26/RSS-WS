@@ -55,6 +55,10 @@ def test_evaluating_true_vs_null_world_model():
         null_wm_perf.discriminative_accuracy < true_wm_perf.discriminative_accuracy
     ), "Null model should perform worse than true model"
 
+    assert (
+        null_wm_perf.normalized_recall < true_wm_perf.normalized_recall
+    ), "Null model should perform worse than true model"
+
     rich.print("== True World Model Performance ==")
     rich.print(true_wm_perf)
 
