@@ -24,6 +24,7 @@ from distant_sunburn.our_method.optimization import MaxLikelihoodWeightFitter
 from distant_sunburn.our_method.world_modeling import LawMixture
 from rich.console import Console
 from rich.table import Table
+from rich.text import Text
 
 
 def generate_random_data(
@@ -151,17 +152,31 @@ def test():
     metrics_table.add_column("Discriminative Accuracy", justify="right", style="green")
     metrics_table.add_column("Normalized Recall", justify="right", style="blue")
 
-    # Add rows for each model
+    # Add rows for each model with styling: gray out true model and bold best non-true
     models = [
-        ("True World Model", true_wm_perf),
-        ("Null World Model", null_wm_perf),
-        ("Our World Model", learned_wm_perf),
-        ("Random World Model", random_wm_perf),
+        ("True World Model", true_wm_perf, True),
+        ("Null World Model", null_wm_perf, False),
+        ("Our World Model", learned_wm_perf, False),
+        ("Random World Model", random_wm_perf, False),
     ]
 
-    for model_name, performance in models:
+    # Choose best non-true model by highest discriminative accuracy
+    non_true_models = [(n, p) for (n, p, is_true) in models if not is_true]
+    best_non_true_name = None
+    if non_true_models:
+        best_non_true_name = max(
+            non_true_models, key=lambda x: x[1].discriminative_accuracy
+        )[0]
+
+    for model_name, performance, is_true in models:
+        styled_name = Text(model_name)
+        if is_true:
+            styled_name.stylize("grey50")
+        elif model_name == best_non_true_name:
+            styled_name.stylize("bold")
+
         metrics_table.add_row(
-            model_name,
+            styled_name,
             f"{performance.edit_distance.raw:.3f} ({performance.edit_distance_std.raw:.3f})",
             f"{performance.edit_distance.normalized:.3f} ({performance.edit_distance_std.normalized:.3f})",
             f"{performance.edit_distance.intersection_over_union:.3f} ({performance.edit_distance_std.intersection_over_union:.3f})",
@@ -205,16 +220,77 @@ def test():
     table.add_column("Normalized Recall", justify="right", style="blue")
     table.add_column("N Distractors", justify="right", style="yellow")
 
-    # Add rows for each scenario
-    for scenario_name, metrics in learned_wm_perf.metrics_by_source.items():
-        table.add_row(
-            scenario_name,
-            f"{metrics['mean'].edit_distance.raw:.3f} ({metrics['std'].edit_distance.raw:.3f})",
-            f"{metrics['mean'].edit_distance.normalized:.3f} ({metrics['std'].edit_distance.normalized:.3f})",
-            f"{metrics['mean'].edit_distance.intersection_over_union:.3f} ({metrics['std'].edit_distance.intersection_over_union:.3f})",
-            f"{metrics['mean'].discriminative_accuracy:.3f} ({metrics['std'].discriminative_accuracy:.3f})",
-            f"{metrics['mean'].normalized_recall:.3f} ({metrics['std'].normalized_recall:.3f})",
-            f"{metrics['mean'].n_distractors:.0f} ({metrics['std'].n_distractors:.0f})",
-        )
+    # Percentile-based colorization for scenario rows; require non-empty metrics
+    by_source = learned_wm_perf.metrics_by_source
+    assert by_source, "Expected non-empty metrics_by_source for scenario table"
+
+    mean_raw = np.array([m["mean"].edit_distance.raw for m in by_source.values()])
+    mean_norm = np.array(
+        [m["mean"].edit_distance.normalized for m in by_source.values()]
+    )
+    mean_iou = np.array(
+        [m["mean"].edit_distance.intersection_over_union for m in by_source.values()]
+    )
+    mean_acc = np.array([m["mean"].discriminative_accuracy for m in by_source.values()])
+    mean_recall = np.array([m["mean"].normalized_recall for m in by_source.values()])
+
+    def thresholds(arr: np.ndarray) -> tuple[float, float]:
+        return (float(np.nanpercentile(arr, 33)), float(np.nanpercentile(arr, 66)))
+
+    raw_t = thresholds(mean_raw)
+    norm_t = thresholds(mean_norm)
+    iou_t = thresholds(mean_iou)
+    acc_t = thresholds(mean_acc)
+    recall_t = thresholds(mean_recall)
+
+    def color_for(value: float, t: tuple[float, float], higher_is_better: bool) -> str:
+        low, high = t
+        if higher_is_better:
+            if value <= low:
+                return "red3"
+            if value >= high:
+                return "green3"
+            return "yellow3"
+        else:
+            if value <= low:
+                return "green3"
+            if value >= high:
+                return "red3"
+            return "yellow3"
+
+    for scenario_name, metrics in by_source.items():
+        mean = metrics["mean"]
+        std = metrics["std"]
+        cells = [
+            Text(scenario_name, style="cyan"),
+            Text(
+                f"{mean.edit_distance.raw:.3f} ({std.edit_distance.raw:.3f})",
+                style=color_for(mean.edit_distance.raw, raw_t, higher_is_better=False),
+            ),
+            Text(
+                f"{mean.edit_distance.normalized:.3f} ({std.edit_distance.normalized:.3f})",
+                style=color_for(
+                    mean.edit_distance.normalized, norm_t, higher_is_better=False
+                ),
+            ),
+            Text(
+                f"{mean.edit_distance.intersection_over_union:.3f} ({std.edit_distance.intersection_over_union:.3f})",
+                style=color_for(
+                    mean.edit_distance.intersection_over_union, iou_t, True
+                ),
+            ),
+            Text(
+                f"{mean.discriminative_accuracy:.3f} ({std.discriminative_accuracy:.3f})",
+                style=color_for(mean.discriminative_accuracy, acc_t, True),
+            ),
+            Text(
+                f"{mean.normalized_recall:.3f} ({std.normalized_recall:.3f})",
+                style=color_for(mean.normalized_recall, recall_t, True),
+            ),
+            Text(
+                f"{mean.n_distractors:.0f} ({std.n_distractors:.0f})",
+            ),
+        ]
+        table.add_row(*cells)
 
     console.print(table)
