@@ -3,7 +3,6 @@ import random
 from typing import List
 
 import numpy as np
-import rich
 from crafter.functional_env import EnvConfig, initial_state, transition
 from crafter.state_export import WorldState
 from loguru import logger
@@ -13,7 +12,6 @@ from distant_sunburn.evaluator import (
     Evaluator,
     NullWorldModel,
     TrueTransitionWorldModel,
-    EvaluationResults,
 )
 from distant_sunburn.evaluator.baselines import RandomWorldModel
 from distant_sunburn.evaluator.crafter.components import _gamestate_to_json
@@ -26,7 +24,6 @@ from distant_sunburn.our_method.optimization import MaxLikelihoodWeightFitter
 from distant_sunburn.our_method.world_modeling import LawMixture
 from rich.console import Console
 from rich.table import Table
-from rich.pretty import pprint
 
 
 def generate_random_data(
@@ -140,44 +137,39 @@ def test():
         expert_name = weighted_expert.law.__name__
         print(f"  {expert_name}: {weighted_expert.weight}")
 
-    # Print all performance metrics with statistics
-    pprint(
-        {
-            "edit_distance": {
-                "raw": {
-                    "true_world_model": true_wm_perf.edit_distance.raw,
-                    "null_world_model": null_wm_perf.edit_distance.raw,
-                    "our_world_model": learned_wm_perf.edit_distance.raw,
-                    "random_world_model": random_wm_perf.edit_distance.raw,
-                },
-                "normalized": {
-                    "true_world_model": true_wm_perf.edit_distance.normalized,
-                    "null_world_model": null_wm_perf.edit_distance.normalized,
-                    "our_world_model": learned_wm_perf.edit_distance.normalized,
-                    "random_world_model": random_wm_perf.edit_distance.normalized,
-                },
-                "intersection_over_union": {
-                    "true_world_model": true_wm_perf.edit_distance.intersection_over_union,
-                    "null_world_model": null_wm_perf.edit_distance.intersection_over_union,
-                    "our_world_model": learned_wm_perf.edit_distance.intersection_over_union,
-                    "random_world_model": random_wm_perf.edit_distance.intersection_over_union,
-                },
-            },
-            "discriminative_accuracy": {
-                "true_world_model": true_wm_perf.discriminative_accuracy,
-                "null_world_model": null_wm_perf.discriminative_accuracy,
-                "our_world_model": learned_wm_perf.discriminative_accuracy,
-                "random_world_model": random_wm_perf.discriminative_accuracy,
-            },
-            "normalized_recall": {
-                "true_world_model": true_wm_perf.normalized_recall,
-                "null_world_model": null_wm_perf.normalized_recall,
-                "our_world_model": learned_wm_perf.normalized_recall,
-                "random_world_model": random_wm_perf.normalized_recall,
-            },
-        },
-        expand_all=True,
+    # Print all performance metrics with statistics in a rich table
+    console = Console()
+    metrics_table = Table(title="World Model Performance Comparison")
+
+    # Add columns
+    metrics_table.add_column("Model", style="cyan", no_wrap=True)
+    metrics_table.add_column("Edit Distance (Raw)", justify="right", style="magenta")
+    metrics_table.add_column(
+        "Edit Distance (Normalized)", justify="right", style="magenta"
     )
+    metrics_table.add_column("Edit Distance (IoU)", justify="right", style="magenta")
+    metrics_table.add_column("Discriminative Accuracy", justify="right", style="green")
+    metrics_table.add_column("Normalized Recall", justify="right", style="blue")
+
+    # Add rows for each model
+    models = [
+        ("True World Model", true_wm_perf),
+        ("Null World Model", null_wm_perf),
+        ("Our World Model", learned_wm_perf),
+        ("Random World Model", random_wm_perf),
+    ]
+
+    for model_name, performance in models:
+        metrics_table.add_row(
+            model_name,
+            f"{performance.edit_distance.raw:.3f} ({performance.edit_distance_std.raw:.3f})",
+            f"{performance.edit_distance.normalized:.3f} ({performance.edit_distance_std.normalized:.3f})",
+            f"{performance.edit_distance.intersection_over_union:.3f} ({performance.edit_distance_std.intersection_over_union:.3f})",
+            f"{performance.discriminative_accuracy:.3f} ({performance.discriminative_accuracy_std:.3f})",
+            f"{performance.normalized_recall:.3f} ({performance.normalized_recall_std:.3f})",
+        )
+
+    console.print(metrics_table)
 
     # Assertions based on mean values across all runs
     assert (

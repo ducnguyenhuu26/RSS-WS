@@ -443,8 +443,8 @@ class Evaluator(Generic[SymbolicStateT, ActionT]):
         )
 
         std_metrics = self._aggregate_metrics(
-            iterable=[_["mean"] for _ in metrics_by_source.values()],
-            reduction="std",
+            iterable=[_["std"] for _ in metrics_by_source.values()],
+            reduction="mean",
         )
 
         return EvaluationResults(
