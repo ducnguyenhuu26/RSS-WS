@@ -16,6 +16,7 @@ from typing_extensions import Self
 from typing import TypeAlias, Mapping, Sequence
 from typing_extensions import assert_never
 import itertools
+from typing import Iterable, Literal
 
 SymbolicStateT = TypeVar("SymbolicStateT")
 SymbolicStateT_contra = TypeVar("SymbolicStateT_contra", contravariant=True)
@@ -71,13 +72,46 @@ class EditDistance:
     intersection_over_union: float
 
     @classmethod
-    def reduce(cls: type[Self], edit_distances: list[Self]) -> Self:
+    def mean(cls: type[Self], edit_distances: Iterable[Self]) -> Self:
         return cls(
             raw=float(np.mean([ed.raw for ed in edit_distances])),
             normalized=float(np.mean([ed.normalized for ed in edit_distances])),
             total_elements=float(np.mean([ed.total_elements for ed in edit_distances])),
             intersection_over_union=float(
                 np.mean([ed.intersection_over_union for ed in edit_distances])
+            ),
+        )
+
+    @classmethod
+    def std(cls: type[Self], edit_distances: Iterable[Self]) -> Self:
+        return cls(
+            raw=float(np.std([ed.raw for ed in edit_distances])),
+            normalized=float(np.std([ed.normalized for ed in edit_distances])),
+            total_elements=float(np.std([ed.total_elements for ed in edit_distances])),
+            intersection_over_union=float(
+                np.std([ed.intersection_over_union for ed in edit_distances])
+            ),
+        )
+
+    @classmethod
+    def min(cls: type[Self], edit_distances: Iterable[Self]) -> Self:
+        return cls(
+            raw=float(np.min([ed.raw for ed in edit_distances])),
+            normalized=float(np.min([ed.normalized for ed in edit_distances])),
+            total_elements=float(np.min([ed.total_elements for ed in edit_distances])),
+            intersection_over_union=float(
+                np.min([ed.intersection_over_union for ed in edit_distances])
+            ),
+        )
+
+    @classmethod
+    def max(cls: type[Self], edit_distances: Iterable[Self]) -> Self:
+        return cls(
+            raw=float(np.max([ed.raw for ed in edit_distances])),
+            normalized=float(np.max([ed.normalized for ed in edit_distances])),
+            total_elements=float(np.max([ed.total_elements for ed in edit_distances])),
+            intersection_over_union=float(
+                np.max([ed.intersection_over_union for ed in edit_distances])
             ),
         )
 
@@ -192,7 +226,9 @@ class Evaluator(Generic[SymbolicStateT, ActionT]):
 
         # 4. Generate distractors using injected generator
         distractors = self.ctx.distractor_generator(
-            transition, all_transitions, self.ctx.config.num_distractors
+            transition=transition,
+            all_transitions=all_transitions,
+            num_distractors=self.ctx.config.num_distractors,
         )
 
         # 5. Construct candidate set and whether they are the true next state
@@ -290,6 +326,71 @@ class Evaluator(Generic[SymbolicStateT, ActionT]):
             n_distractors=n_distractors,
         )
 
+    def _aggregate_metrics(
+        self,
+        iterable: Iterable[EvaluationMetrics],
+        reduction: Literal["mean", "std", "min", "max"],
+    ) -> tuple[EditDistance, float, float, int]:
+        edit_distances: list[EditDistance] = []
+        discriminative_successes: list[bool] = []
+        normalized_recalls: list[float] = []
+        n_distractors: list[int] = []
+
+        for metrics in iterable:
+            edit_distances.append(metrics.edit_distance)
+            discriminative_successes.append(metrics.discriminative_success)
+            normalized_recalls.append(metrics.normalized_recall)
+            n_distractors.append(metrics.n_distractors)
+
+        match reduction:
+            case "mean":
+                return (
+                    EditDistance.mean(edit_distances),
+                    float(np.mean(discriminative_successes)),
+                    float(np.mean(normalized_recalls)),
+                    int(np.mean(n_distractors)),
+                )
+            case "std":
+                return (
+                    EditDistance.std(edit_distances),
+                    float(np.std(discriminative_successes)),
+                    float(np.std(normalized_recalls)),
+                    int(np.std(n_distractors)),
+                )
+            case "min":
+                return (
+                    EditDistance.min(edit_distances),
+                    float(np.min(discriminative_successes)),
+                    float(np.min(normalized_recalls)),
+                    int(np.min(n_distractors)),
+                )
+            case "max":
+                return (
+                    EditDistance.max(edit_distances),
+                    float(np.max(discriminative_successes)),
+                    float(np.max(normalized_recalls)),
+                    int(np.max(n_distractors)),
+                )
+            case _:
+                assert_never(reduction)
+
+    def _log_distractor_instrumentation(
+        self,
+        min_n_distractors: int,
+        max_n_distractors: int,
+        mean_n_distractors: int,
+        std_n_distractors: int,
+    ):
+        logger.info(
+            "Distractor Stats",
+            distractor_stats={
+                "min": min_n_distractors,
+                "max": max_n_distractors,
+                "mean": mean_n_distractors,
+                "std": std_n_distractors,
+            },
+        )
+
     def evaluate(
         self,
         world_model: EvaluatableWorldModel[SymbolicStateT, ActionT],
@@ -313,58 +414,53 @@ class Evaluator(Generic[SymbolicStateT, ActionT]):
                 edit_distances.append(evaluation_metrics.edit_distance)
                 metrics_by_source[transition_source].append(evaluation_metrics)
 
-        discriminative_successes: list[bool] = []
-        normalized_recalls: list[float] = []
-        n_distractors: list[int] = []
-
-        for metrics in itertools.chain.from_iterable(metrics_by_source.values()):
-            discriminative_successes.append(metrics.discriminative_success)
-            normalized_recalls.append(metrics.normalized_recall)
-            n_distractors.append(metrics.n_distractors)
-
-        logger.info(
-            "Distractor Stats",
-            distractor_stats={
-                "mean": float(np.mean(n_distractors)),
-                "max": float(np.max(n_distractors)),
-                "min": float(np.min(n_distractors)),
-                "std": float(np.std(n_distractors)),
-            },
+        (
+            mean_edit_distance,
+            mean_discriminative_accuracy,
+            mean_normalized_recall,
+            mean_n_distractors,
+        ) = self._aggregate_metrics(
+            itertools.chain.from_iterable(metrics_by_source.values()),
+            reduction="mean",
         )
 
-        logger.info(
-            "Edit Distance Stats/Raw",
-            edit_distance_stats={
-                "mean": float(np.mean([ed.raw for ed in edit_distances])),
-                "max": float(np.max([ed.raw for ed in edit_distances])),
-                "min": float(np.min([ed.raw for ed in edit_distances])),
-                "std": float(np.std([ed.raw for ed in edit_distances])),
-            },
+        (
+            std_edit_distance,
+            std_discriminative_accuracy,
+            std_normalized_recall,
+            std_n_distractors,
+        ) = self._aggregate_metrics(
+            itertools.chain.from_iterable(metrics_by_source.values()), reduction="std"
         )
 
-        logger.info(
-            "Edit Distance Stats/Intersection Over Union",
-            edit_distance_stats={
-                "mean": float(
-                    np.mean([ed.intersection_over_union for ed in edit_distances])
-                ),
-                "max": float(
-                    np.max([ed.intersection_over_union for ed in edit_distances])
-                ),
-                "min": float(
-                    np.min([ed.intersection_over_union for ed in edit_distances])
-                ),
-                "std": float(
-                    np.std([ed.intersection_over_union for ed in edit_distances])
-                ),
-            },
+        (
+            min_edit_distance,
+            min_discriminative_accuracy,
+            min_normalized_recall,
+            min_n_distractors,
+        ) = self._aggregate_metrics(
+            itertools.chain.from_iterable(metrics_by_source.values()), reduction="min"
+        )
+
+        (
+            max_edit_distance,
+            max_discriminative_accuracy,
+            max_normalized_recall,
+            max_n_distractors,
+        ) = self._aggregate_metrics(
+            itertools.chain.from_iterable(metrics_by_source.values()), reduction="max"
+        )
+
+        self._log_distractor_instrumentation(
+            min_n_distractors,
+            max_n_distractors,
+            mean_n_distractors,
+            std_n_distractors,
         )
 
         return EvaluationResults(
-            edit_distance=EditDistance.reduce(edit_distances),
-            discriminative_accuracy=float(np.mean(discriminative_successes)),
-            normalized_recall=(
-                float(np.mean(normalized_recalls)) if normalized_recalls else 0.0
-            ),
-            total_transitions_evaluated=len(self.ctx.test_transitions),
+            edit_distance=mean_edit_distance,
+            discriminative_accuracy=mean_discriminative_accuracy,
+            normalized_recall=mean_normalized_recall,
+            total_transitions_evaluated=len(all_transitions),
         )
