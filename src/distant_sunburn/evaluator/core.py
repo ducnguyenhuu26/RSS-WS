@@ -164,6 +164,7 @@ class EvaluationConfig:
     """Configuration for evaluation runs."""
 
     num_distractors: int = 5
+    num_trials: int = 1
 
 
 TransitionSource: TypeAlias = str
@@ -408,7 +409,15 @@ class Evaluator(Generic[SymbolicStateT, ActionT]):
         )
 
         for transition_source, transitions in self.ctx.test_transitions.items():
-            for transition in transitions:
+            # We handle multiple trials by concatenating the transitions
+            # num_trial times, so we get num_trials * len(transitions) transitions
+            # effectively running each transition source num_trials times
+
+            transitions_iterator = itertools.chain.from_iterable(
+                itertools.repeat(transitions, self.ctx.config.num_trials)
+            )
+
+            for transition in transitions_iterator:
                 evaluation_metrics = self._evaluate_transition(
                     world_model, transition, all_transitions
                 )
