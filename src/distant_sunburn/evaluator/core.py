@@ -16,7 +16,7 @@ from typing_extensions import Self
 from typing import TypeAlias, Mapping, Sequence
 from typing_extensions import assert_never
 import itertools
-from typing import Iterable, Literal
+from typing import Iterable, Literal, Any
 
 SymbolicStateT = TypeVar("SymbolicStateT")
 SymbolicStateT_contra = TypeVar("SymbolicStateT_contra", contravariant=True)
@@ -119,9 +119,9 @@ class EditDistance:
 @dataclass(frozen=True)
 class EvaluationMetrics:
     edit_distance: EditDistance
-    discriminative_success: bool
+    discriminative_accuracy: float
     normalized_recall: float
-    n_distractors: int
+    n_distractors: float
 
 
 class EditDistanceCalculator(Protocol[SymbolicStateT_contra]):
@@ -189,6 +189,7 @@ class EvaluationResults:
     discriminative_accuracy: float
     normalized_recall: float
     total_transitions_evaluated: int
+    metrics_by_source: Mapping[TransitionSource, EvaluationMetrics]
 
 
 class Evaluator(Generic[SymbolicStateT, ActionT]):
@@ -265,18 +266,18 @@ class Evaluator(Generic[SymbolicStateT, ActionT]):
             case (True, _):
                 # The model correctly chose the true next step,
                 # so nothing else matters and we can mark as successful
-                discriminative_success = True
+                discriminative_accuracy = 1.0
             case (False, True):
                 # The max probability candidate chosen by the model is equivalent
                 # to the true next state! This can happen in the case where the
                 # model perfectly predicts the true next state, or where one of the
                 # distractors is equivalent to the true next state (though this is rare)
-                discriminative_success = True
+                discriminative_accuracy = 1.0
             case (False, False):
                 # The model predicted a next state that was not the true next state
                 # and the chosen candidate is not equivalent to the true next state
                 # Therefore, this is a prediction error
-                discriminative_success = False
+                discriminative_accuracy = 0.0
             case _:
                 assert_never(_)
 
@@ -321,7 +322,7 @@ class Evaluator(Generic[SymbolicStateT, ActionT]):
 
         return EvaluationMetrics(
             edit_distance=edit_distance,
-            discriminative_success=discriminative_success,
+            discriminative_accuracy=discriminative_accuracy,
             normalized_recall=normalized_recall,
             n_distractors=n_distractors,
         )
@@ -330,44 +331,44 @@ class Evaluator(Generic[SymbolicStateT, ActionT]):
         self,
         iterable: Iterable[EvaluationMetrics],
         reduction: Literal["mean", "std", "min", "max"],
-    ) -> tuple[EditDistance, float, float, int]:
+    ) -> EvaluationMetrics:
         edit_distances: list[EditDistance] = []
-        discriminative_successes: list[bool] = []
+        discriminative_accuracies: list[float] = []
         normalized_recalls: list[float] = []
-        n_distractors: list[int] = []
+        n_distractors: list[float] = []
 
         for metrics in iterable:
             edit_distances.append(metrics.edit_distance)
-            discriminative_successes.append(metrics.discriminative_success)
+            discriminative_accuracies.append(metrics.discriminative_accuracy)
             normalized_recalls.append(metrics.normalized_recall)
             n_distractors.append(metrics.n_distractors)
 
         match reduction:
             case "mean":
-                return (
+                return EvaluationMetrics(
                     EditDistance.mean(edit_distances),
-                    float(np.mean(discriminative_successes)),
+                    float(np.mean(discriminative_accuracies)),
                     float(np.mean(normalized_recalls)),
-                    int(np.mean(n_distractors)),
+                    float(np.mean(n_distractors)),
                 )
             case "std":
-                return (
+                return EvaluationMetrics(
                     EditDistance.std(edit_distances),
-                    float(np.std(discriminative_successes)),
+                    float(np.std(discriminative_accuracies)),
                     float(np.std(normalized_recalls)),
-                    int(np.std(n_distractors)),
+                    float(np.std(n_distractors)),
                 )
             case "min":
-                return (
+                return EvaluationMetrics(
                     EditDistance.min(edit_distances),
-                    float(np.min(discriminative_successes)),
+                    float(np.min(discriminative_accuracies)),
                     float(np.min(normalized_recalls)),
                     int(np.min(n_distractors)),
                 )
             case "max":
-                return (
+                return EvaluationMetrics(
                     EditDistance.max(edit_distances),
-                    float(np.max(discriminative_successes)),
+                    float(np.max(discriminative_accuracies)),
                     float(np.max(normalized_recalls)),
                     int(np.max(n_distractors)),
                 )
@@ -376,10 +377,10 @@ class Evaluator(Generic[SymbolicStateT, ActionT]):
 
     def _log_distractor_instrumentation(
         self,
-        min_n_distractors: int,
-        max_n_distractors: int,
-        mean_n_distractors: int,
-        std_n_distractors: int,
+        min_n_distractors: Any,
+        max_n_distractors: Any,
+        mean_n_distractors: Any,
+        std_n_distractors: Any,
     ):
         logger.info(
             "Distractor Stats",
@@ -398,9 +399,9 @@ class Evaluator(Generic[SymbolicStateT, ActionT]):
 
         edit_distances: list[EditDistance] = []
 
-        metrics_by_source: dict[TransitionSource, list[EvaluationMetrics]] = (
-            defaultdict(list)
-        )
+        unaggregated_metrics_by_source: dict[
+            TransitionSource, list[EvaluationMetrics]
+        ] = defaultdict(list)
 
         all_transitions = list(
             itertools.chain.from_iterable(self.ctx.test_transitions.values())
@@ -412,55 +413,46 @@ class Evaluator(Generic[SymbolicStateT, ActionT]):
                     world_model, transition, all_transitions
                 )
                 edit_distances.append(evaluation_metrics.edit_distance)
-                metrics_by_source[transition_source].append(evaluation_metrics)
+                unaggregated_metrics_by_source[transition_source].append(
+                    evaluation_metrics
+                )
 
-        (
-            mean_edit_distance,
-            mean_discriminative_accuracy,
-            mean_normalized_recall,
-            mean_n_distractors,
-        ) = self._aggregate_metrics(
-            itertools.chain.from_iterable(metrics_by_source.values()),
+        mean_metrics = self._aggregate_metrics(
+            itertools.chain.from_iterable(unaggregated_metrics_by_source.values()),
             reduction="mean",
         )
 
-        (
-            std_edit_distance,
-            std_discriminative_accuracy,
-            std_normalized_recall,
-            std_n_distractors,
-        ) = self._aggregate_metrics(
-            itertools.chain.from_iterable(metrics_by_source.values()), reduction="std"
+        std_metrics = self._aggregate_metrics(
+            itertools.chain.from_iterable(unaggregated_metrics_by_source.values()),
+            reduction="std",
         )
 
-        (
-            min_edit_distance,
-            min_discriminative_accuracy,
-            min_normalized_recall,
-            min_n_distractors,
-        ) = self._aggregate_metrics(
-            itertools.chain.from_iterable(metrics_by_source.values()), reduction="min"
+        min_metrics = self._aggregate_metrics(
+            itertools.chain.from_iterable(unaggregated_metrics_by_source.values()),
+            reduction="min",
         )
 
-        (
-            max_edit_distance,
-            max_discriminative_accuracy,
-            max_normalized_recall,
-            max_n_distractors,
-        ) = self._aggregate_metrics(
-            itertools.chain.from_iterable(metrics_by_source.values()), reduction="max"
+        max_metrics = self._aggregate_metrics(
+            itertools.chain.from_iterable(unaggregated_metrics_by_source.values()),
+            reduction="max",
         )
 
         self._log_distractor_instrumentation(
-            min_n_distractors,
-            max_n_distractors,
-            mean_n_distractors,
-            std_n_distractors,
+            min_metrics.n_distractors,
+            max_metrics.n_distractors,
+            mean_metrics.n_distractors,
+            std_metrics.n_distractors,
         )
 
+        aggregated_metrics_by_source = {
+            transition_source: self._aggregate_metrics(metrics, reduction="mean")
+            for transition_source, metrics in unaggregated_metrics_by_source.items()
+        }
+
         return EvaluationResults(
-            edit_distance=mean_edit_distance,
-            discriminative_accuracy=mean_discriminative_accuracy,
-            normalized_recall=mean_normalized_recall,
+            edit_distance=mean_metrics.edit_distance,
+            discriminative_accuracy=mean_metrics.discriminative_accuracy,
+            normalized_recall=mean_metrics.normalized_recall,
             total_transitions_evaluated=len(all_transitions),
+            metrics_by_source=aggregated_metrics_by_source,
         )

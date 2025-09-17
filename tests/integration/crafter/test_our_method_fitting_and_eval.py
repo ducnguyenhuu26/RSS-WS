@@ -24,6 +24,8 @@ from distant_sunburn.our_method.crafter.handwritten_laws import ALL_EXPERTS
 from distant_sunburn.our_method.crafter.observable_extractor import ObservableExtractor
 from distant_sunburn.our_method.optimization import MaxLikelihoodWeightFitter
 from distant_sunburn.our_method.world_modeling import LawMixture
+from rich.console import Console
+from rich.table import Table
 
 
 def generate_random_data(
@@ -244,3 +246,32 @@ def test():
         learned_stats["normalized_recall"]["mean"]
         < true_stats["normalized_recall"]["mean"]
     ), "Learned model should have lower normalized recall than true model"
+
+    console = Console()
+    table = Table(title="Learned World Model Metrics by Scenario")
+
+    # Add columns
+    table.add_column("Scenario", style="cyan", no_wrap=True)
+    table.add_column("Edit Distance (Raw)", justify="right", style="magenta")
+    table.add_column("Edit Distance (Normalized)", justify="right", style="magenta")
+    table.add_column("Edit Distance (IoU)", justify="right", style="magenta")
+    table.add_column("Discriminative Accuracy", justify="right", style="green")
+    table.add_column("Normalized Recall", justify="right", style="blue")
+    table.add_column("N Distractors", justify="right", style="yellow")
+
+    # Get the first learned world model results
+    first_learned_results = learned_wm_perfs[0]
+
+    # Add rows for each scenario
+    for scenario_name, metrics in first_learned_results.metrics_by_source.items():
+        table.add_row(
+            scenario_name,
+            f"{metrics.edit_distance.raw:.3f}",
+            f"{metrics.edit_distance.normalized:.3f}",
+            f"{metrics.edit_distance.intersection_over_union:.3f}",
+            f"{metrics.discriminative_accuracy:.3f}",
+            f"{metrics.normalized_recall:.3f}",
+            f"{metrics.n_distractors:.0f}",
+        )
+
+    console.print(table)
