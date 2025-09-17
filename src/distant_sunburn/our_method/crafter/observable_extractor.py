@@ -16,11 +16,6 @@ from crafter.state_export import Inventory
 from crafter.constants import MaterialT, materials
 
 
-MATERIAL_TO_CATEGORY: dict[MaterialT, int] = {m: i for i, m in enumerate(materials)}
-
-
-# Define fixed domains for position and health attributes
-# Using reasonable defaults without reading from game state
 @dataclass(frozen=True)
 class ObservableExtractorConfig:
     position_domain: np.ndarray = field(default_factory=lambda: np.arange(0, 101))

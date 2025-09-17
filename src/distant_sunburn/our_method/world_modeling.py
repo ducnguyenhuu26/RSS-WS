@@ -229,6 +229,11 @@ class LawMixture(Generic[SymbolicStateT, ActionT]):
         # Get observed values from next state
         observed_values = self.observable_extractor.get_observed_outcomes(next_state)
 
+        # Get observed values from previous state
+        previous_observed_values = self.observable_extractor.get_observed_outcomes(
+            state
+        )
+
         total_log_prob = 0.0
 
         # Evaluate log-probability for each attribute
@@ -244,10 +249,11 @@ class LawMixture(Generic[SymbolicStateT, ActionT]):
                 log_prob = combined_dist.evaluate_log_probability(observed_value)
                 total_log_prob += log_prob
             else:
-                # No law has an opinion on this attribute, so it
-                # is up to us how to handle it with a prior or a
-                # default law.
-                pass
+                # Add an implicit prior that the value has not changed.
+                # If the value _did_ change, we will add a small negative
+                # penalty to the log probability.
+                if observed_value != previous_observed_values[attr_name]:
+                    total_log_prob += -1.0
 
         return total_log_prob
 
