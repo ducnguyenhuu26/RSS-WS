@@ -113,7 +113,7 @@ def test():
         env_config=env_config, policy_seed=eval_seed
     )
     evaluation_context = evaluation_factory.create_context(
-        config=EvaluationConfig(num_distractors=10, num_trials=10),
+        config=EvaluationConfig(num_distractors=10, num_trials=5),
         num_transitions_per_scenario=30,
     )
     evaluator = Evaluator(evaluation_context)

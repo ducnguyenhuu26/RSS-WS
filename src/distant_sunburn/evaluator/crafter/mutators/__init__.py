@@ -4,6 +4,7 @@ from .movement import IllegalMovementMutator
 from .entity_position import EntityPositionMutator
 from .interface import Mutator
 from .entity_health import PlayerHealthMutator
+from .player import InventoryMutator
 
 DEFAULT_MUTATORS = [
     CollectIllegalMaterialMutator(),
@@ -11,4 +12,5 @@ DEFAULT_MUTATORS = [
     IllegalMovementMutator(),
     EntityPositionMutator(),
     PlayerHealthMutator(),
+    InventoryMutator(),
 ]

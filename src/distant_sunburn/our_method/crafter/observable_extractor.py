@@ -13,6 +13,10 @@ from ..world_modeling import combine_active_expert_predictions_for_attr
 from typing import Mapping, TypeAlias
 from loguru import logger
 from crafter.state_export import Inventory
+from crafter.constants import MaterialT, materials
+
+
+MATERIAL_TO_CATEGORY: dict[MaterialT, int] = {m: i for i, m in enumerate(materials)}
 
 
 # Define fixed domains for position and health attributes
