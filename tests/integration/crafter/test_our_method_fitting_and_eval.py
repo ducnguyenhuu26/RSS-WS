@@ -165,12 +165,14 @@ def test():
         edit_distance_normalized = [p.edit_distance.normalized for p in perfs]
         edit_distance_iou = [p.edit_distance.intersection_over_union for p in perfs]
         discriminative_accuracy = [p.discriminative_accuracy for p in perfs]
+        normalized_recall = [p.normalized_recall for p in perfs]
 
         return {
             "edit_distance_raw": calculate_stats(edit_distance_raw),
             "edit_distance_normalized": calculate_stats(edit_distance_normalized),
             "edit_distance_iou": calculate_stats(edit_distance_iou),
             "discriminative_accuracy": calculate_stats(discriminative_accuracy),
+            "normalized_recall": calculate_stats(normalized_recall),
         }
 
     learned_stats = extract_metrics(learned_wm_perfs)
@@ -207,6 +209,12 @@ def test():
                 "our_world_model": learned_stats["discriminative_accuracy"],
                 "random_world_model": random_stats["discriminative_accuracy"],
             },
+            "normalized_recall": {
+                "true_world_model": true_stats["normalized_recall"],
+                "null_world_model": null_stats["normalized_recall"],
+                "our_world_model": learned_stats["normalized_recall"],
+                "random_world_model": random_stats["normalized_recall"],
+            },
         }
     )
 
@@ -226,3 +234,13 @@ def test():
         learned_stats["discriminative_accuracy"]["mean"]
         < true_stats["discriminative_accuracy"]["mean"]
     ), "Learned model should have lower discriminative accuracy than true model"
+
+    assert (
+        learned_stats["normalized_recall"]["mean"]
+        > null_stats["normalized_recall"]["mean"]
+    ), "Learned model should have higher normalized recall than null model"
+
+    assert (
+        learned_stats["normalized_recall"]["mean"]
+        < true_stats["normalized_recall"]["mean"]
+    ), "Learned model should have lower normalized recall than true model"
