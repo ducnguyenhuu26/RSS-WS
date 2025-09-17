@@ -12,6 +12,7 @@ from typing import Optional
 from ..world_modeling import combine_active_expert_predictions_for_attr
 from typing import Mapping, TypeAlias
 from loguru import logger
+from crafter.state_export import Inventory
 
 
 # Define fixed domains for position and health attributes
@@ -27,9 +28,63 @@ class ObservableExtractorConfig:
     entity_existence_domain: np.ndarray = field(
         default_factory=lambda: np.array([0, 1])
     )
+    inventory_domain: np.ndarray = field(default_factory=lambda: np.arange(0, 101))
 
 
 ExpertIndex: TypeAlias = int
+
+
+class InventoryAttrSetter:
+    def __init__(self, inventory: Inventory):
+        self.inventory = inventory
+
+    def set_health(self, v: int):
+        self.inventory.health = v
+
+    def set_food(self, v: int):
+        self.inventory.food = v
+
+    def set_drink(self, v: int):
+        self.inventory.drink = v
+
+    def set_energy(self, v: int):
+        self.inventory.energy = v
+
+    def set_sapling(self, v: int):
+        self.inventory.sapling = v
+
+    def set_wood(self, v: int):
+        self.inventory.wood = v
+
+    def set_stone(self, v: int):
+        self.inventory.stone = v
+
+    def set_coal(self, v: int):
+        self.inventory.coal = v
+
+    def set_iron(self, v: int):
+        self.inventory.iron = v
+
+    def set_diamond(self, v: int):
+        self.inventory.diamond = v
+
+    def set_wood_pickaxe(self, v: int):
+        self.inventory.wood_pickaxe = v
+
+    def set_stone_pickaxe(self, v: int):
+        self.inventory.stone_pickaxe = v
+
+    def set_iron_pickaxe(self, v: int):
+        self.inventory.iron_pickaxe = v
+
+    def set_wood_sword(self, v: int):
+        self.inventory.wood_sword = v
+
+    def set_stone_sword(self, v: int):
+        self.inventory.stone_sword = v
+
+    def set_iron_sword(self, v: int):
+        self.inventory.iron_sword = v
 
 
 class ObservableExtractor:
@@ -46,6 +101,9 @@ class ObservableExtractor:
 
         # Define domain for entity existence (0 = deleted, 1 = exists)
         self.entity_existence_domain = config.entity_existence_domain
+
+        # Define domain for inventory (reasonable range for Crafter)
+        self.inventory_domain = config.inventory_domain
 
     def extract_attribute_predictions(
         self, state: WorldState
@@ -97,6 +155,93 @@ class ObservableExtractor:
                 DiscreteDistribution([entity_counts[entity_type]]).expand_support(
                     self.entity_count_domain
                 )
+            )
+
+        # Extract inventory observables
+        if isinstance(state.player.inventory.health, DiscreteDistribution):
+            predictions[ObservableId("player_inventory_health")] = (
+                state.player.inventory.health.expand_support(self.inventory_domain)
+            )
+
+        if isinstance(state.player.inventory.food, DiscreteDistribution):
+            predictions[ObservableId("player_inventory_food")] = (
+                state.player.inventory.food.expand_support(self.inventory_domain)
+            )
+
+        if isinstance(state.player.inventory.drink, DiscreteDistribution):
+            predictions[ObservableId("player_inventory_drink")] = (
+                state.player.inventory.drink.expand_support(self.inventory_domain)
+            )
+
+        if isinstance(state.player.inventory.energy, DiscreteDistribution):
+            predictions[ObservableId("player_inventory_energy")] = (
+                state.player.inventory.energy.expand_support(self.inventory_domain)
+            )
+
+        if isinstance(state.player.inventory.sapling, DiscreteDistribution):
+            predictions[ObservableId("player_inventory_sapling")] = (
+                state.player.inventory.sapling.expand_support(self.inventory_domain)
+            )
+
+        if isinstance(state.player.inventory.wood, DiscreteDistribution):
+            predictions[ObservableId("player_inventory_wood")] = (
+                state.player.inventory.wood.expand_support(self.inventory_domain)
+            )
+
+        if isinstance(state.player.inventory.stone, DiscreteDistribution):
+            predictions[ObservableId("player_inventory_stone")] = (
+                state.player.inventory.stone.expand_support(self.inventory_domain)
+            )
+
+        if isinstance(state.player.inventory.coal, DiscreteDistribution):
+            predictions[ObservableId("player_inventory_coal")] = (
+                state.player.inventory.coal.expand_support(self.inventory_domain)
+            )
+
+        if isinstance(state.player.inventory.iron, DiscreteDistribution):
+            predictions[ObservableId("player_inventory_iron")] = (
+                state.player.inventory.iron.expand_support(self.inventory_domain)
+            )
+
+        if isinstance(state.player.inventory.diamond, DiscreteDistribution):
+            predictions[ObservableId("player_inventory_diamond")] = (
+                state.player.inventory.diamond.expand_support(self.inventory_domain)
+            )
+
+        if isinstance(state.player.inventory.wood_pickaxe, DiscreteDistribution):
+            predictions[ObservableId("player_inventory_wood_pickaxe")] = (
+                state.player.inventory.wood_pickaxe.expand_support(
+                    self.inventory_domain
+                )
+            )
+
+        if isinstance(state.player.inventory.stone_pickaxe, DiscreteDistribution):
+            predictions[ObservableId("player_inventory_stone_pickaxe")] = (
+                state.player.inventory.stone_pickaxe.expand_support(
+                    self.inventory_domain
+                )
+            )
+
+        if isinstance(state.player.inventory.iron_pickaxe, DiscreteDistribution):
+            predictions[ObservableId("player_inventory_iron_pickaxe")] = (
+                state.player.inventory.iron_pickaxe.expand_support(
+                    self.inventory_domain
+                )
+            )
+
+        if isinstance(state.player.inventory.wood_sword, DiscreteDistribution):
+            predictions[ObservableId("player_inventory_wood_sword")] = (
+                state.player.inventory.wood_sword.expand_support(self.inventory_domain)
+            )
+
+        if isinstance(state.player.inventory.stone_sword, DiscreteDistribution):
+            predictions[ObservableId("player_inventory_stone_sword")] = (
+                state.player.inventory.stone_sword.expand_support(self.inventory_domain)
+            )
+
+        if isinstance(state.player.inventory.iron_sword, DiscreteDistribution):
+            predictions[ObservableId("player_inventory_iron_sword")] = (
+                state.player.inventory.iron_sword.expand_support(self.inventory_domain)
             )
 
         # Extract entity positions and health
@@ -178,6 +323,44 @@ class ObservableExtractor:
                 entity.position.y
             )
             observed[ObservableId(f"entity_{entity.entity_id}_health")] = entity.health
+
+        # Extract inventory observables
+        observed[ObservableId("player_inventory_health")] = (
+            state.player.inventory.health
+        )
+        observed[ObservableId("player_inventory_food")] = state.player.inventory.food
+        observed[ObservableId("player_inventory_drink")] = state.player.inventory.drink
+        observed[ObservableId("player_inventory_energy")] = (
+            state.player.inventory.energy
+        )
+        observed[ObservableId("player_inventory_sapling")] = (
+            state.player.inventory.sapling
+        )
+        observed[ObservableId("player_inventory_wood")] = state.player.inventory.wood
+        observed[ObservableId("player_inventory_stone")] = state.player.inventory.stone
+        observed[ObservableId("player_inventory_coal")] = state.player.inventory.coal
+        observed[ObservableId("player_inventory_iron")] = state.player.inventory.iron
+        observed[ObservableId("player_inventory_diamond")] = (
+            state.player.inventory.diamond
+        )
+        observed[ObservableId("player_inventory_wood_pickaxe")] = (
+            state.player.inventory.wood_pickaxe
+        )
+        observed[ObservableId("player_inventory_stone_pickaxe")] = (
+            state.player.inventory.stone_pickaxe
+        )
+        observed[ObservableId("player_inventory_iron_pickaxe")] = (
+            state.player.inventory.iron_pickaxe
+        )
+        observed[ObservableId("player_inventory_wood_sword")] = (
+            state.player.inventory.wood_sword
+        )
+        observed[ObservableId("player_inventory_stone_sword")] = (
+            state.player.inventory.stone_sword
+        )
+        observed[ObservableId("player_inventory_iron_sword")] = (
+            state.player.inventory.iron_sword
+        )
 
         return observed
 
@@ -264,6 +447,35 @@ class ObservableExtractor:
                             entity_health_preds, weights
                         )
                         entity.health = combined_dist.sample()
+
+        inventory_attr_setter = InventoryAttrSetter(new_state.player.inventory)
+
+        inventory_observables = [
+            ("player_inventory_health", inventory_attr_setter.set_health),
+            ("player_inventory_food", inventory_attr_setter.set_food),
+            ("player_inventory_drink", inventory_attr_setter.set_drink),
+            ("player_inventory_energy", inventory_attr_setter.set_energy),
+            ("player_inventory_sapling", inventory_attr_setter.set_sapling),
+            ("player_inventory_wood", inventory_attr_setter.set_wood),
+            ("player_inventory_stone", inventory_attr_setter.set_stone),
+            ("player_inventory_coal", inventory_attr_setter.set_coal),
+            ("player_inventory_iron", inventory_attr_setter.set_iron),
+            ("player_inventory_diamond", inventory_attr_setter.set_diamond),
+            ("player_inventory_wood_pickaxe", inventory_attr_setter.set_wood_pickaxe),
+            ("player_inventory_stone_pickaxe", inventory_attr_setter.set_stone_pickaxe),
+            ("player_inventory_iron_pickaxe", inventory_attr_setter.set_iron_pickaxe),
+            ("player_inventory_wood_sword", inventory_attr_setter.set_wood_sword),
+            ("player_inventory_stone_sword", inventory_attr_setter.set_stone_sword),
+            ("player_inventory_iron_sword", inventory_attr_setter.set_iron_sword),
+        ]
+        for attr_name, attr_setter in inventory_observables:
+            if attr_name in expert_predictions:
+                with logger.contextualize(attr_name=attr_name):
+                    attr_preds = expert_predictions[ObservableId(attr_name)]
+                    combined_dist = combine_active_expert_predictions_for_attr(
+                        attr_preds, weights
+                    )
+                    attr_setter(combined_dist.sample())
 
         return new_state
 

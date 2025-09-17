@@ -243,6 +243,11 @@ class LawMixture(Generic[SymbolicStateT, ActionT]):
                 )
                 log_prob = combined_dist.evaluate_log_probability(observed_value)
                 total_log_prob += log_prob
+            else:
+                # No law has an opinion on this attribute, so it
+                # is up to us how to handle it with a prior or a
+                # default law.
+                pass
 
         return total_log_prob
 
