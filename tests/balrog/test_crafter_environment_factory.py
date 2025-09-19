@@ -5,7 +5,7 @@ from distant_sunburn.crafter_environment_factory import (
     LanguageSymbolicWrapper,
     get_instruction_prompt,
 )
-from distant_sunburn.balrog_components import CrafterEnvironmentConfig
+from distant_sunburn.crafter_environment_factory import CrafterEnvironmentConfig
 
 
 def test_renderer():

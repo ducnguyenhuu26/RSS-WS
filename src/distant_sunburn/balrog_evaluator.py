@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional, Protocol
 
 import numpy as np
+from .crafter_environment_factory import CrafterEnvironmentConfig
 from distant_sunburn.distant_sunburn_game_environment_factory import (
     DistantSunburnConfig,
 )
@@ -17,7 +18,6 @@ from tqdm import tqdm
 from typing_extensions import Self
 
 from .balrog_components import (
-    CrafterEnvironmentConfig,
     EnvironmentConfig,
 )
 from .balrog_interfaces import AgentProtocol, EnvironmentProtocol, MetadataT

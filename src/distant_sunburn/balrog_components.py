@@ -8,7 +8,7 @@ from .balrog_interfaces import (
 )
 import re
 import copy
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from typing_extensions import Self
 from omegaconf import DictConfig
 from .balrog_interfaces import EnvironmentProtocol, Text, Experience, OnResetExperience
@@ -335,15 +335,3 @@ class EnvironmentConfig(BaseModel):
         self, balrog_env_factory: Callable[[str, str, DictConfig], BalrogEnvWrapper]
     ) -> BalrogEnvWrapper:
         return balrog_env_factory(self.name, self.task, self.to_balrog_format())
-
-
-class CrafterEnvironmentConfig(EnvironmentConfig):
-    area: tuple[int, int]
-    view: tuple[int, int]
-    size: tuple[int, int]
-    reward: bool
-    seed: Optional[int] = None
-    name: str = "crafter"
-    task: str = "open_ended"
-    max_episode_steps: int = Field(default=2000)
-    render_image: bool = Field(default=False)

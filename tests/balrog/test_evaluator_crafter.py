@@ -12,11 +12,13 @@ from distant_sunburn.balrog_components import (
     HistoryPromptBuilderConfig,
     HistoryPromptBuilder,
     NaiveAgent,
-    CrafterEnvironmentConfig,
 )
 from distant_sunburn.balrog_evaluator import TrajectoryStep
 from distant_sunburn.io_utils import PydanticJSONLinesReader
-from distant_sunburn.crafter_environment_factory import LanguageSymbolicWrapper
+from distant_sunburn.crafter_environment_factory import (
+    CrafterEnvironmentConfig,
+    LanguageSymbolicWrapper,
+)
 from crafter.state_export import WorldState
 
 

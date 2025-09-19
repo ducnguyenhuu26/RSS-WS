@@ -7,7 +7,9 @@ from crafter.env import Env as BaseCrafterEnv
 from crafter.state_export import WorldState, export_world_state
 from PIL import Image
 
-from .balrog_components import CrafterEnvironmentConfig
+from distant_sunburn.balrog_components import EnvironmentConfig
+from pydantic import Field
+
 from .balrog_interfaces import (
     EnvironmentProtocol,
     Experience,
@@ -106,6 +108,19 @@ PLAY!
 """.strip()
 
     return instruction_prompt
+
+
+class CrafterEnvironmentConfig(EnvironmentConfig):
+    area: tuple[int, int]
+    view: tuple[int, int]
+    size: tuple[int, int]
+    reward: bool
+    seed: Optional[int] = None
+    name: str = "crafter"
+    task: str = "open_ended"
+    max_episode_steps: int = Field(default=2000)
+    render_image: bool = Field(default=False)
+    instruction_prompt: str = Field(default_factory=get_instruction_prompt)
 
 
 def build_base_environment(config: CrafterEnvironmentConfig) -> BaseCrafterEnv:
@@ -460,7 +475,7 @@ class LanguageSymbolicWrapper:
             return self.default_action
 
     def get_instruction_prompt(self, instructions: str | None = None) -> str:
-        return get_instruction_prompt()
+        return self.config.instruction_prompt
 
 
 implements(EnvironmentProtocol[WorldState])(LanguageSymbolicWrapper)
