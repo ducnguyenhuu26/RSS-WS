@@ -102,17 +102,23 @@ class UnsupervisedTextRenderer:
         dx = to_pos.x - from_pos.x
         dy = to_pos.y - from_pos.y
 
-        directions = []
-        if dy < 0:
-            directions.append("north")
-        elif dy > 0:
-            directions.append("south")
-        if dx < 0:
-            directions.append("west")
-        elif dx > 0:
-            directions.append("east")
+        if dx == 0 and dy == 0:
+            return "here"
 
-        return "-".join(directions) if directions else "here"
+        parts = []
+        if dy != 0:
+            if dy > 0:
+                parts.append(f"{dy} steps south")
+            else:
+                parts.append(f"{-dy} steps north")
+
+        if dx != 0:
+            if dx > 0:
+                parts.append(f"{dx} steps east")
+            else:
+                parts.append(f"{-dx} steps west")
+
+        return ", ".join(parts)
 
     def _find_closest_material(
         self, world_state: WorldState, material_name: str, within_range: bool = True
