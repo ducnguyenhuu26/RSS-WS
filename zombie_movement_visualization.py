@@ -503,19 +503,30 @@ def render_with_distribution_overlay(
         # Create colored square based on probability
         color = _prob_to_color(prob, "heatmap")
 
-        # Draw distribution square
+        # Draw distribution square with gaps to show terrain
+        # Create gaps by making the square smaller (80% of unit size)
+        gap_factor = 0.8
+        square_size_x = int(unit[0] * gap_factor)
+        square_size_y = int(unit[1] * gap_factor)
+        offset_x = (int(unit[0]) - square_size_x) // 2
+        offset_y = (int(unit[1]) - square_size_y) // 2
+
         if white_background_for_distributions:
             # Draw white background first for better contrast
-            for dx in range(unit[0]):
-                for dy in range(unit[1]):
-                    px, py = int(pixel_pos[0] + dx), int(pixel_pos[1] + dy)
+            for dx in range(square_size_x):
+                for dy in range(square_size_y):
+                    px, py = int(pixel_pos[0] + offset_x + dx), int(
+                        pixel_pos[1] + offset_y + dy
+                    )
                     if 0 <= px < canvas.shape[1] and 0 <= py < canvas.shape[0]:
                         canvas[py, px] = [255, 255, 255]  # White background
 
             # Then draw the colored distribution on top
-            for dx in range(unit[0]):
-                for dy in range(unit[1]):
-                    px, py = int(pixel_pos[0] + dx), int(pixel_pos[1] + dy)
+            for dx in range(square_size_x):
+                for dy in range(square_size_y):
+                    px, py = int(pixel_pos[0] + offset_x + dx), int(
+                        pixel_pos[1] + offset_y + dy
+                    )
                     if 0 <= px < canvas.shape[1] and 0 <= py < canvas.shape[0]:
                         # Use probability-based alpha for better visibility
                         prob_alpha = alpha * (
@@ -529,9 +540,11 @@ def render_with_distribution_overlay(
             # Original behavior: blend with ground tiles
             prob_alpha = alpha * (0.6 + 0.4 * prob)  # Higher prob = more opaque
 
-            for dx in range(unit[0]):
-                for dy in range(unit[1]):
-                    px, py = int(pixel_pos[0] + dx), int(pixel_pos[1] + dy)
+            for dx in range(square_size_x):
+                for dy in range(square_size_y):
+                    px, py = int(pixel_pos[0] + offset_x + dx), int(
+                        pixel_pos[1] + offset_y + dy
+                    )
                     if 0 <= px < canvas.shape[1] and 0 <= py < canvas.shape[0]:
                         # Blend with existing pixel (ground)
                         canvas[py, px] = (
@@ -636,11 +649,21 @@ def render_with_dual_distribution_overlay(
         # Convert to pixel coordinates
         pixel_pos = view_pos * unit
 
+        # Draw distribution squares with gaps to show terrain
+        # Create gaps by making the squares smaller (80% of unit size)
+        gap_factor = 0.8
+        square_size_x = int(unit[0] * gap_factor)
+        square_size_y = int(unit[1] * gap_factor)
+        offset_x = (int(unit[0]) - square_size_x) // 2
+        offset_y = (int(unit[1]) - square_size_y) // 2
+
         # Draw white background first if enabled
         if white_background_for_distributions:
-            for dx in range(unit[0]):
-                for dy in range(unit[1]):
-                    px, py = int(pixel_pos[0] + dx), int(pixel_pos[1] + dy)
+            for dx in range(square_size_x):
+                for dy in range(square_size_y):
+                    px, py = int(pixel_pos[0] + offset_x + dx), int(
+                        pixel_pos[1] + offset_y + dy
+                    )
                     if 0 <= px < canvas.shape[1] and 0 <= py < canvas.shape[0]:
                         canvas[py, px] = [255, 255, 255]  # White background
 
@@ -651,9 +674,11 @@ def render_with_dual_distribution_overlay(
             # Use higher alpha for better visibility
             prob_alpha = alpha * (0.6 + 0.4 * prob)
 
-            for dx in range(unit[0]):
-                for dy in range(unit[1]):
-                    px, py = int(pixel_pos[0] + dx), int(pixel_pos[1] + dy)
+            for dx in range(square_size_x):
+                for dy in range(square_size_y):
+                    px, py = int(pixel_pos[0] + offset_x + dx), int(
+                        pixel_pos[1] + offset_y + dy
+                    )
                     if 0 <= px < canvas.shape[1] and 0 <= py < canvas.shape[0]:
                         # Blend with existing pixel
                         canvas[py, px] = (
@@ -668,9 +693,11 @@ def render_with_dual_distribution_overlay(
             # Use higher alpha for better visibility
             prob_alpha = alpha * (0.6 + 0.4 * prob)
 
-            for dx in range(unit[0]):
-                for dy in range(unit[1]):
-                    px, py = int(pixel_pos[0] + dx), int(pixel_pos[1] + dy)
+            for dx in range(square_size_x):
+                for dy in range(square_size_y):
+                    px, py = int(pixel_pos[0] + offset_x + dx), int(
+                        pixel_pos[1] + offset_y + dy
+                    )
                     if 0 <= px < canvas.shape[1] and 0 <= py < canvas.shape[0]:
                         # Blend with existing pixel
                         canvas[py, px] = (
@@ -947,10 +974,17 @@ class DistributionVisualizer:
                 # Use probability-based alpha for better visibility
                 prob_alpha = alpha * (0.6 + 0.4 * prob)  # Higher prob = more opaque
 
-                # Draw square
-                for dx in range(square_width):
-                    for dy in range(square_height):
-                        px, py = pixel_x + dx, pixel_y + dy
+                # Draw square with gaps to show terrain
+                # Create gaps by making the square smaller (80% of unit size)
+                gap_factor = 0.8
+                square_size_x = int(square_width * gap_factor)
+                square_size_y = int(square_height * gap_factor)
+                offset_x = (square_width - square_size_x) // 2
+                offset_y = (square_height - square_size_y) // 2
+
+                for dx in range(square_size_x):
+                    for dy in range(square_size_y):
+                        px, py = pixel_x + offset_x + dx, pixel_y + offset_y + dy
                         if (
                             0 <= px < overlay_image.shape[1]
                             and 0 <= py < overlay_image.shape[0]
