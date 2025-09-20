@@ -170,6 +170,7 @@ class UnsupervisedTextRenderer:
         closest_pos = None
         closest_distance = float("inf")
 
+        # Use all objects in the world, not just update range
         for obj in world_state.objects:
             if obj.name == entity_type:
                 distance = self._manhattan_distance(player_pos, obj.position)
@@ -205,9 +206,95 @@ class UnsupervisedTextRenderer:
         else:
             return f"You are targeting empty space at ({target_pos.x}, {target_pos.y}).\n\n"
 
+    def _render_ascii_map(self, world_state: WorldState) -> str:
+        """Render an ASCII map of the local area around the player."""
+        player_pos = world_state.player.position
+        view_range = max(world_state.view)
+        map_size = 2 * view_range + 1  # Make map size match view range
+        half_size = view_range
+
+        # Create the map grid
+        map_lines = []
+        for dy in range(-half_size, half_size + 1):
+            line = ""
+            for dx in range(-half_size, half_size + 1):
+                pos = Position(x=player_pos.x + dx, y=player_pos.y + dy)
+                material, entity = world_state.get_tile(pos)
+
+                # Entities take precedence over materials, but only if within view range
+                char = " "  # Default to empty space
+                if entity is not None:
+                    distance = self._manhattan_distance(player_pos, pos)
+                    if distance <= view_range:  # Only show entities within view range
+                        if entity.name == "player":
+                            char = "@"
+                        elif entity.name == "cow":
+                            char = "c"
+                        elif entity.name == "zombie":
+                            char = "Z"
+                        elif entity.name == "skeleton":
+                            char = "S"
+                        elif entity.name == "arrow":
+                            char = "^"
+                        elif entity.name == "plant":
+                            char = "p"
+                        elif entity.name == "fence":
+                            char = "|"
+                        else:
+                            char = "?"  # Unknown entity
+
+                # If no entity or entity is outside view range, show material
+                if char == " " and material is not None:
+                    if material == "water":
+                        char = "~"
+                    elif material == "grass":
+                        char = "."
+                    elif material == "stone":
+                        char = "#"
+                    elif material == "path":
+                        char = "="
+                    elif material == "sand":
+                        char = ":"
+                    elif material == "tree":
+                        char = "T"
+                    elif material == "lava":
+                        char = "L"
+                    elif material == "coal":
+                        char = "C"
+                    elif material == "iron":
+                        char = "I"
+                    elif material == "diamond":
+                        char = "D"
+                    elif material == "table":
+                        char = "+"
+                    elif material == "furnace":
+                        char = "F"
+                    else:
+                        char = "?"  # Unknown material
+
+                line += char
+            map_lines.append(line)
+
+        # Create the legend
+        legend = (
+            "Legend:\n"
+            "Materials: ~water .grass #stone =path :sand Ttree Llava Ccoal Iiron Ddiamond +table Ffurnace\n"
+            "Entities:  @player ccow Zzombie Sskeleton ^arrow pplant |fence"
+        )
+
+        return (
+            f"Local map ({map_size}x{map_size}):\n"
+            + "\n".join(map_lines)
+            + "\n\n"
+            + legend
+        )
+
     def _describe_local_view(self, world_state: WorldState) -> str:
         """Describe the local view - closest materials and entities within view range."""
         result = "Local view (within {} steps):\n".format(max(world_state.view))
+
+        # Add ASCII map
+        result += self._render_ascii_map(world_state) + "\n"
 
         # Find closest materials within range
         material_descriptions = []
