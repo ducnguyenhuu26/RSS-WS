@@ -440,6 +440,62 @@ class UnsupervisedTextRenderer:
 
         return result
 
+    def _describe_inventory_compact(self, world_state: WorldState) -> str:
+        """Describe the player's status and inventory (compact version for long-term context)."""
+        result = "Your status:\n"
+
+        # Show vitals
+        for vital in self.VITALS:
+            value = getattr(world_state.player.inventory, vital, 0)
+            result += f"- {vital}: {value}/9\n"
+
+        # Show position and facing
+        pos = world_state.player.position
+        facing = world_state.player.facing
+        result += f"- position: ({pos.x}, {pos.y})\n"
+        result += f"- facing: ({facing.x}, {facing.y})\n"
+        
+        # Show sleeping status
+        result += f"- sleeping: {world_state.player.sleeping}\n"
+        
+        # Show current action
+        result += f"- current action: {world_state.player.action}\n"
+        
+        # Show internal state variables
+        result += f"- thirst: {world_state.player.thirst:.2f}\n"
+        result += f"- hunger: {world_state.player.hunger:.2f}\n"
+        result += f"- fatigue: {world_state.player.fatigue:.2f}\n"
+        result += f"- recovery: {world_state.player.recover:.2f}\n"
+
+        result += "\nYour inventory:\n"
+
+        # Show only items with counts > 0
+        inventory_items = []
+        for item_name in [
+            "sapling",
+            "wood",
+            "stone",
+            "coal",
+            "iron",
+            "diamond",
+            "wood_pickaxe",
+            "stone_pickaxe",
+            "iron_pickaxe",
+            "wood_sword",
+            "stone_sword",
+            "iron_sword",
+        ]:
+            value = getattr(world_state.player.inventory, item_name, 0)
+            if value > 0:
+                inventory_items.append(f"- {item_name}: {value}")
+
+        if inventory_items:
+            result += "\n".join(inventory_items)
+        else:
+            result += "You have no items in your inventory."
+
+        return result
+
     def __call__(self, world_state: WorldState) -> TextRendererOutput:
         """Render the world state as text for the language model."""
         result = ""
@@ -460,7 +516,7 @@ class UnsupervisedTextRenderer:
         result += self._describe_distant_view(world_state)
 
         return TextRendererOutput(
-            long_term_context=self._describe_inventory(world_state),
+            long_term_context=self._describe_inventory_compact(world_state),
             short_term_context=result.strip(),
         )
 
