@@ -25,6 +25,7 @@ from typing import Generic, TypeAlias
 from .typing_utils import BaseModelT
 import time
 import hashlib
+from .unsupervised_crafter_env_factory import UnsupervisedCrafterEnvironmentConfig
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +89,11 @@ implements(TrajectoryStepWriter)(PydanticTrajectoryStepWriter)
 class EvaluatorConfig(BaseModel):
     num_episodes: int
     max_steps_per_episode: Optional[int] = None
-    environment_config: CrafterEnvironmentConfig | DistantSunburnConfig
+    environment_config: (
+        CrafterEnvironmentConfig
+        | DistantSunburnConfig
+        | UnsupervisedCrafterEnvironmentConfig
+    )
     output_dir: Path
     feedback_on_invalid_action: bool = True
     save_images: bool = False

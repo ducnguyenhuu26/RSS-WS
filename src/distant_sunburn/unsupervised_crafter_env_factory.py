@@ -91,6 +91,10 @@ This world is complex and may be dangerous.
 Your primary goal is to discover the rules governing these activities. 
 You will need to explore the game world by moving around and interacting with the entitiesa and materials in the world.
 It is important that you survive long enough to experience as many of the world's mechanics as possible.
+If an action has no effect, repeating it over and over again is not a good strategy.
+If an action has no effect, you may not have fulfilled the preconditions for the action to have an effect.
+Try to get actions to succeed by thinking about necessary preconditions and trying to fulfill them.
+Try out as many of the actions as you can, do not get stuck repeating a single action.
 
 The following are the only valid actions you can take:
 
@@ -586,16 +590,12 @@ class UnsupervisedCrafterEnvironmentConfig(EnvironmentConfig):
     area: tuple[int, int]
     view: tuple[int, int]
     size: tuple[int, int]
-    instruction_prompt: str
     reward: bool
     seed: Optional[int] = None
     name: str = "crafter"
     task: str = "open_ended"
     max_episode_steps: int = Field(default=2000)
     render_image: bool = Field(default=False)
-
-    # Pydantic v2 configuration
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 def build_base_environment(
@@ -741,7 +741,7 @@ class LanguageSymbolicWrapper:
             return self.default_action
 
     def get_instruction_prompt(self, instructions: str | None = None) -> str:
-        return self.config.instruction_prompt
+        return get_instruction_prompt()
 
 
 implements(EnvironmentProtocol[WorldState])(LanguageSymbolicWrapper)
