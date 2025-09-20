@@ -162,6 +162,48 @@ class SimpleZombieMovementLaw:
         )
 
 
+class SimplePlayerMovementLaw:
+    """
+    Simple law that predicts player movement.
+
+    This law predicts that when the player takes a movement action,
+    they will move in the direction of the action with certainty.
+    """
+
+    def precondition(self, current_state: WorldState, action: CrafterAction) -> bool:
+        # This law applies to movement actions
+        return action in {"move_left", "move_right", "move_up", "move_down"}
+
+    def effect(self, current_state: WorldState, action: CrafterAction) -> None:
+        """
+        Predict player movement based on the action.
+
+        Args:
+            current_state: The current game state to modify in-place
+            action: The action being taken
+        """
+        # Get current player position
+        current_x = current_state.player.position.x
+        current_y = current_state.player.position.y
+
+        # Calculate new position based on action
+        new_x = current_x
+        new_y = current_y
+
+        if action == "move_left":
+            new_x = max(0, current_x - 1)
+        elif action == "move_right":
+            new_x = min(current_state.size[0] - 1, current_x + 1)
+        elif action == "move_up":
+            new_y = max(0, current_y - 1)
+        elif action == "move_down":
+            new_y = min(current_state.size[1] - 1, current_y + 1)
+
+        # Assign sharply peaked distributions (certainty)
+        current_state.player.position.x = DiscreteDistribution(support=[new_x])
+        current_state.player.position.y = DiscreteDistribution(support=[new_y])
+
+
 # ============================================================================
 # RANDOM STATE MANIPULATION FUNCTIONS
 # ============================================================================
@@ -515,6 +557,143 @@ def render_with_distribution_overlay(
     return canvas.transpose((1, 0, 2))
 
 
+def render_with_dual_distribution_overlay(
+    world_state: WorldState,
+    player_distributions: dict[tuple[int, int], float],
+    zombie_distributions: dict[tuple[int, int], float],
+    view_dims: tuple[int, int] = (9, 9),
+    render_size: tuple[int, int] = (256, 256),
+    alpha: float = 0.6,
+    white_background_for_distributions: bool = True,
+) -> np.ndarray:
+    """
+    Render the game world with both player and zombie probability distributions.
+
+    Args:
+        world_state: The world state to render
+        player_distributions: Dict mapping (x, y) world positions to player probabilities
+        zombie_distributions: Dict mapping (x, y) world positions to zombie probabilities
+        view_dims: View dimensions of the game
+        render_size: Render size of the image
+        alpha: Transparency of the distribution overlay
+        white_background_for_distributions: If True, draw distributions over white squares
+
+    Returns:
+        Rendered image with both distributions
+    """
+    from crafter import engine, objects, constants
+    from crafter.state_reconstruction import reconstruct_world_from_state
+
+    # Reconstruct the world from state
+    world = reconstruct_world_from_state(world_state)
+
+    # Find the player
+    player = None
+    for obj in world.objects:
+        if isinstance(obj, objects.Player):
+            player = obj
+            break
+
+    if player is None:
+        raise ValueError("No player found in world state")
+
+    # Set up rendering parameters
+    size = np.array(render_size)
+    unit = size // np.array(view_dims)
+    canvas = np.zeros(tuple(size) + (3,), np.uint8) + 127
+
+    # Create textures
+    textures = engine.Textures(constants.root / "assets")
+
+    # STEP 1: Draw ground tiles/materials (same as LocalView)
+    center = np.array(player.pos)
+
+    for x in range(view_dims[0]):
+        for y in range(view_dims[1]):
+            # Convert view coordinates to world coordinates
+            view_pos = np.array([x, y])
+            offset = np.array(view_dims) // 2
+            world_pos = center + view_pos - offset
+
+            if not _inside_world_bounds(world_pos, world.area):
+                continue
+            material, _ = world[world_pos]
+            texture = textures.get(material, unit)
+            _draw_texture(canvas, view_pos * unit, texture)
+
+    # STEP 2: Draw probability distribution overlays
+    # Use unified coordinate mapping for consistency
+    all_positions = set(player_distributions.keys()) | set(zombie_distributions.keys())
+
+    for world_x, world_y in all_positions:
+        # Convert world coordinates to view coordinates using unified function
+        world_pos = np.array([world_x, world_y])
+        view_pos = world_to_view_coordinates_unified(world_pos, center, view_dims)
+
+        if view_pos is None:
+            continue
+
+        # Convert to pixel coordinates
+        pixel_pos = view_pos * unit
+
+        # Draw white background first if enabled
+        if white_background_for_distributions:
+            for dx in range(unit[0]):
+                for dy in range(unit[1]):
+                    px, py = int(pixel_pos[0] + dx), int(pixel_pos[1] + dy)
+                    if 0 <= px < canvas.shape[1] and 0 <= py < canvas.shape[0]:
+                        canvas[py, px] = [255, 255, 255]  # White background
+
+        # Draw player distribution (blue)
+        if (world_x, world_y) in player_distributions:
+            prob = player_distributions[(world_x, world_y)]
+            color = _prob_to_color(prob, "blue")
+            prob_alpha = alpha * (0.3 + 0.7 * prob)
+
+            for dx in range(unit[0]):
+                for dy in range(unit[1]):
+                    px, py = int(pixel_pos[0] + dx), int(pixel_pos[1] + dy)
+                    if 0 <= px < canvas.shape[1] and 0 <= py < canvas.shape[0]:
+                        # Blend with existing pixel
+                        canvas[py, px] = (
+                            prob_alpha * np.array(color)
+                            + (1 - prob_alpha) * canvas[py, px]
+                        )
+
+        # Draw zombie distribution (orange)
+        if (world_x, world_y) in zombie_distributions:
+            prob = zombie_distributions[(world_x, world_y)]
+            color = _prob_to_color(prob, "orange")
+            prob_alpha = alpha * (0.3 + 0.7 * prob)
+
+            for dx in range(unit[0]):
+                for dy in range(unit[1]):
+                    px, py = int(pixel_pos[0] + dx), int(pixel_pos[1] + dy)
+                    if 0 <= px < canvas.shape[1] and 0 <= py < canvas.shape[0]:
+                        # Blend with existing pixel
+                        canvas[py, px] = (
+                            prob_alpha * np.array(color)
+                            + (1 - prob_alpha) * canvas[py, px]
+                        )
+
+    # STEP 3: Draw sprites/objects (same as LocalView)
+    for obj in world.objects:
+        # Use unified coordinate mapping for consistency
+        view_pos = world_to_view_coordinates_unified(obj.pos, center, view_dims)
+        if view_pos is None:
+            continue
+        texture = textures.get(obj.texture, unit)
+        _draw_alpha_texture(canvas, view_pos * unit, texture)
+
+    # Apply lighting and other effects (same as LocalView)
+    canvas = _apply_lighting(canvas, world.daylight)
+    if player.sleeping:
+        canvas = _apply_sleep_effect(canvas)
+
+    # Handle the transpose that the original rendering does
+    return canvas.transpose((1, 0, 2))
+
+
 def _inside_world_bounds(pos: np.ndarray, area: tuple[int, int]) -> bool:
     """Check if position is within world bounds."""
     return 0 <= pos[0] < area[0] and 0 <= pos[1] < area[1]
@@ -588,29 +767,36 @@ def _draw_alpha_texture(
             canvas[y1:y2, x1:x2] = texture_slice
 
 
-def _prob_to_color(prob: float) -> tuple[int, int, int]:
+def _prob_to_color(prob: float, color_type: str = "orange") -> tuple[int, int, int]:
     """
-    Convert probability to RGB color using a simple orange scheme.
-
-    Uses a clean orange color that works well over white backgrounds.
-    Higher probabilities get more intense orange.
+    Convert probability to RGB color using different color schemes.
 
     Args:
         prob: Probability value between 0 and 1
+        color_type: "orange" for zombie predictions, "blue" for player predictions
 
     Returns:
         RGB color tuple (r, g, b)
     """
     # Clamp probability to [0, 1]
     prob = max(0.0, min(1.0, prob))
-
-    # Use a clean orange color: RGB(255, 165, 0) is standard orange
-    # Scale intensity based on probability
     intensity = 0.4 + 0.6 * prob  # Range from 0.4 to 1.0 for good visibility
 
-    r = int(255 * intensity)  # Red component
-    g = int(165 * intensity)  # Green component
-    b = int(0)  # No blue component for pure orange
+    if color_type == "orange":
+        # Orange for zombie predictions
+        r = int(255 * intensity)  # Red component
+        g = int(165 * intensity)  # Green component
+        b = int(0)  # No blue component for pure orange
+    elif color_type == "blue":
+        # Blue for player predictions
+        r = int(0)  # No red component
+        g = int(100 * intensity)  # Green component
+        b = int(255 * intensity)  # Blue component
+    else:
+        # Default to orange
+        r = int(255 * intensity)
+        g = int(165 * intensity)
+        b = int(0)
 
     return (r, g, b)
 
@@ -781,7 +967,11 @@ class ZombieMovementAnalyzer:
     """Main class for analyzing zombie movement predictions vs reality."""
 
     def __init__(self):
-        self.law = LawFunctionWrapper.from_non_runtime_created(
+        # Use both player movement and zombie movement laws
+        self.player_law = LawFunctionWrapper.from_non_runtime_created(
+            SimplePlayerMovementLaw()
+        )
+        self.zombie_law = LawFunctionWrapper.from_non_runtime_created(
             SimpleZombieMovementLaw()
         )
 
@@ -828,49 +1018,62 @@ class ZombieMovementAnalyzer:
 
     def get_law_predictions(
         self, initial_state: WorldState, action: str
-    ) -> dict[tuple[int, int], float]:
+    ) -> tuple[dict[tuple[int, int], float], dict[tuple[int, int], float]]:
         """
-        Get zombie movement predictions from our law.
+        Get both player and zombie movement predictions from our laws.
 
         Args:
             initial_state: Starting state
             action: Action to take
 
         Returns:
-            Dict mapping (x, y) positions to predicted probabilities
+            Tuple of (player_predictions, zombie_predictions) where each is a dict
+            mapping (x, y) positions to predicted probabilities
         """
-        # Create a copy of the state
-        state_copy = copy.deepcopy(initial_state)
+        # Apply player movement law on a copy of the state
+        player_state = copy.deepcopy(initial_state)
+        if self.player_law.precondition(player_state, action):
+            self.player_law.effect(player_state, action)
 
-        # Apply the law
-        if self.law.precondition(state_copy, action):
-            self.law.effect(state_copy, action)
+        # Apply zombie movement law on another copy of the state
+        zombie_state = copy.deepcopy(initial_state)
+        if self.zombie_law.precondition(zombie_state, action):
+            self.zombie_law.effect(zombie_state, action)
 
-        # Find zombie and extract its position distribution
-        for obj in state_copy.objects:
+        # Extract player position distribution
+        player_predictions = {}
+        if isinstance(
+            player_state.player.position.x, DiscreteDistribution
+        ) and isinstance(player_state.player.position.y, DiscreteDistribution):
+            x_dist = player_state.player.position.x
+            y_dist = player_state.player.position.y
+
+            for i, x_val in enumerate(x_dist.support):
+                for j, y_val in enumerate(y_dist.support):
+                    x_prob = np.exp(x_dist.log_probs[i])
+                    y_prob = np.exp(y_dist.log_probs[j])
+                    combined_prob = x_prob * y_prob
+                    player_predictions[(int(x_val), int(y_val))] = combined_prob
+
+        # Extract zombie position distribution
+        zombie_predictions = {}
+        for obj in zombie_state.objects:
             if isinstance(obj, ZombieState):
-                # Check if position has DiscreteDistribution
                 if isinstance(obj.position.x, DiscreteDistribution) and isinstance(
                     obj.position.y, DiscreteDistribution
                 ):
-                    # Extract distribution
                     x_dist = obj.position.x
                     y_dist = obj.position.y
 
-                    # Convert to probability dict
-                    predictions = {}
                     for i, x_val in enumerate(x_dist.support):
                         for j, y_val in enumerate(y_dist.support):
-                            # Calculate combined probability
                             x_prob = np.exp(x_dist.log_probs[i])
                             y_prob = np.exp(y_dist.log_probs[j])
                             combined_prob = x_prob * y_prob
+                            zombie_predictions[(int(x_val), int(y_val))] = combined_prob
+                    break
 
-                            predictions[(int(x_val), int(y_val))] = combined_prob
-
-                    return predictions
-
-        return {}
+        return player_predictions, zombie_predictions
 
     def create_test_visualization(self, initial_state: WorldState) -> None:
         """
@@ -1158,12 +1361,16 @@ class ZombieMovementAnalyzer:
 
         # Get law predictions
         print("Getting law predictions...")
-        law_predictions = self.get_law_predictions(initial_state, action)
+        player_predictions, zombie_predictions = self.get_law_predictions(
+            initial_state, action
+        )
 
-        print(f"Law predictions found {len(law_predictions)} unique positions")
-        print(f"Law distribution: {law_predictions}")
+        print(f"Player predictions found {len(player_predictions)} unique positions")
+        print(f"Player distribution: {player_predictions}")
+        print(f"Zombie predictions found {len(zombie_predictions)} unique positions")
+        print(f"Zombie distribution: {zombie_predictions}")
 
-        # Render both using custom rendering function
+        # Render environment sampling (zombie only)
         env_rendered = render_with_distribution_overlay(
             initial_state,
             env_distribution,
@@ -1173,9 +1380,11 @@ class ZombieMovementAnalyzer:
             white_background_for_distributions=True,
         )
 
-        law_rendered = render_with_distribution_overlay(
+        # Render law predictions (both player and zombie)
+        law_rendered = render_with_dual_distribution_overlay(
             initial_state,
-            law_predictions,
+            player_predictions,
+            zombie_predictions,
             view_dims=(9, 9),
             render_size=(256, 256),
             alpha=0.8,
@@ -1195,12 +1404,12 @@ class ZombieMovementAnalyzer:
 
         # Environment sampling
         axes[1].imshow(env_rendered)
-        axes[1].set_title(f"Environment Sampling ({n_samples} samples)")
+        axes[1].set_title(f"Environment Sampling - Zombie ({n_samples} samples)")
         axes[1].axis("off")
 
         # Law predictions
         axes[2].imshow(law_rendered)
-        axes[2].set_title("Law Predictions")
+        axes[2].set_title("Law Predictions - Player (Blue) & Zombie (Orange)")
         axes[2].axis("off")
 
         plt.tight_layout()
@@ -1232,17 +1441,17 @@ def main():
 
     # Create environment sampling visualization
     analyzer.create_environment_sampling_visualization(
-        state_with_zombie, "move_right", n_samples=30
+        state_with_zombie, "move_left", n_samples=30
     )
 
     # Create custom rendering visualization
     analyzer.create_custom_rendering_visualization(
-        state_with_zombie, "move_right", n_samples=30
+        state_with_zombie, "move_left", n_samples=30
     )
 
     # Create law vs environment comparison
     analyzer.create_law_vs_environment_comparison(
-        state_with_zombie, "move_right", n_samples=30
+        state_with_zombie, "move_left", n_samples=30
     )
 
 
