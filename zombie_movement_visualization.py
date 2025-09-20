@@ -395,7 +395,7 @@ def render_with_distribution_overlay(
                     if 0 <= px < canvas.shape[1] and 0 <= py < canvas.shape[0]:
                         # Use probability-based alpha for better visibility
                         prob_alpha = alpha * (
-                            0.5 + 0.5 * prob
+                            0.3 + 0.7 * prob
                         )  # Higher prob = more opaque
                         # Blend with white background
                         canvas[py, px] = prob_alpha * np.array(color) + (
@@ -508,10 +508,10 @@ def _draw_alpha_texture(
 
 def _prob_to_color(prob: float) -> tuple[int, int, int]:
     """
-    Convert probability to RGB color using a monotonically increasing scheme.
+    Convert probability to RGB color using a simple orange scheme.
 
-    Uses a bright yellow/orange color that works well over dark green grass.
-    Higher probabilities get brighter and more saturated.
+    Uses a clean orange color that works well over white backgrounds.
+    Higher probabilities get more intense orange.
 
     Args:
         prob: Probability value between 0 and 1
@@ -522,18 +522,13 @@ def _prob_to_color(prob: float) -> tuple[int, int, int]:
     # Clamp probability to [0, 1]
     prob = max(0.0, min(1.0, prob))
 
-    # Use a bright yellow/orange color that contrasts well with dark green
-    # Base color: bright yellow-orange
-    base_r, base_g, base_b = 255, 200, 0
-
+    # Use a clean orange color: RGB(255, 165, 0) is standard orange
     # Scale intensity based on probability
-    # For low probabilities, use a dimmer version
-    # For high probabilities, use the full bright color
-    intensity = 0.3 + 0.7 * prob  # Range from 0.3 to 1.0
+    intensity = 0.4 + 0.6 * prob  # Range from 0.4 to 1.0 for good visibility
 
-    r = int(base_r * intensity)
-    g = int(base_g * intensity)
-    b = int(base_b * intensity)
+    r = int(255 * intensity)  # Red component
+    g = int(165 * intensity)  # Green component
+    b = int(0)  # No blue component for pure orange
 
     return (r, g, b)
 
@@ -671,7 +666,7 @@ class DistributionVisualizer:
                 color = DistributionVisualizer._prob_to_color(prob)
 
                 # Use probability-based alpha for better visibility
-                prob_alpha = alpha * (0.5 + 0.5 * prob)  # Higher prob = more opaque
+                prob_alpha = alpha * (0.3 + 0.7 * prob)  # Higher prob = more opaque
 
                 # Draw square
                 for dx in range(square_width):
@@ -1045,6 +1040,93 @@ class ZombieMovementAnalyzer:
             "Custom rendering visualization complete! Check 'custom_rendering_visualization.png'"
         )
 
+    def create_law_vs_environment_comparison(
+        self, initial_state: WorldState, action: str = "move_right", n_samples: int = 50
+    ) -> None:
+        """
+        Create a side-by-side comparison of law predictions vs environment sampling.
+
+        Args:
+            initial_state: Starting state with zombie placed near player
+            action: Action to take
+            n_samples: Number of samples to take from environment
+        """
+        print(f"Creating law vs environment comparison with {n_samples} samples...")
+
+        # Sample from the environment
+        print("Sampling from environment...")
+        env_positions = self.sample_environment_transitions(
+            initial_state, action, n_samples
+        )
+
+        # Count position frequencies
+        position_counts = {}
+        for pos in env_positions:
+            position_counts[pos] = position_counts.get(pos, 0) + 1
+
+        # Convert counts to probabilities
+        env_distribution = {
+            pos: count / n_samples for pos, count in position_counts.items()
+        }
+
+        print(f"Environment sampling found {len(env_distribution)} unique positions")
+        print(f"Environment distribution: {env_distribution}")
+
+        # Get law predictions
+        print("Getting law predictions...")
+        law_predictions = self.get_law_predictions(initial_state, action)
+
+        print(f"Law predictions found {len(law_predictions)} unique positions")
+        print(f"Law distribution: {law_predictions}")
+
+        # Render both using custom rendering function
+        env_rendered = render_with_distribution_overlay(
+            initial_state,
+            env_distribution,
+            view_dims=(9, 9),
+            render_size=(256, 256),
+            alpha=0.8,
+            white_background_for_distributions=True,
+        )
+
+        law_rendered = render_with_distribution_overlay(
+            initial_state,
+            law_predictions,
+            view_dims=(9, 9),
+            render_size=(256, 256),
+            alpha=0.8,
+            white_background_for_distributions=True,
+        )
+
+        # Also render the base image for reference
+        base_image = observation(initial_state, render_size=(256, 256))
+
+        # Create comparison visualization
+        fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+
+        # Base image
+        axes[0].imshow(base_image)
+        axes[0].set_title("Base Game State")
+        axes[0].axis("off")
+
+        # Environment sampling
+        axes[1].imshow(env_rendered)
+        axes[1].set_title(f"Environment Sampling ({n_samples} samples)")
+        axes[1].axis("off")
+
+        # Law predictions
+        axes[2].imshow(law_rendered)
+        axes[2].set_title("Law Predictions")
+        axes[2].axis("off")
+
+        plt.tight_layout()
+        plt.savefig("law_vs_environment_comparison.png", dpi=150, bbox_inches="tight")
+        plt.show()
+
+        print(
+            "Law vs environment comparison complete! Check 'law_vs_environment_comparison.png'"
+        )
+
 
 def main():
     """Main function to run the zombie movement visualization."""
@@ -1071,6 +1153,11 @@ def main():
 
     # Create custom rendering visualization
     analyzer.create_custom_rendering_visualization(
+        state_with_zombie, "move_right", n_samples=30
+    )
+
+    # Create law vs environment comparison
+    analyzer.create_law_vs_environment_comparison(
         state_with_zombie, "move_right", n_samples=30
     )
 
