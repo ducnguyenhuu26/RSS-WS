@@ -77,7 +77,89 @@ from distant_sunburn.our_method.crafter.handwritten_laws import (
     CorrectEntityAILaw,
     LawFunctionWrapper,
 )
+from crafter.constants import ActionT as CrafterAction
 from distant_sunburn.poe_world.core import DiscreteDistribution
+
+
+# ============================================================================
+# SIMPLE ZOMBIE MOVEMENT LAW
+# ============================================================================
+
+
+class SimpleZombieMovementLaw:
+    """
+    Simple law that predicts zombie movement towards the player.
+
+    This law predicts that if there's a zombie entity, it will move towards the player
+    by either moving left (towards player) or up (towards player) with equal probability.
+    """
+
+    def precondition(self, current_state: WorldState, action: CrafterAction) -> bool:
+        # This law applies to all actions
+        return True
+
+    def effect(self, current_state: WorldState, action: CrafterAction) -> None:
+        """
+        Predict zombie movement towards the player.
+
+        Args:
+            current_state: The current game state to modify in-place
+            action: The action being taken
+        """
+        # Find the zombie entity
+        zombie = None
+        for entity in current_state.objects:
+            if entity.name == "zombie":
+                zombie = entity
+                break
+
+        if zombie is None:
+            return  # No zombie found
+
+        # Get player position
+        player_x = current_state.player.position.x
+        player_y = current_state.player.position.y
+
+        # Get zombie position
+        zombie_x = zombie.position.x
+        zombie_y = zombie.position.y
+
+        # Calculate direction towards player
+        dx = player_x - zombie_x  # Positive means player is to the right
+        dy = player_y - zombie_y  # Positive means player is below
+
+        # Predict movement: either move left towards player or up towards player
+        # with equal probability (50% each)
+
+        # Option 1: Move left towards player (if player is to the right)
+        if dx > 0:  # Player is to the right
+            new_x_left = min(current_state.size[0] - 1, zombie_x + 1)
+            new_y_left = zombie_y
+        else:  # Player is to the left or same column
+            new_x_left = max(0, zombie_x - 1)
+            new_y_left = zombie_y
+
+        # Option 2: Move up towards player (if player is below)
+        if dy > 0:  # Player is below
+            new_x_up = zombie_x
+            new_y_up = min(current_state.size[1] - 1, zombie_y + 1)
+        else:  # Player is above or same row
+            new_x_up = zombie_x
+            new_y_up = max(0, zombie_y - 1)
+
+        # Create discrete distributions with equal probability for both options
+        zombie.position.x = DiscreteDistribution(
+            support=[
+                new_x_left,
+                new_x_up,
+            ],  # pyright: ignore[reportAttributeAccessIssue]
+        )
+        zombie.position.y = DiscreteDistribution(
+            support=[
+                new_y_left,
+                new_y_up,
+            ],  # pyright: ignore[reportAttributeAccessIssue]
+        )
 
 
 # ============================================================================
@@ -601,8 +683,8 @@ class ZombiePlacementHelper:
             player, (state.size[0] // 2, state.size[1] // 2)
         )
 
-        # Add a zombie near the player
-        zombie_pos = (player.pos[0] + distance, player.pos[1])
+        # Add a zombie below and to the right of the player for interesting movement
+        zombie_pos = (player.pos[0] + distance, player.pos[1] + distance)
         zombie = objects.Zombie(world, zombie_pos, player)
         world.add(zombie)
 
@@ -699,7 +781,9 @@ class ZombieMovementAnalyzer:
     """Main class for analyzing zombie movement predictions vs reality."""
 
     def __init__(self):
-        self.law = LawFunctionWrapper.from_non_runtime_created(CorrectEntityAILaw())
+        self.law = LawFunctionWrapper.from_non_runtime_created(
+            SimpleZombieMovementLaw()
+        )
 
     def sample_environment_transitions(
         self, initial_state: WorldState, action: str, n_samples: int = 50
