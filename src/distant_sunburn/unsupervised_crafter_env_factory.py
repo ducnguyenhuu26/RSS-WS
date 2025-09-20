@@ -419,9 +419,6 @@ class UnsupervisedTextRenderer:
         # Show sleeping status
         result += f"- sleeping: {world_state.player.sleeping}\n"
 
-        # Show current action
-        result += f"- current action: {world_state.player.action}\n"
-
         # Show internal state variables
         result += f"- thirst: {world_state.player.thirst:.2f}\n"
         result += f"- hunger: {world_state.player.hunger:.2f}\n"
@@ -470,9 +467,6 @@ class UnsupervisedTextRenderer:
 
         # Show sleeping status
         result += f"- sleeping: {world_state.player.sleeping}\n"
-
-        # Show current action
-        result += f"- current action: {world_state.player.action}\n"
 
         # Show internal state variables
         result += f"- thirst: {world_state.player.thirst:.2f}\n"
