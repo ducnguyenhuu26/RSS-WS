@@ -54,6 +54,8 @@ Player at world (16, 16), zombie at world (17, 16):
 import numpy as np
 import matplotlib.pyplot as plt
 import copy
+import pickle
+import base64
 
 # Import crafter components
 from crafter.functional_env import (
@@ -73,6 +75,72 @@ from distant_sunburn.our_method.crafter.handwritten_laws import (
     LawFunctionWrapper,
 )
 from distant_sunburn.poe_world.core import DiscreteDistribution
+
+
+# ============================================================================
+# RANDOM STATE MANIPULATION FUNCTIONS
+# ============================================================================
+
+
+def create_random_state_with_seed(seed: int) -> np.random.RandomState:
+    """Create a new RandomState with the given seed."""
+    return np.random.RandomState(seed)
+
+
+def serialize_random_state(random_state: np.random.RandomState) -> str:
+    """Serialize a RandomState to base64 string."""
+    state_bytes = pickle.dumps(random_state)
+    return base64.b64encode(state_bytes).decode("ascii")
+
+
+def modify_world_state_random_seed(state: WorldState, seed: int) -> WorldState:
+    """
+    Create a copy of the WorldState with a new random seed.
+
+    Args:
+        state: The original WorldState
+        seed: New random seed to use
+
+    Returns:
+        New WorldState with modified random state
+    """
+    # Create a deep copy of the state
+    new_state = copy.deepcopy(state)
+
+    # Create new random state with the given seed
+    new_random_state = create_random_state_with_seed(seed)
+
+    # Serialize and set the new random state
+    new_state.serialized_random_state = serialize_random_state(new_random_state)
+
+    return new_state
+
+
+def advance_random_state(state: WorldState, steps: int) -> WorldState:
+    """
+    Create a copy of the WorldState with the random state advanced by N steps.
+
+    This is useful for getting different random outcomes without changing the seed.
+
+    Args:
+        state: The original WorldState
+        steps: Number of random numbers to generate to advance the state
+
+    Returns:
+        New WorldState with advanced random state
+    """
+    # Create a deep copy of the state
+    new_state = copy.deepcopy(state)
+
+    # Get the current random state and advance it
+    current_random_state = new_state.random_state
+    for _ in range(steps):
+        current_random_state.uniform()
+
+    # Serialize and set the advanced random state
+    new_state.serialized_random_state = serialize_random_state(current_random_state)
+
+    return new_state
 
 
 # ============================================================================
@@ -359,11 +427,12 @@ class ZombieMovementAnalyzer:
         positions = []
 
         for i in range(n_samples):
-            # Create a copy of the initial state for each sample
-            state_copy = copy.deepcopy(initial_state)
+            # Try advancing the random state instead of using different seeds
+            # This might be more effective for getting different outcomes
+            state_with_advanced_rng = advance_random_state(initial_state, steps=i * 10)
 
             # Take the transition
-            next_state, _ = transition(state_copy, action_idx)
+            next_state, _ = transition(state_with_advanced_rng, action_idx)
 
             # Find zombie position in the next state
             for obj in next_state.objects:
@@ -498,6 +567,93 @@ class ZombieMovementAnalyzer:
         )
         print("Test visualization complete! Check 'zombie_movement_test.png'")
 
+    def create_environment_sampling_visualization(
+        self, initial_state: WorldState, action: str = "move_right", n_samples: int = 50
+    ) -> None:
+        """
+        Create a visualization showing environment sampling results.
+
+        Args:
+            initial_state: Starting state with zombie placed near player
+            action: Action to take
+            n_samples: Number of samples to take from environment
+        """
+        print(
+            f"Creating environment sampling visualization with {n_samples} samples..."
+        )
+
+        # Debug: Show initial zombie position
+        for obj in initial_state.objects:
+            if isinstance(obj, ZombieState):
+                print(f"Initial zombie position: ({obj.position.x}, {obj.position.y})")
+                break
+
+        print(
+            f"Player position: ({initial_state.player.position.x}, {initial_state.player.position.y})"
+        )
+        print(f"Action: {action}")
+
+        # Sample from the environment
+        print("Sampling from environment...")
+        env_positions = self.sample_environment_transitions(
+            initial_state, action, n_samples
+        )
+
+        # Count position frequencies
+        position_counts = {}
+        for pos in env_positions:
+            position_counts[pos] = position_counts.get(pos, 0) + 1
+
+        # Convert counts to probabilities
+        env_distribution = {
+            pos: count / n_samples for pos, count in position_counts.items()
+        }
+
+        print(f"Environment sampling found {len(env_distribution)} unique positions")
+        print(f"Position distribution: {env_distribution}")
+        # Show sample of positions for debugging
+        if len(env_positions) > 10:
+            print(f"Sample positions: {env_positions[:10]}...")
+        else:
+            print(f"All positions: {env_positions}")
+
+        # Render the initial state
+        base_image = observation(initial_state, render_size=(256, 256))
+        player_pos = initial_state.player.position
+
+        # Create environment distribution overlay
+        env_overlay = DistributionVisualizer.create_distribution_overlay(
+            base_image,
+            env_distribution,
+            (9, 9),
+            (256, 256),
+            (player_pos.x, player_pos.y),
+            alpha=0.7,
+        )
+
+        # Create visualization
+        fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+
+        # Base image
+        axes[0].imshow(base_image)
+        axes[0].set_title("Base Game State")
+        axes[0].axis("off")
+
+        # Environment sampling overlay
+        axes[1].imshow(env_overlay)
+        axes[1].set_title(f"Environment Sampling ({n_samples} samples)")
+        axes[1].axis("off")
+
+        plt.tight_layout()
+        plt.savefig(
+            "environment_sampling_visualization.png", dpi=150, bbox_inches="tight"
+        )
+        plt.show()
+
+        print(
+            "Environment sampling visualization complete! Check 'environment_sampling_visualization.png'"
+        )
+
 
 def main():
     """Main function to run the zombie movement visualization."""
@@ -516,6 +672,11 @@ def main():
 
     # Create test visualization with hand-specified distributions
     analyzer.create_test_visualization(state_with_zombie)
+
+    # Create environment sampling visualization
+    analyzer.create_environment_sampling_visualization(
+        state_with_zombie, "move_right", n_samples=30
+    )
 
 
 if __name__ == "__main__":
