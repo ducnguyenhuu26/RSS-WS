@@ -2,9 +2,7 @@
 Test for the UnsupervisedTextRenderer to visually inspect output.
 """
 
-import pytest
 from crafter.functional_env import initial_state
-from crafter.state_export import Position
 from distant_sunburn.unsupervised_crafter_env_factory import UnsupervisedTextRenderer
 
 
@@ -35,8 +33,8 @@ def test_unsupervised_text_renderer():
     assert len(output.long_term_context) > 0
     assert len(output.short_term_context) > 0
 
-    assert "Local view" in output.long_term_context
-    assert "Distant view" in output.long_term_context
-    assert "You are targeting" in output.long_term_context
-    assert "Your status:" in output.short_term_context
-    assert "Your inventory:" in output.short_term_context
+    assert "Local view" in output.short_term_context
+    assert "Distant view" in output.short_term_context
+    assert "You are targeting" in output.short_term_context
+    assert "Your status:" in output.long_term_context
+    assert "Your inventory:" in output.long_term_context

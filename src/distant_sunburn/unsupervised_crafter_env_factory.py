@@ -389,7 +389,7 @@ class UnsupervisedTextRenderer:
         return result
 
     def _describe_inventory(self, world_state: WorldState) -> str:
-        """Describe the player's inventory."""
+        """Describe the player's comprehensive status and inventory."""
         result = "Your status:\n"
 
         # Show vitals
@@ -397,9 +397,27 @@ class UnsupervisedTextRenderer:
             value = getattr(world_state.player.inventory, vital, 0)
             result += f"- {vital}: {value}/9\n"
 
+        # Show position and facing
+        pos = world_state.player.position
+        facing = world_state.player.facing
+        result += f"- position: ({pos.x}, {pos.y})\n"
+        result += f"- facing: ({facing.x}, {facing.y})\n"
+
+        # Show sleeping status
+        result += f"- sleeping: {world_state.player.sleeping}\n"
+
+        # Show current action
+        result += f"- current action: {world_state.player.action}\n"
+
+        # Show internal state variables
+        result += f"- thirst: {world_state.player.thirst:.2f}\n"
+        result += f"- hunger: {world_state.player.hunger:.2f}\n"
+        result += f"- fatigue: {world_state.player.fatigue:.2f}\n"
+        result += f"- recovery: {world_state.player.recover:.2f}\n"
+
         result += "\nYour inventory:\n"
 
-        # Show other items
+        # Show all items with their counts
         inventory_items = []
         for item_name in [
             "sapling",
@@ -416,19 +434,18 @@ class UnsupervisedTextRenderer:
             "iron_sword",
         ]:
             value = getattr(world_state.player.inventory, item_name, 0)
-            if value > 0:
-                inventory_items.append(f"- {item_name}: {value}")
+            inventory_items.append(f"- {item_name}: {value}")
 
-        if inventory_items:
-            result += "\n".join(inventory_items)
-        else:
-            result += "You have no items in your inventory."
+        result += "\n".join(inventory_items)
 
         return result
 
     def __call__(self, world_state: WorldState) -> TextRendererOutput:
         """Render the world state as text for the language model."""
         result = ""
+
+        # Player status and inventory (comprehensive player state)
+        result += self._describe_inventory(world_state) + "\n\n"
 
         # Player status
         result += self._describe_player_status(world_state)
@@ -443,8 +460,8 @@ class UnsupervisedTextRenderer:
         result += self._describe_distant_view(world_state)
 
         return TextRendererOutput(
-            long_term_context=result.strip(),
-            short_term_context=self._describe_inventory(world_state),
+            long_term_context=self._describe_inventory(world_state),
+            short_term_context=result.strip(),
         )
 
 
