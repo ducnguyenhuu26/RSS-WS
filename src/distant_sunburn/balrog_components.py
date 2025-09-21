@@ -16,6 +16,7 @@ from .typing_utils import implements
 from typing import TypeVar, Union
 from .balrog_interfaces import LLMResponse
 from icecream import ic
+from loguru import logger
 
 
 class HistoryPromptBuilderConfig(BaseModel):
@@ -242,6 +243,124 @@ You always have to output one of the above actions at a time and no other text. 
         cls,
         client_factory: Callable[[], LlmClientProtocol],
         prompt_builder_factory: Callable[[], PromptBuilderProtocol],
+    ) -> Callable[[], Self]:
+        return lambda: cls(client_factory(), prompt_builder_factory())
+
+
+class ReasoningNaiveAgent:
+    """An agent that generates actions with reasoning, preserving the reasoning in the prompt builder."""
+
+    def __init__(
+        self,
+        client: LlmClientProtocol,
+        prompt_builder: HistoryPromptBuilder,
+    ):
+        """Initialize the ReasoningNaiveAgent with a client and prompt builder."""
+        self.client = client
+        self.prompt_builder = prompt_builder
+
+    def act(self, obs: Observation, prev_action: str | None = None) -> LLMResponse:
+        """Generate the next action based on the observation and previous action.
+
+        Args:
+            obs (dict): The current observation in the environment.
+            prev_action (str, optional): The previous action taken.
+
+        Returns:
+            LLMResponse: The response containing the action and reasoning.
+        """
+        if prev_action:
+            self.prompt_builder.update_action(prev_action)
+
+        self.prompt_builder.update_observation(obs)
+
+        messages = self.prompt_builder.get_prompt()
+
+        reasoning_instruction = """
+First, think about what's the best course of action step by step.
+Then, provide your response in the following XML format:
+
+<reasoning>
+Your step-by-step reasoning here
+</reasoning>
+
+<action>
+YOUR_CHOSEN_ACTION
+</action>
+
+Replace YOUR_CHOSEN_ACTION with exactly one of the listed actions. Output no other text outside these XML tags.
+        """.strip()
+
+        if messages and messages[-1].role == "user":
+            messages[-1].content += "\n\n" + reasoning_instruction
+
+        response = self.client.generate(messages)
+
+        final_answer = self._extract_final_answer(response)
+
+        return final_answer
+
+    def _extract_final_answer(self, answer: LLMResponse) -> LLMResponse:
+        """Extract reasoning and action from XML-tagged response.
+
+        Args:
+            answer (LLMResponse): The response from the LLM.
+
+        Returns:
+            LLMResponse: The response with extracted reasoning and action.
+        """
+        final_answer = copy.deepcopy(answer)
+
+        completion_text = answer.completion
+
+        # Log the raw completion for debugging
+        logger.debug(f"Raw LLM completion: {completion_text}")
+
+        # Extract reasoning from <reasoning> tags
+        reasoning_match = re.search(
+            r"<reasoning>(.*?)</reasoning>", completion_text, re.DOTALL
+        )
+        reasoning = reasoning_match.group(1).strip() if reasoning_match else ""
+
+        # Extract action from <action> tags
+        action_match = re.search(r"<action>(.*?)</action>", completion_text, re.DOTALL)
+        if action_match:
+            action = action_match.group(1).strip()
+        else:
+            # Fallback: try to extract any text that looks like an action
+            # Remove common action prefixes and clean up
+            action = re.sub(
+                r"^(ACTION:\s*|action:\s*)", "", completion_text, flags=re.IGNORECASE
+            )
+            action = re.sub(r"[^a-zA-Z\s:]", "", action).strip()
+
+        # Log extracted reasoning and action
+        logger.info(f"Extracted reasoning: {reasoning}")
+        logger.info(f"Extracted action: {action}")
+
+        # Update the prompt builder with the reasoning for future use
+        if reasoning:
+            self.prompt_builder.update_reasoning(reasoning)
+
+        # Set the reasoning in the response and clean action as completion
+        final_answer = final_answer._replace(reasoning=reasoning, completion=action)
+
+        # Log the final answer
+        logger.info(
+            f"Final answer - reasoning: {final_answer.reasoning}, action: {final_answer.completion}"
+        )
+
+        return final_answer
+
+    def reset(self):
+        """Reset the prompt builder."""
+        self.prompt_builder.reset()
+
+    @classmethod
+    def as_factory(
+        cls,
+        client_factory: Callable[[], LlmClientProtocol],
+        prompt_builder_factory: Callable[[], HistoryPromptBuilder],
     ) -> Callable[[], Self]:
         return lambda: cls(client_factory(), prompt_builder_factory())
 

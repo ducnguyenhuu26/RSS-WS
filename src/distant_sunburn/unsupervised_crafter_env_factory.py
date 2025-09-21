@@ -89,14 +89,16 @@ This world is complex and may be dangerous.
 - **Combat:** You can engage in combat with the entities you encounter.
 
 Your primary goal is to discover the rules governing these activities. 
-You will need to explore the game world by moving around and interacting with the entitiesa and materials in the world.
-It is important that you survive long enough to experience as many of the world's mechanics as possible.
-If an action has no effect, repeating it over and over again is not a good strategy.
+You will need to explore the game world by moving around and interacting with the entities and materials in the world.
 If an action has no effect, you may not have fulfilled the preconditions for the action to have an effect.
-Try to get actions to succeed by thinking about necessary preconditions and trying to fulfill them.
-Try out as many of the actions as you can, do not get stuck repeating a single action.
-Aim to experience a broad range of mechanics, rather than getting stuck on a single category.
-Before starting, set some objectives for yourself to guide your exploration.
+Try out a variety of actions from each category: movement, interaction, placement, production.
+If an action seems to have no effect, you may not have fulfilled the preconditions for the action to have an effect.
+Try to acquire additional resources or change something about the world and try again.
+Every 4 steps, summarize your acquired knowledge of what you have successfully achieved, and what you need to achieve for your next goal.
+Before taking actions, set goals for yourself in an IF-THEN format, and let the results invalidate those actions.
+If an entity is hostile, you can attempt to defend yourself from it.
+If an entity seems passive or beneficial, you can attempt to interact with it.
+When repeating an action, count every time you attempt it and break after 3 attempts and try something different if there are no effects.
 
 The following are the only valid actions you can take:
 
@@ -599,6 +601,7 @@ class UnsupervisedCrafterEnvironmentConfig(EnvironmentConfig):
     max_episode_steps: int = Field(default=2000)
     render_image: bool = Field(default=False)
     instruction_prompt: str = Field(default=get_instruction_prompt())
+    increase_starting_health: bool = Field(default=False)
 
 
 def build_base_environment(
@@ -674,6 +677,10 @@ class LanguageSymbolicWrapper:
         self.step_count = 0
         self.score_tracker = 0
         self.achievements = None
+
+        if self.config.increase_starting_health:
+            assert self.base_env._player is not None
+            self.base_env._player.health = 20
 
         assert self.base_env._step is not None
         assert self.base_env._view is not None
