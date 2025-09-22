@@ -21,6 +21,7 @@ from .typing_utils import implements
 from typing import Optional, Any
 from typing import Protocol
 from crafter.state_export import Position
+from loguru import logger
 
 MAP_SLUG_TO_ENGINE_ACTION = {
     slug: idx for idx, slug in enumerate(crafter.constants.actions)
@@ -94,11 +95,14 @@ If an action has no effect, you may not have fulfilled the preconditions for the
 Try out a variety of actions from each category: movement, interaction, placement, production.
 If an action seems to have no effect, you may not have fulfilled the preconditions for the action to have an effect.
 Try to acquire additional resources or change something about the world and try again.
-Every 4 steps, summarize your acquired knowledge of what you have successfully achieved, and what you need to achieve for your next goal.
 Before taking actions, set goals for yourself in an IF-THEN format, and let the results invalidate those actions.
 If an entity is hostile, you can attempt to defend yourself from it.
 If an entity seems passive or beneficial, you can attempt to interact with it.
-When repeating an action, count every time you attempt it and break after 3 attempts and try something different if there are no effects.
+You will likely need to progress through the "tech tree" of the game in a specific order.
+This will require interleaving resource collection with placement of crafting stations and production of better tools.
+In the meantime, you will need to survive hostile enemies and find ways to heal from damage you've taken.
+Some resources likely cannot be acquired without first producing a tool to acquire them.
+Tools may require a mix of materials and crafting stations to produce.
 
 The following are the only valid actions you can take:
 
@@ -649,6 +653,9 @@ class LanguageSymbolicWrapper:
         truncated = self.step_count >= self.config.max_episode_steps
         if truncated:
             done = True
+
+        if reward > 0:
+            logger.success(f"Agent achieved a reward={reward} for action={action}")
 
         return obs, reward, bool(done), truncated, info
 

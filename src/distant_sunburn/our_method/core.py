@@ -4,6 +4,7 @@ from typing import Protocol, TypeVar, Any
 from pathlib import Path
 import cloudpickle
 from typing_extensions import Self, Generic
+from loguru import logger
 
 from ..typing_utils import implements
 import inspect
@@ -51,10 +52,21 @@ class LawFunctionWrapper(Generic[SymbolicStateT_contra]):
         self.source_code = source_code
 
     def precondition(self, current_state: SymbolicStateT_contra, action: Any) -> bool:
-        return self.law.precondition(current_state, action)
+        try:
+            return self.law.precondition(current_state, action)
+        except Exception:
+            logger.opt(exception=True).error(
+                f"Error in precondition for {self.law.__class__.__name__}"
+            )
+            return False
 
     def effect(self, current_state: SymbolicStateT_contra, action: Any) -> None:
-        self.law.effect(current_state, action)
+        try:
+            self.law.effect(current_state, action)
+        except Exception:
+            logger.opt(exception=True).error(
+                f"Error in effect for {self.law.__class__.__name__}"
+            )
 
     def save(self, path: str | Path) -> None:
         if not isinstance(path, Path):
