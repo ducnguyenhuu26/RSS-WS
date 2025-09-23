@@ -583,14 +583,19 @@ class MaxLikelihoodWeightFitter(Generic[SymbolicStateT]):
             `obs_present`, `support`.
         """
         if device is None:
-            device = torch.device("cpu")
+            device = (
+                torch.device("cuda")
+                if torch.cuda.is_available()
+                else torch.device("cpu")
+            )
+        logger.info(f"Building loss buckets on device: {device}")
 
         # Internal accumulators keyed by support signature
         # Signature uses bytes of the support array to avoid padding across families
         buckets_acc: dict[tuple[int, bytes], dict[str, list]] = {}
         sig_supports: dict[tuple[int, bytes], np.ndarray] = {}
 
-        for i, transition in enumerate(transitions):
+        for i, transition in enumerate(tqdm(transitions, desc="Building loss buckets")):
             transition_predictions = expert_preds_per_transition[i]
 
             # Observed values from next state

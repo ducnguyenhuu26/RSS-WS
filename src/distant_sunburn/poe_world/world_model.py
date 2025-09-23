@@ -23,6 +23,7 @@ from .core import (
 from .weight_fitter import (
     combine_expert_predictions_for_attr,
 )
+from collections import defaultdict
 
 # Constants for log probability values
 LOG_IMPOSSIBLE_VALUE = -1000.0  # Very low probability for impossible transitions
@@ -157,21 +158,70 @@ class PoEWorldModel(Generic[SymbolicStateT, ActionT]):
             {}
         )
 
-        for expert in self._experts:
+        failed_experts = []
+
+        default_predictions = self.observable_extractor.extract_attribute_predictions(
+            copy.deepcopy(state)
+        )
+
+        mapped_predictions: dict[ObservableId, dict[int, DiscreteDistribution]] = (
+            defaultdict(dict)
+        )
+
+        for expert_idx, expert in enumerate(self._experts):
             # Deep copy state and run expert
             state_copy = copy.deepcopy(state)
             expert.expert_function(state_copy, action)
 
             # Extract predictions for each attribute
-            attr_predictions = self.observable_extractor.extract_attribute_predictions(
-                state_copy
-            )
+            try:
+                attr_predictions = (
+                    self.observable_extractor.extract_attribute_predictions(state_copy)
+                )
+            except Exception:
+                logger.opt(exception=True).error(
+                    f"Error in extract_attribute_predictions for {expert.expert_function.__name__}"
+                )
+                # Occasionally, an expert can fail to make a prediction _on some_ transitions
+                # but not all transitions. This is rare, but it causes problems due to the fixed
+                # size of the weights and the predictions list. We attempt to recover from this by
+                # just ignoring that expert.
+                state_copy = copy.deepcopy(state)
+                attr_predictions = (
+                    self.observable_extractor.extract_attribute_predictions(state_copy)
+                )
+                logger.warning(
+                    f"Expert {expert.expert_function.__name__} failed to make a prediction on some transitions. Ignoring this expert."
+                )
+                failed_experts.append(expert)
 
             # Group by attribute name
             for attr_name, attr_prediction in attr_predictions.items():
-                if attr_name not in predictions_from_all_experts:
-                    predictions_from_all_experts[attr_name] = []
-                predictions_from_all_experts[attr_name].append(attr_prediction)
+                mapped_predictions[attr_name][expert_idx] = attr_prediction
+
+        # Fill in any "gaps" in mapped_predictions
+        for attr_name, mapped_predictions_for_attr in mapped_predictions.items():
+            expected_experts = set(range(len(self._experts)))
+            actual_experts = set(mapped_predictions_for_attr.keys())
+            missing_experts = expected_experts - actual_experts
+            present_experts = actual_experts - missing_experts
+            if missing_experts:
+                support = mapped_predictions_for_attr[present_experts.pop()].support
+                placeholder = DiscreteDistribution.from_uniform(support)
+                for missing_expert in missing_experts:
+                    mapped_predictions[attr_name][missing_expert] = placeholder
+
+        # Convert to list of predictions
+        for attr_name, mapped_predictions_for_attr in mapped_predictions.items():
+            predictions_from_all_experts[attr_name] = [
+                mapped_predictions_for_attr[expert_idx]
+                for expert_idx in range(len(self._experts))
+            ]
+
+        if failed_experts:
+            logger.warning(
+                f"Failed to make a prediction on some transitions for {len(failed_experts)} experts. Ignoring these experts."
+            )
 
         return predictions_from_all_experts
 
