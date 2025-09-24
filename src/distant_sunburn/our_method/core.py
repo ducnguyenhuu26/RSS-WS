@@ -12,7 +12,7 @@ from typing import Type
 from dataclasses import dataclass
 from ..poe_world.core import ObservableId, DiscreteDistribution
 import torch
-from typing import Mapping, TypeAlias
+from typing import Mapping, TypeAlias, Optional, Callable
 
 
 SymbolicStateT = TypeVar("SymbolicStateT")
@@ -47,13 +47,24 @@ class BaseLawProtocol(Protocol[SymbolicStateT_contra]):
 
 
 class LawFunctionWrapper(Generic[SymbolicStateT_contra]):
-    def __init__(self, law: BaseLawProtocol[SymbolicStateT_contra], source_code: str):
+    def __init__(
+        self,
+        law: BaseLawProtocol[SymbolicStateT_contra],
+        source_code: str,
+        action_remapper: Optional[Callable[[Any], Any]] = None,
+    ):
         self.law = law
         self.source_code = source_code
+        self.action_remapper = action_remapper
+
+    def _remap_action(self, action: Any) -> Any:
+        if self.action_remapper is not None:
+            return self.action_remapper(action)
+        return action
 
     def precondition(self, current_state: SymbolicStateT_contra, action: Any) -> bool:
         try:
-            return self.law.precondition(current_state, action)
+            return self.law.precondition(current_state, self._remap_action(action))
         except Exception:
             logger.opt(exception=True).error(
                 f"Error in precondition for {self.law.__class__.__name__}"
@@ -62,7 +73,7 @@ class LawFunctionWrapper(Generic[SymbolicStateT_contra]):
 
     def effect(self, current_state: SymbolicStateT_contra, action: Any) -> None:
         try:
-            self.law.effect(current_state, action)
+            self.law.effect(current_state, self._remap_action(action))
         except Exception:
             logger.opt(exception=True).error(
                 f"Error in effect for {self.law.__class__.__name__}"

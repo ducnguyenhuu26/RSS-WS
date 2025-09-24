@@ -270,6 +270,9 @@ class ZombieDefeatScenario:
         # Make the player face the zombie
         player_utils.set_player_facing(player, (1, 0))
 
+        # Give the player a wooden sword
+        player_utils.set_player_inventory_item(player, "wood_sword", 1)
+
         state = export_world_state(world, view=view, step_count=0)
         # Find the zombie's entity id
         self.target_zombie = find_object_in_state(
