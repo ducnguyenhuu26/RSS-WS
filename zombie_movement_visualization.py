@@ -72,6 +72,7 @@ from crafter.state_export import WorldState, ZombieState
 from crafter.state_reconstruction import reconstruct_world_from_state
 from crafter import objects, constants
 from crafter.testing_helpers import world_utils, player_utils
+import random
 
 # Import our method components
 from distant_sunburn.our_method.crafter.handwritten_laws import (
@@ -95,7 +96,7 @@ class ZombieMovementLaw:
         player_y = current_state.player.position.y
 
         for entity in current_state.objects:
-            if entity.name == "zombie":
+            if entity.name != "zombie":
                 continue
 
             zombie_x = entity.position.x
@@ -969,7 +970,17 @@ def _draw_texture(canvas: np.ndarray, pos: np.ndarray, texture: np.ndarray) -> N
         tx1, ty1 = x1 - pos[0], y1 - pos[1]
         tx2, ty2 = tx1 + (x2 - x1), ty1 + (y2 - y1)
 
-        canvas[y1:y2, x1:x2] = texture[ty1:ty2, tx1:tx2]
+        texture_slice = texture[ty1:ty2, tx1:tx2]
+
+        # Handle textures with alpha channel
+        if texture_slice.shape[2] == 4:
+            # Convert RGBA to RGB by discarding alpha or using it for blending
+            rgb = texture_slice[:, :, :3]
+            alpha = texture_slice[:, :, 3:4] / 255.0
+            canvas[y1:y2, x1:x2] = (1 - alpha) * canvas[y1:y2, x1:x2] + alpha * rgb
+        else:
+            # No alpha channel, just copy RGB
+            canvas[y1:y2, x1:x2] = texture_slice
 
 
 def _draw_alpha_texture(
@@ -1082,7 +1093,7 @@ class ZombiePlacementHelper:
     @staticmethod
     def place_zombie_near_player(state: WorldState, distance: int = 3) -> WorldState:
         """
-        Place a zombie near the player in the given state.
+        Place a zombie near the player in the given state, with scenery, a cow, and a skeleton.
 
         Args:
             state: The world state to modify
@@ -1110,22 +1121,91 @@ class ZombiePlacementHelper:
                 continue
             world.remove(obj)
 
-        # Set all tiles to grass for walkability
+        # Create an interesting terrain layout with various materials
+        center_x, center_y = state.size[0] // 2, state.size[1] // 2
+
+        # Define walkable materials (materials entities can move on)
+        walkable_materials = ["grass", "path", "sand"]
+
         for x in range(state.size[0]):
             for y in range(state.size[1]):
-                world_utils.set_tile_material(world, (x, y), "grass")
+                # Calculate distance from center
+                dist_from_center = ((x - center_x) ** 2 + (y - center_y) ** 2) ** 0.5
+
+                # Create different terrain patterns based on distance and position
+                if dist_from_center < 3:
+                    # Central area - mostly grass
+                    material = "grass"
+                elif dist_from_center < 6:
+                    # Mid-range - mix of grass and path
+                    if random.random() < 0.7:
+                        material = "grass"
+                    else:
+                        material = "path"
+                elif dist_from_center < 10:
+                    # Outer area - grass, path, and sand
+                    rand = random.random()
+                    if rand < 0.5:
+                        material = "grass"
+                    elif rand < 0.8:
+                        material = "path"
+                    else:
+                        material = "sand"
+                else:
+                    # Far outer area - add some trees and stone for scenery
+                    rand = random.random()
+                    if rand < 0.4:
+                        material = "grass"
+                    elif rand < 0.6:
+                        material = "sand"
+                    elif rand < 0.8:
+                        material = "tree"  # Non-walkable but scenic
+                    else:
+                        material = "stone"  # Non-walkable but scenic
+
+                # Ensure some areas around the center are definitely walkable
+                if abs(x - center_x) <= 2 and abs(y - center_y) <= 2:
+                    material = "grass"
+
+                world_utils.set_tile_material(world, (x, y), material)
 
         # Place player at center
-        player_utils.set_player_position(
-            player, (state.size[0] // 2, state.size[1] // 2)
-        )
+        player_utils.set_player_position(player, (center_x, center_y))
 
         # Add a zombie below and to the right of the player for interesting movement
         zombie_pos = (player.pos[0] + distance, player.pos[1] + distance)
+
+        # Ensure zombie position is on walkable terrain
+        if world[zombie_pos] not in walkable_materials:
+            world_utils.set_tile_material(world, zombie_pos, "grass")
+
         zombie = objects.Zombie(world, zombie_pos, player)
         world.add(zombie)
 
+        # Add a cow near the player (on the left side)
+        cow_pos = (player.pos[0] - distance, player.pos[1] + 1)
+
+        # Ensure cow position is on walkable terrain
+        if world[cow_pos] not in walkable_materials:
+            world_utils.set_tile_material(world, cow_pos, "grass")
+
+        cow = objects.Cow(world, cow_pos)
+        world.add(cow)
+
+        # Add a skeleton further away for variety
+        skeleton_pos = (player.pos[0] - distance - 2, player.pos[1] - distance)
+
+        # Ensure skeleton position is on walkable terrain
+        if world[skeleton_pos] not in walkable_materials:
+            world_utils.set_tile_material(world, skeleton_pos, "grass")
+
+        skeleton = objects.Skeleton(world, skeleton_pos, player)
+        world.add(skeleton)
+
         print(f"Placed zombie at {zombie_pos} near player at {player.pos}")
+        print(f"Placed cow at {cow_pos}")
+        print(f"Placed skeleton at {skeleton_pos}")
+        print("Added varied terrain with grass, path, sand, trees, and stone")
 
         # Export the modified state
         return export_world_state(world, view=state.view, step_count=state.step_count)
