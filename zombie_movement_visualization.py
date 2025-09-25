@@ -142,13 +142,17 @@ class CowMovementLaw:
             if entity.name != "cow":
                 continue
 
+            # Convert probabilities to logscores
+            probs = [0.10, 0.3, 0.6]
+            logscores = np.log(probs)
+
             entity.position.x = DiscreteDistribution(
                 support=[
                     entity.position.x + 1,
                     entity.position.x - 1,
                     entity.position.x,
                 ],
-                logscores=[0.1, 0.1, 0.8],
+                logscores=logscores,
             )  # type: ignore
             entity.position.y = DiscreteDistribution(support=[entity.position.y])  # type: ignore
 
