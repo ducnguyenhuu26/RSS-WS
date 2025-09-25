@@ -1199,6 +1199,31 @@ class ZombiePlacementHelper:
         # Place player at center
         player_utils.set_player_position(player, (center_x, center_y))
 
+        # Hardcode a couple of trees and some lava near the player
+        # Ensure we stay within world bounds
+        def _safe_set_material(pos: tuple[int, int], material_name: str) -> None:
+            x, y = pos
+            if 0 <= x < state.size[0] and 0 <= y < state.size[1]:
+                world_utils.set_tile_material(world, (x, y), material_name)
+
+        # Two trees to the left and right of the player, kept within the 9x9 view.
+        # Left tree is shifted up to be ≥2 tiles from the cow at (center_x - distance, center_y + 1).
+        tree_positions = [
+            (center_x - 4, center_y - 2),
+            (center_x + 4, center_y),
+        ]
+        for tp in tree_positions:
+            _safe_set_material(tp, "tree")
+
+        # Small lava patch a few tiles below the player
+        lava_positions = [
+            (center_x - 1, center_y + 4),
+            (center_x, center_y + 4),
+            (center_x + 1, center_y + 4),
+        ]
+        for lp in lava_positions:
+            _safe_set_material(lp, "lava")
+
         # Add a zombie below and to the right of the player for interesting movement
         zombie_pos = (player.pos[0] + distance, player.pos[1] + distance)
 
@@ -1232,6 +1257,7 @@ class ZombiePlacementHelper:
         print(f"Placed zombie at {zombie_pos} near player at {player.pos}")
         print(f"Placed cow at {cow_pos}")
         print(f"Placed skeleton at {skeleton_pos}")
+        print(f"Hardcoded trees at {tree_positions} and lava at {lava_positions}")
         print("Added varied terrain with grass, path, sand, trees, and stone")
 
         # Export the modified state
