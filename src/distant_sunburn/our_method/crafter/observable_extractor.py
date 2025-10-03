@@ -14,6 +14,7 @@ from typing import Mapping, TypeAlias
 from loguru import logger
 from crafter.state_export import Inventory
 from crafter.constants import MaterialT, materials
+from icecream import ic
 
 # Setting the threshold to 0.01 means that
 # we will _always_ sample even if
