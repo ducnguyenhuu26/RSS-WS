@@ -16,12 +16,17 @@ from crafter.state_export import Inventory
 from crafter.constants import MaterialT, materials
 from icecream import ic
 from crafter.state_export import ZombieState
+from typing import cast
 
 # Setting the threshold to 0.01 means that
 # we will _always_ sample even if
 # the experts have put a logprob as high as 0.0 (100% probability)
 # on a single value.
 LOGP_DETERMINISTIC_THRESHOLD_NEVER = 0.01
+
+MATERIAL_TO_INDEX: dict[MaterialT, int] = {
+    material: index for index, material in enumerate(materials)
+}
 
 
 @dataclass(frozen=True)
@@ -36,6 +41,9 @@ class ObservableExtractorConfig:
         default_factory=lambda: np.array([0, 1])
     )
     inventory_domain: np.ndarray = field(default_factory=lambda: np.arange(0, 101))
+    material_domain: np.ndarray = field(
+        default_factory=lambda: np.arange(0, len(materials))
+    )
     logp_deterministic_threshold: float = field(
         default=LOGP_DETERMINISTIC_THRESHOLD_NEVER
     )
@@ -44,6 +52,7 @@ class ObservableExtractorConfig:
         default_factory=lambda: np.arange(0, 101)
     )
     top_k: Optional[int] = field(default=None)
+    detect_facing_tile: bool = field(default=False)
 
 
 ExpertIndex: TypeAlias = int
@@ -124,6 +133,8 @@ class ObservableExtractor:
         self.noise_logscore = config.noise_logscore
         self.top_k = config.top_k
         self.zombie_cooldown_domain = config.zombie_cooldown_domain
+        self.detect_facing_tile = config.detect_facing_tile
+        self.material_domain = config.material_domain
 
     def extract_attribute_predictions(
         self, state: WorldState
@@ -298,6 +309,22 @@ class ObservableExtractor:
                 )
             )
 
+        if self.detect_facing_tile:
+            try:
+                target_tile, _ = state.get_target_tile()
+            except TypeError:
+                # We'll get a TypeError if the law has set other attributes such
+                # as player.position.x, since `get_target_tile` will no longer work
+                # in that case. We'll just ignore this.
+                pass
+            else:
+                if isinstance(target_tile, DiscreteDistribution):
+                    predictions[ObservableId("facing_tile")] = (
+                        target_tile.expand_support(
+                            self.material_domain, noise_logscore=self.noise_logscore
+                        )
+                    )
+
         # Extract entity positions and health
         for entity in state.objects:
             if entity.entity_id == state.player.entity_id:
@@ -435,6 +462,12 @@ class ObservableExtractor:
             state.player.inventory.iron_sword
         )
 
+        if self.detect_facing_tile:
+            target_tile, _ = state.get_target_tile()
+            if target_tile is not None:
+                target_tile = cast(MaterialT, target_tile)
+                observed[ObservableId("facing_tile")] = MATERIAL_TO_INDEX[target_tile]
+
         return observed
 
     def apply_expert_predictions(
@@ -485,6 +518,19 @@ class ObservableExtractor:
                 new_state.player.health = combined_dist.sample(
                     self.logp_deterministic_threshold, self.top_k
                 )
+
+        if self.detect_facing_tile:
+            if "facing_tile" in expert_predictions:
+                with logger.contextualize(attr_name="facing_tile"):
+                    facing_tile_preds = expert_predictions[ObservableId("facing_tile")]
+                    combined_dist = combine_active_expert_predictions_for_attr(
+                        facing_tile_preds, weights
+                    )
+                    new_tile_index = combined_dist.sample(
+                        self.logp_deterministic_threshold, self.top_k
+                    )
+                    new_tile = materials[new_tile_index]
+                    new_state.set_facing_material(new_tile)
 
         # Sample entity positions and health
         for entity in new_state.objects:
