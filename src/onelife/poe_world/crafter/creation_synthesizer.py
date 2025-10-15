@@ -9,7 +9,7 @@ in the Crafter environment.
 import ast
 from typing import List, Optional
 
-from crafter.state_export import (
+from crafter_oo.state_export import (
     ArrowState,
     CowState,
     FenceState,

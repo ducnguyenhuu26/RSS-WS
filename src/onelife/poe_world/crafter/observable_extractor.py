@@ -24,7 +24,7 @@ creation/deletion events.
 """
 
 from ...typing_utils import implements
-from crafter.state_export import WorldState
+from crafter_oo.state_export import WorldState
 from ..core import ObservableExtractorProtocol, ObservableId, DiscreteDistribution
 import torch
 import numpy as np

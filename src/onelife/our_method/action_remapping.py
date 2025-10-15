@@ -1,4 +1,4 @@
-import crafter.constants
+import crafter_oo
 
 SLUG_ACTION_TO_BALROG_ACTION = {
     "noop": "Noop",

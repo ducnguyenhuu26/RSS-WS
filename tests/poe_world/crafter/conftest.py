@@ -7,15 +7,15 @@ to eliminate duplication across test files.
 
 import pytest
 import numpy as np
-from crafter.state_export import WorldState
-from crafter.functional_env import (
+from crafter_oo.state_export import WorldState
+from crafter_oo.functional_env import (
     initial_state,
     reconstruct_world_from_state,
     export_world_state,
     transition,
 )
-from crafter.constants import ActionT
-from crafter import objects, constants
+from crafter_oo.constants import ActionT
+from crafter_oo import objects, constants
 
 from onelife.poe_world.core import SymbolicTransition
 
@@ -119,7 +119,7 @@ def mixed_entity_world() -> WorldState:
     player = _find_player(world)
 
     # Clear existing cows and zombies to ensure we have exactly what we want
-    from crafter.objects import Cow, Zombie
+    from crafter_oo.objects import Cow, Zombie
 
     to_remove = [obj for obj in world.objects if isinstance(obj, (Cow, Zombie))]
     for obj in to_remove:

@@ -8,7 +8,7 @@ import numpy as np
 
 from onelife.poe_world.crafter.observable_extractor import ObservableExtractor
 from onelife.poe_world.core import ObservableId, DiscreteDistribution
-from crafter.functional_env import initial_state
+from crafter_oo.functional_env import initial_state
 
 
 class TestObservableExtractor:

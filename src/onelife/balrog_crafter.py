@@ -1,6 +1,6 @@
 import itertools
 
-import crafter
+import crafter_oo
 import gym
 import numpy as np
 from PIL import Image

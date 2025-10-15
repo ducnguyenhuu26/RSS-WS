@@ -7,7 +7,7 @@ and that the incorrect experts make obviously wrong predictions.
 
 import pytest
 from unittest.mock import Mock
-from crafter.state_export import (
+from crafter_oo.state_export import (
     WorldState,
     Position,
     PlayerState,
@@ -15,8 +15,8 @@ from crafter.state_export import (
     ZombieState,
     SkeletonState,
 )
-from crafter.functional_env import initial_state
-from crafter.constants import ActionT
+from crafter_oo.functional_env import initial_state
+from crafter_oo.constants import ActionT
 
 from onelife.poe_world.crafter.handwritten_experts import (
     correct_player_movement_expert,

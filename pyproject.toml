@@ -60,7 +60,7 @@ filterwarnings = [
 ]
 
 [tool.uv.sources]
-crafter = { path = "external/crafter_refactored", editable = true }
+crafter_oo = { path = "external/crafter_refactored", editable = true }
 
 [dependency-groups]
 balrog = [

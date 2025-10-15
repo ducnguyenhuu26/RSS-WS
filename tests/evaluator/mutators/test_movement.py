@@ -3,20 +3,20 @@ from onelife.evaluator.crafter.mutators.movement import (
     NON_MOVEMENT_ACTIONS,
     MOVEMENT_ACTIONS,
 )
-from crafter.state_export import WorldState
-from crafter.functional_env import (
+from crafter_oo.state_export import WorldState
+from crafter_oo.functional_env import (
     initial_state,
     reconstruct_world_from_state,
     export_world_state,
     transition,
 )
-from crafter.testing_helpers import player_utils, world_utils
+from crafter_oo.testing_helpers import player_utils, world_utils
 from onelife.evaluator.crafter.utils import find_player
 from onelife.evaluator.crafter.utils import MAP_ACTION_TO_INDEX
 import copy
 import pytest
-from crafter.constants import ActionT
-from crafter import engine as crafter_engine
+from crafter_oo.constants import ActionT
+from crafter_oo import engine as crafter_engine
 
 
 @pytest.fixture

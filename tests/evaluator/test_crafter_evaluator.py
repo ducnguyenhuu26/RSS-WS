@@ -1,7 +1,7 @@
 import rich
-from crafter.functional_env import EnvConfig
-from crafter.functional_env import transition as crafter_transition_fn
-from crafter.state_export import WorldState
+from crafter_oo.functional_env import EnvConfig
+from crafter_oo.functional_env import transition as crafter_transition_fn
+from crafter_oo.state_export import WorldState
 
 from onelife.evaluator.baselines import NullWorldModel, TrueTransitionWorldModel
 from onelife.evaluator.core import EvaluationConfig, Evaluator

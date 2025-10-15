@@ -8,7 +8,7 @@ from state transitions in the Crafter environment.
 import os
 
 import pytest
-from crafter.state_export import CowState
+from crafter_oo.state_export import CowState
 from onelife.evaluator.crafter.utils import find_all_objects_for_type
 from onelife.litellm_utils import (
     LiteLlmRequest,

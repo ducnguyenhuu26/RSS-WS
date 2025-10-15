@@ -1,5 +1,5 @@
 from .core import LawProtocol
-from crafter.state_export import WorldState
+from crafter_oo.state_export import WorldState
 from typing import Any
 from pathlib import Path
 import cloudpickle

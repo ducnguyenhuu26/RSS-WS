@@ -1,10 +1,10 @@
 from .interface import Mutator
 from ....typing_utils import implements
-from crafter.state_export import WorldState
-from crafter.constants import ActionT
+from crafter_oo.state_export import WorldState
+from crafter_oo.constants import ActionT
 import random
 from typing import cast
-from crafter.functional_env import transition
+from crafter_oo.functional_env import transition
 from onelife.evaluator.crafter.utils import MAP_ACTION_TO_INDEX
 from loguru import logger
 

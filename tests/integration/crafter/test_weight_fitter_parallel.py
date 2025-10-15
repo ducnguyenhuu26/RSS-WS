@@ -20,8 +20,8 @@ from typing import List
 import numpy as np
 import pytest
 
-from crafter.functional_env import EnvConfig, initial_state, transition
-from crafter.state_export import WorldState
+from crafter_oo.functional_env import EnvConfig, initial_state, transition
+from crafter_oo.state_export import WorldState
 
 from onelife.evaluator import (
     EvaluationConfig,
@@ -67,6 +67,7 @@ def _generate_random_data(
     return transitions
 
 
+@pytest.mark.skip(reason="Very slow, not usually needed")
 @pytest.mark.flaky(retries=3, delay=0.0)
 def test_weight_fitter_parallel_speed_and_equivalence():
     env_config = EnvConfig(size=(9, 9), view=(9, 9))

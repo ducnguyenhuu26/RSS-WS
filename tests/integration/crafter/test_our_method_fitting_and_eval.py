@@ -3,8 +3,8 @@ import random
 from typing import List
 
 import numpy as np
-from crafter.functional_env import EnvConfig, initial_state, transition
-from crafter.state_export import WorldState
+from crafter_oo.functional_env import EnvConfig, initial_state, transition
+from crafter_oo.state_export import WorldState
 from loguru import logger
 
 from onelife.evaluator import (

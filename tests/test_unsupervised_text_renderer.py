@@ -2,7 +2,7 @@
 Test for the UnsupervisedTextRenderer to visually inspect output.
 """
 
-from crafter.functional_env import initial_state
+from crafter_oo.functional_env import initial_state
 from onelife.unsupervised_crafter_env_factory import UnsupervisedTextRenderer
 
 

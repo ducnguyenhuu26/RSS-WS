@@ -11,7 +11,7 @@ from typing import Optional, cast, Union
 
 from .core import EvaluatableWorldModel
 from ..typing_utils import implements
-from crafter.state_export import (
+from crafter_oo.state_export import (
     WorldState,
     PlayerState,
     CowState,
@@ -25,7 +25,7 @@ from crafter.state_export import (
     Achievements,
     BaseObjectState,
 )
-from crafter.constants import (
+from crafter_oo.constants import (
     materials,
     items,
     ActionT,

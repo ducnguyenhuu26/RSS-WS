@@ -32,15 +32,15 @@ from onelife.poe_world.crafter.handwritten_experts import (
     INCORRECT_EXPERTS,
 )
 
-from crafter.state_export import (
+from crafter_oo.state_export import (
     WorldState,
     Position,
     PlayerState,
     CowState,
     ZombieState,
 )
-from crafter.functional_env import initial_state
-from crafter.constants import ActionT
+from crafter_oo.functional_env import initial_state
+from crafter_oo.constants import ActionT
 
 
 def create_movement_test_transition() -> SymbolicTransition[WorldState]:

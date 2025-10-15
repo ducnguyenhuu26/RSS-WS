@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 
-import crafter.constants
+import crafter_oo
 import numpy as np
-from crafter.env import Env as BaseCrafterEnv
-from crafter.state_export import WorldState, export_world_state
+from crafter_oo.env import Env as BaseCrafterEnv
+from crafter_oo.state_export import WorldState, export_world_state
 from PIL import Image
 from pydantic import ConfigDict
 
@@ -20,11 +20,11 @@ from .balrog_interfaces import (
 from .typing_utils import implements
 from typing import Optional, Any
 from typing import Protocol
-from crafter.state_export import Position
+from crafter_oo.state_export import Position
 from loguru import logger
 
 MAP_SLUG_TO_ENGINE_ACTION = {
-    slug: idx for idx, slug in enumerate(crafter.constants.actions)
+    slug: idx for idx, slug in enumerate(crafter_oo.constants.actions)
 }
 
 

@@ -1,5 +1,5 @@
 from ...typing_utils import implements
-from crafter.state_export import WorldState
+from crafter_oo.state_export import WorldState
 from ...poe_world.core import (
     ObservableId,
     DiscreteDistribution,
@@ -12,10 +12,10 @@ from typing import Optional
 from ..world_modeling import combine_active_expert_predictions_for_attr
 from typing import Mapping, TypeAlias
 from loguru import logger
-from crafter.state_export import Inventory
-from crafter.constants import MaterialT, materials
+from crafter_oo.state_export import Inventory
+from crafter_oo.constants import MaterialT, materials
 from icecream import ic
-from crafter.state_export import ZombieState
+from crafter_oo.state_export import ZombieState
 from typing import cast
 
 # Setting the threshold to 0.01 means that

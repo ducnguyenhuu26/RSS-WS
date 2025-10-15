@@ -3,8 +3,8 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 import numpy as np
-from crafter.constants import ActionT as CrafterAction
-from crafter.state_export import WorldState
+from crafter_oo.constants import ActionT as CrafterAction
+from crafter_oo.state_export import WorldState
 from loguru import logger
 from rich.columns import Columns
 from rich.console import Console

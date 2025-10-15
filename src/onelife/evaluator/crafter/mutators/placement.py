@@ -1,18 +1,18 @@
 from .interface import Mutator
 from ....typing_utils import implements
-from crafter.state_export import WorldState
-from crafter.constants import ActionT, CollectableT, collect
+from crafter_oo.state_export import WorldState
+from crafter_oo.constants import ActionT, CollectableT, collect
 import random
 from typing import cast
-from crafter.functional_env import transition
+from crafter_oo.functional_env import transition
 from onelife.evaluator.crafter.utils import MAP_ACTION_TO_INDEX
 from loguru import logger
 from typing_extensions import assert_never
-from crafter.constants import MaterialT, materials
-from crafter.state_export import Position
-from crafter.functional_env import reconstruct_world_from_state, export_world_state
-from crafter.testing_helpers import world_utils
-from crafter import objects as crafter_objects
+from crafter_oo.constants import MaterialT, materials
+from crafter_oo.state_export import Position
+from crafter_oo.functional_env import reconstruct_world_from_state, export_world_state
+from crafter_oo.testing_helpers import world_utils
+from crafter_oo import objects as crafter_objects
 
 
 PLACEMENT_ACTIONS: set[ActionT] = {

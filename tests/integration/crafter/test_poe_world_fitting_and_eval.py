@@ -14,8 +14,8 @@ from typing import List
 from loguru import logger
 import numpy as np
 
-from crafter.functional_env import EnvConfig, initial_state, transition
-from crafter.state_export import WorldState
+from crafter_oo.functional_env import EnvConfig, initial_state, transition
+from crafter_oo.state_export import WorldState
 
 from onelife.evaluator import (
     EvaluationConfig,

@@ -1,4 +1,4 @@
-from crafter.state_export import WorldState
+from crafter_oo.state_export import WorldState
 import jsonpatch
 import random
 from typing import Optional
@@ -10,7 +10,7 @@ from ..core import (
     EditDistance,
 )
 from .mutators import DEFAULT_MUTATORS, Mutator
-from crafter.constants import ActionT as CrafterAction
+from crafter_oo.constants import ActionT as CrafterAction
 from ...typing_utils import implements
 from loguru import logger
 from typing import Sequence

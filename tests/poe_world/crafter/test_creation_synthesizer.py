@@ -7,7 +7,7 @@ in the Crafter environment.
 """
 
 import pytest
-from crafter.state_export import (
+from crafter_oo.state_export import (
     WorldState,
     CowState,
     ZombieState,

@@ -1,7 +1,7 @@
 from ....typing_utils import implements
 from .interface import Mutator
-from crafter.state_export import WorldState
-from crafter.constants import ActionT
+from crafter_oo.state_export import WorldState
+from crafter_oo.constants import ActionT
 import random
 
 

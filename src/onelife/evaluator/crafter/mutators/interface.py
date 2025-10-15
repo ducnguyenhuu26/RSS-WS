@@ -7,8 +7,8 @@ to create plausible but incorrect next states for testing world model understand
 
 from typing import Protocol
 
-from crafter.state_export import WorldState
-from crafter.constants import ActionT
+from crafter_oo.state_export import WorldState
+from crafter_oo.constants import ActionT
 
 
 class Mutator(Protocol):

@@ -1,10 +1,10 @@
 from .interface import Mutator
 from ....typing_utils import implements
-from crafter.state_export import WorldState
-from crafter.constants import ActionT
+from crafter_oo.state_export import WorldState
+from crafter_oo.constants import ActionT
 import random
 from loguru import logger
-from crafter.state_export import Position
+from crafter_oo.state_export import Position
 
 
 DIRECTIONS = (

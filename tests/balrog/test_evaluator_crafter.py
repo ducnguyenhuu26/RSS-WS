@@ -19,7 +19,7 @@ from onelife.crafter_environment_factory import (
     CrafterEnvironmentConfig,
     LanguageSymbolicWrapper,
 )
-from crafter.state_export import WorldState
+from crafter_oo.state_export import WorldState
 
 
 def test_evaluator_symbolic_metadata(tmp_path: Path):

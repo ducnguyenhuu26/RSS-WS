@@ -20,8 +20,8 @@ import numpy as np
 import inspect
 
 from ..core import DiscreteDistribution
-from crafter.state_export import WorldState
-from crafter.constants import ActionT
+from crafter_oo.state_export import WorldState
+from crafter_oo.constants import ActionT
 from ..core import ExpertFunctionWrapper
 from loguru import logger
 

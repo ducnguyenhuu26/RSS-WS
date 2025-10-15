@@ -5,7 +5,7 @@ This module implements the expert synthesis algorithm that generates Python code
 to explain observed state transitions in the Crafter environment.
 """
 
-from crafter.state_export import (
+from crafter_oo.state_export import (
     ArrowState,
     CowState,
     FenceState,

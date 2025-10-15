@@ -1,7 +1,7 @@
 """Tests for RandomCrafterWorldModel."""
 
-from crafter.constants import ActionT
-from crafter.functional_env import initial_state
+from crafter_oo.constants import ActionT
+from crafter_oo.functional_env import initial_state
 
 from onelife.evaluator.random_crafter_model import RandomCrafterWorldModel
 

@@ -28,8 +28,8 @@ from onelife.poe_world.crafter.synthesizer import (
     CrafterExpertSynthesizer,
     CrafterSynthesisDependenciesProvider,
 )
-from crafter.state_export import WorldState
-from crafter.functional_env import (
+from crafter_oo.state_export import WorldState
+from crafter_oo.functional_env import (
     initial_state,
     reconstruct_world_from_state,
     export_world_state,

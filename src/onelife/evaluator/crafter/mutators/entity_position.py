@@ -1,9 +1,9 @@
 from ....typing_utils import implements
 from .interface import Mutator
-from crafter.state_export import WorldState, Position
-from crafter.constants import ActionT
+from crafter_oo.state_export import WorldState, Position
+from crafter_oo.constants import ActionT
 import random
-from crafter.state_export import PlayerState
+from crafter_oo.state_export import PlayerState
 
 
 class EntityPositionMutator:

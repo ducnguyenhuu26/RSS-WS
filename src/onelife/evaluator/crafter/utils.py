@@ -4,12 +4,12 @@ Utility functions for Crafter evaluation.
 
 from typing import Optional, Type, TypeVar, Union
 
-import crafter.constants as crafter_constants
-import crafter.objects as crafter_objects
-from crafter.constants import ActionT
-from crafter.engine import World
-from crafter.env import Env
-from crafter.state_export import (
+import crafter_oo.constants as crafter_constants
+import crafter_oo.objects as crafter_objects
+from crafter_oo.constants import ActionT
+from crafter_oo.engine import World
+from crafter_oo.env import Env
+from crafter_oo.state_export import (
     ArrowState,
     CowState,
     FenceState,

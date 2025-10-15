@@ -2,8 +2,8 @@
 Factory for creating evaluation contexts for the Crafter environment.
 """
 
-from crafter.state_export import WorldState
-from crafter.functional_env import transition, initial_state, EnvConfig
+from crafter_oo.state_export import WorldState
+from crafter_oo.functional_env import transition, initial_state, EnvConfig
 import random
 
 from ..core import EvaluationContext, EvaluationConfig, SymbolicTransition
@@ -50,7 +50,7 @@ from .scenarios import (
     WakeUpScenario,
 )
 from loguru import logger
-from crafter.constants import ActionT as CrafterAction
+from crafter_oo.constants import ActionT as CrafterAction
 
 
 class CrafterEvaluationFactory:

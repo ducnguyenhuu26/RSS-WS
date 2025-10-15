@@ -30,13 +30,13 @@ from onelife.poe_world.object_model_learner import (
 )
 from onelife.poe_world.poe_world_learner import PoEWorldLearner
 from onelife.poe_world.weight_fitter import MaxLikelihoodWeightFitter
-from crafter.functional_env import (
+from crafter_oo.functional_env import (
     initial_state,
     transition,
 )
-from crafter.state_export import WorldState
+from crafter_oo.state_export import WorldState
 from onelife.evaluator.crafter.utils import MAP_ACTION_TO_INDEX
-from crafter.constants import ActionT
+from crafter_oo.constants import ActionT
 from onelife.poe_world.core import ExpertFunctionWrapper
 
 

@@ -1,29 +1,29 @@
-from crafter.state_export import WorldState
-from crafter.functional_env import (
+from crafter_oo.state_export import WorldState
+from crafter_oo.functional_env import (
     initial_state,
     reconstruct_world_from_state,
     export_world_state,
     transition,
 )
 import copy
-from crafter.testing_helpers import player_utils, world_utils
+from crafter_oo.testing_helpers import player_utils, world_utils
 from onelife.evaluator.crafter.utils import MAP_ACTION_TO_INDEX
 import pytest
-from crafter.constants import ActionT
-from crafter import engine as crafter_engine
+from crafter_oo.constants import ActionT
+from crafter_oo import engine as crafter_engine
 
 from onelife.evaluator.crafter.utils import find_player
 import numpy as np
-from crafter.constants import actions
-from crafter.constants import MaterialT
-from crafter import objects as crafter_objects
-from crafter.constants import actions
+from crafter_oo.constants import actions
+from crafter_oo.constants import MaterialT
+from crafter_oo import objects as crafter_objects
+from crafter_oo.constants import actions
 from typing import cast
 from onelife.evaluator.crafter.mutators.placement import (
     PLACEMENT_ACTIONS,
     PlaceIllegalItemMutator,
 )
-from crafter.state_export import PlantState
+from crafter_oo.state_export import PlantState
 from loguru import logger
 
 

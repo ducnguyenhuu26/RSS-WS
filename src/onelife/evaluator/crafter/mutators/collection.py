@@ -1,14 +1,14 @@
 from .interface import Mutator
 from ....typing_utils import implements
-from crafter.state_export import WorldState
-from crafter.constants import ActionT, CollectableT, collect
+from crafter_oo.state_export import WorldState
+from crafter_oo.constants import ActionT, CollectableT, collect
 import random
 from typing import cast
-from crafter.functional_env import transition
+from crafter_oo.functional_env import transition
 from onelife.evaluator.crafter.utils import MAP_ACTION_TO_INDEX
 from loguru import logger
 from typing_extensions import assert_never
-from crafter.constants import MaterialT, materials
+from crafter_oo.constants import MaterialT, materials
 
 TILE_TO_MATERIALS: dict[MaterialT, CollectableT] = {
     "tree": "wood",

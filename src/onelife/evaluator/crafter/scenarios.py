@@ -7,35 +7,35 @@ from typing_extensions import assert_never
 import numpy as np
 from loguru import logger
 from typing import Protocol, Callable, TypeVar, cast
-from crafter.functional_env import (
+from crafter_oo.functional_env import (
     reconstruct_world_from_state,
     export_world_state,
 )
-from crafter.state_export import WorldState, ZombieState, SkeletonState, PlantState
-from crafter.constants import ActionT
+from crafter_oo.state_export import WorldState, ZombieState, SkeletonState, PlantState
+from crafter_oo.constants import ActionT
 from .utils import find_player, find_all_objects_for_type, find_object_in_state
-from crafter.testing_helpers import (
+from crafter_oo.testing_helpers import (
     player_utils,
     world_utils,
 )
-from crafter.functional_env import initial_state
-from crafter import objects
+from crafter_oo.functional_env import initial_state
+from crafter_oo import objects
 from ...typing_utils import implements
 from ..core import SymbolicTransition
 
-from crafter.state_export import CowState
+from crafter_oo.state_export import CowState
 from dataclasses import dataclass
 from typing import Optional
-from crafter.functional_env import transition as crafter_transition_fn
+from crafter_oo.functional_env import transition as crafter_transition_fn
 from .utils import MAP_ACTION_TO_INDEX
 import random
 import functools
 from typing import Sequence
-from crafter.constants import ActionT as CrafterAction
-from crafter.constants import MaterialT, CraftingStationT
-from crafter import objects as crafter_objects
-from crafter import engine as crafter_engine
-from crafter import constants as crafter_constants
+from crafter_oo.constants import ActionT as CrafterAction
+from crafter_oo.constants import MaterialT, CraftingStationT
+from crafter_oo import objects as crafter_objects
+from crafter_oo import engine as crafter_engine
+from crafter_oo import constants as crafter_constants
 
 
 def create_collection_scenario_base_state(

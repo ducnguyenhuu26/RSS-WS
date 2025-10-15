@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from crafter.functional_env import initial_state
-from crafter.state_export import WorldState
+from crafter_oo.functional_env import initial_state
+from crafter_oo.state_export import WorldState
 from onelife.evaluator.crafter.components import _gamestate_to_json
 from onelife.json_utils import sanitize_model_numpy_types
 

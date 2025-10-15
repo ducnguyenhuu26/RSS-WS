@@ -1,10 +1,10 @@
 from ..core import LawFunctionWrapper
-from crafter.state_export import WorldState
-from crafter.constants import ActionT as CrafterAction
+from crafter_oo.state_export import WorldState
+from crafter_oo.constants import ActionT as CrafterAction
 from loguru import logger
 from ...poe_world.core import DiscreteDistribution
 import numpy as np
-from crafter.state_export import Inventory
+from crafter_oo.state_export import Inventory
 
 
 class CorrectPlayerMovementLaw:
