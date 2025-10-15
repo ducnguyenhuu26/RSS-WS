@@ -1,12 +1,6 @@
-[submodule "external/BALROG"]
-	path = external/BALROG
-	url = https://github.com/balrog-ai/BALROG.git
 [submodule "external/crafter_refactored"]
 	path = external/crafter_refactored
 	url = git@github.com:codezakh/crafter_refactored.git
 [submodule "external/12-distant-sunburn-gameenv"]
 	path = external/12-distant-sunburn-gameenv
 	url = git@github.com:codezakh/12-distant-sunburn-gameenv.git
-[submodule "external/poe-world"]
-	path = external/poe-world
-	url = https://github.com/topwasu/poe-world.git
