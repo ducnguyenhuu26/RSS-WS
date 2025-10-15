@@ -1,12 +1,12 @@
 import numpy as np
 import torch
 
-from distant_sunburn.poe_world.core import DiscreteDistribution
-from distant_sunburn.poe_world.weight_fitter import (
+from onelife.poe_world.core import DiscreteDistribution
+from onelife.poe_world.weight_fitter import (
     combine_expert_predictions_for_attr,
     # expand_to_full_domain,
 )
-from distant_sunburn.simple_1d_env.environment import GameState
+from onelife.simple_1d_env.environment import GameState
 from ..core import ObservableId, ObservableExtractorProtocol
 from ...typing_utils import implements
 

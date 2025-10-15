@@ -16,15 +16,15 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-from distant_sunburn.poe_world.core import SymbolicTransition
-from distant_sunburn.poe_world.expert_manager import ExpertManager
-from distant_sunburn.poe_world.object_model_learner import (
+from onelife.poe_world.core import SymbolicTransition
+from onelife.poe_world.expert_manager import ExpertManager
+from onelife.poe_world.object_model_learner import (
     ObjectModelOrchestrator,
     ObjectModelOrchestratorConfig,
 )
-from distant_sunburn.poe_world.weight_fitter import MaxLikelihoodWeightFitter
-from distant_sunburn.poe_world.crafter.observable_extractor import ObservableExtractor
-from distant_sunburn.poe_world.crafter.synthesizer import (
+from onelife.poe_world.weight_fitter import MaxLikelihoodWeightFitter
+from onelife.poe_world.crafter.observable_extractor import ObservableExtractor
+from onelife.poe_world.crafter.synthesizer import (
     CrafterExpertSynthesizer,
     CrafterSynthesisDependenciesProvider,
 )

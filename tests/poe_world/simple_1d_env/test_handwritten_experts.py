@@ -10,21 +10,21 @@ import copy
 import random
 from typing import cast
 
-from distant_sunburn.simple_1d_env.environment import (
+from onelife.simple_1d_env.environment import (
     Action,
     GameState,
     Light,
     Player,
     WorldConfig,
 )
-from distant_sunburn.poe_world.simple_1d_env.handwritten_experts import (
+from onelife.poe_world.simple_1d_env.handwritten_experts import (
     correct_movement_expert,
     correct_light_expert,
     incorrect_movement_expert_ignores_switch,
     incorrect_movement_expert_ignores_slip,
     incorrect_light_expert_is_deterministic,
 )
-from distant_sunburn.poe_world.core import DiscreteDistribution
+from onelife.poe_world.core import DiscreteDistribution
 
 
 class TestCorrectMovementExpert:

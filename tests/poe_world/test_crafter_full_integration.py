@@ -12,32 +12,32 @@ from typing import List
 
 import pytest
 
-from distant_sunburn.litellm_utils import GeminiLiteLlmParams
-from distant_sunburn.poe_world.core import SymbolicTransition, WeightedExpert
-from distant_sunburn.poe_world.crafter.observable_extractor import ObservableExtractor
-from distant_sunburn.poe_world.crafter.synthesizer import (
+from onelife.litellm_utils import GeminiLiteLlmParams
+from onelife.poe_world.core import SymbolicTransition, WeightedExpert
+from onelife.poe_world.crafter.observable_extractor import ObservableExtractor
+from onelife.poe_world.crafter.synthesizer import (
     CrafterExpertSynthesizer,
     CrafterSynthesisDependenciesProvider,
 )
-from distant_sunburn.poe_world.crafter.creation_synthesizer import (
+from onelife.poe_world.crafter.creation_synthesizer import (
     CrafterCreationSynthesizer,
     CrafterCreationSynthesisDependenciesProvider,
 )
-from distant_sunburn.poe_world.expert_manager import ExpertManager
-from distant_sunburn.poe_world.object_model_learner import (
+from onelife.poe_world.expert_manager import ExpertManager
+from onelife.poe_world.object_model_learner import (
     ObjectModelOrchestrator,
     ObjectModelOrchestratorConfig,
 )
-from distant_sunburn.poe_world.poe_world_learner import PoEWorldLearner
-from distant_sunburn.poe_world.weight_fitter import MaxLikelihoodWeightFitter
+from onelife.poe_world.poe_world_learner import PoEWorldLearner
+from onelife.poe_world.weight_fitter import MaxLikelihoodWeightFitter
 from crafter.functional_env import (
     initial_state,
     transition,
 )
 from crafter.state_export import WorldState
-from distant_sunburn.evaluator.crafter.utils import MAP_ACTION_TO_INDEX
+from onelife.evaluator.crafter.utils import MAP_ACTION_TO_INDEX
 from crafter.constants import ActionT
-from distant_sunburn.poe_world.core import ExpertFunctionWrapper
+from onelife.poe_world.core import ExpertFunctionWrapper
 
 
 def _generate_cow_movement_transitions(

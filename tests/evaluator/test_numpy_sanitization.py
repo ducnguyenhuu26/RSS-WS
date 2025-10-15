@@ -3,8 +3,8 @@ import pytest
 
 from crafter.functional_env import initial_state
 from crafter.state_export import WorldState
-from distant_sunburn.evaluator.crafter.components import _gamestate_to_json
-from distant_sunburn.json_utils import sanitize_model_numpy_types
+from onelife.evaluator.crafter.components import _gamestate_to_json
+from onelife.json_utils import sanitize_model_numpy_types
 
 from pydantic_core import PydanticSerializationError
 

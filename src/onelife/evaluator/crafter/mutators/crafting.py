@@ -5,7 +5,7 @@ from crafter.constants import ActionT
 import random
 from typing import cast
 from crafter.functional_env import transition
-from distant_sunburn.evaluator.crafter.utils import MAP_ACTION_TO_INDEX
+from onelife.evaluator.crafter.utils import MAP_ACTION_TO_INDEX
 from loguru import logger
 
 

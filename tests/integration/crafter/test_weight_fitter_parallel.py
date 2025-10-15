@@ -23,17 +23,17 @@ import pytest
 from crafter.functional_env import EnvConfig, initial_state, transition
 from crafter.state_export import WorldState
 
-from distant_sunburn.evaluator import (
+from onelife.evaluator import (
     EvaluationConfig,
     Evaluator,
 )
-from distant_sunburn.evaluator.crafter.factory import CrafterEvaluationFactory
-from distant_sunburn.evaluator.crafter.utils import MAP_ACTION_TO_INDEX
-from distant_sunburn.poe_world.core import SymbolicTransition
-from distant_sunburn.poe_world.crafter.handwritten_experts import ALL_EXPERTS
-from distant_sunburn.poe_world.weight_fitter import MaxLikelihoodWeightFitter
-from distant_sunburn.poe_world.world_model import PoEWorldModel
-from distant_sunburn.poe_world.crafter.observable_extractor import ObservableExtractor
+from onelife.evaluator.crafter.factory import CrafterEvaluationFactory
+from onelife.evaluator.crafter.utils import MAP_ACTION_TO_INDEX
+from onelife.poe_world.core import SymbolicTransition
+from onelife.poe_world.crafter.handwritten_experts import ALL_EXPERTS
+from onelife.poe_world.weight_fitter import MaxLikelihoodWeightFitter
+from onelife.poe_world.world_model import PoEWorldModel
+from onelife.poe_world.crafter.observable_extractor import ObservableExtractor
 
 
 def _generate_random_data(

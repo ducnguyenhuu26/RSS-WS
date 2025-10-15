@@ -13,8 +13,8 @@ import numpy as np
 import pytest
 from typing import List
 
-from distant_sunburn.poe_world.core import SymbolicTransition
-from distant_sunburn.simple_1d_env.environment import (
+from onelife.poe_world.core import SymbolicTransition
+from onelife.simple_1d_env.environment import (
     initial_state,
     transition_function,
     Action,
@@ -22,16 +22,16 @@ from distant_sunburn.simple_1d_env.environment import (
     GameState,
     WorldConfig,
 )
-from distant_sunburn.poe_world.simple_1d_env.handwritten_experts import (
+from onelife.poe_world.simple_1d_env.handwritten_experts import (
     CORRECT_EXPERTS,
     INCORRECT_EXPERTS,
     ALL_EXPERTS,
 )
-from distant_sunburn.poe_world.weight_fitter import (
+from onelife.poe_world.weight_fitter import (
     MaxLikelihoodWeightFitter,
 )
-from distant_sunburn.poe_world.world_model import PoEWorldModel
-from distant_sunburn.poe_world.simple_1d_env.observable_extractor import ObservableExtractor
+from onelife.poe_world.world_model import PoEWorldModel
+from onelife.poe_world.simple_1d_env.observable_extractor import ObservableExtractor
 
 
 def generate_random_data(

@@ -3,7 +3,7 @@
 from crafter.constants import ActionT
 from crafter.functional_env import initial_state
 
-from distant_sunburn.evaluator.random_crafter_model import RandomCrafterWorldModel
+from onelife.evaluator.random_crafter_model import RandomCrafterWorldModel
 
 
 class TestRandomCrafterWorldModel:

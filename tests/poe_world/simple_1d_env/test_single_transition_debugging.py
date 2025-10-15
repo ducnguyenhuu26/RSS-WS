@@ -13,26 +13,26 @@ import torch.optim as optim
 import random
 import copy
 from typing import List, cast
-from distant_sunburn.poe_world.core import ObservableId
+from onelife.poe_world.core import ObservableId
 
-from distant_sunburn.poe_world.core import SymbolicTransition, DiscreteDistribution
-from distant_sunburn.simple_1d_env.environment import (
+from onelife.poe_world.core import SymbolicTransition, DiscreteDistribution
+from onelife.simple_1d_env.environment import (
     GameState,
     Player,
     Light,
     WorldConfig,
     Action,
 )
-from distant_sunburn.poe_world.simple_1d_env.handwritten_experts import (
+from onelife.poe_world.simple_1d_env.handwritten_experts import (
     correct_movement_expert,
     incorrect_movement_expert_ignores_switch,
 )
-from distant_sunburn.poe_world.weight_fitter import (
+from onelife.poe_world.weight_fitter import (
     MaxLikelihoodWeightFitter,
     combine_expert_predictions_for_attr_torch,
     eval_expert_predictions_logprob_for_attr_torch,
 )
-from distant_sunburn.poe_world.simple_1d_env.observable_extractor import (
+from onelife.poe_world.simple_1d_env.observable_extractor import (
     ObservableExtractor,
 )
 

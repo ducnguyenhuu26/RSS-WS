@@ -16,7 +16,7 @@ import torch.nn as nn
 import torch.optim as optim
 from loguru import logger
 
-from distant_sunburn.poe_world.core import DiscreteDistribution
+from onelife.poe_world.core import DiscreteDistribution
 
 
 from ..typing_utils import implements

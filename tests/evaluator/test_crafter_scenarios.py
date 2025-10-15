@@ -4,9 +4,9 @@ Tests for Crafter scenarios that verify actual behavior and outcomes.
 
 import pytest
 
-from distant_sunburn.evaluator.crafter import scenarios
+from onelife.evaluator.crafter import scenarios
 
-from distant_sunburn.evaluator.crafter.scenarios import (
+from onelife.evaluator.crafter.scenarios import (
     CraftWoodenPickaxeScenario,
     CowMovementScenario,
     RandomMovementScenario,
@@ -22,8 +22,8 @@ from distant_sunburn.evaluator.crafter.scenarios import (
     CollectStoneScenario,
     UnsuccessfulCollectStoneScenario,
 )
-from distant_sunburn.evaluator.crafter.scenarios import run_scenarios
-from distant_sunburn.evaluator.crafter.scenarios import Scenario
+from onelife.evaluator.crafter.scenarios import run_scenarios
+from onelife.evaluator.crafter.scenarios import Scenario
 from typing import Type
 
 

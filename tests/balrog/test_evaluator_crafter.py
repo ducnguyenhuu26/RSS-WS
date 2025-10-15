@@ -1,21 +1,21 @@
-from distant_sunburn.balrog_evaluator import (
+from onelife.balrog_evaluator import (
     EvaluatorConfig,
     Evaluator,
 )
 from pathlib import Path
-from distant_sunburn.balrog_client import (
+from onelife.balrog_client import (
     make_llm_client_factory,
     LlmClientConfig,
     GenerateKwargs,
 )
-from distant_sunburn.balrog_components import (
+from onelife.balrog_components import (
     HistoryPromptBuilderConfig,
     HistoryPromptBuilder,
     NaiveAgent,
 )
-from distant_sunburn.balrog_evaluator import TrajectoryStep
-from distant_sunburn.io_utils import PydanticJSONLinesReader
-from distant_sunburn.crafter_environment_factory import (
+from onelife.balrog_evaluator import TrajectoryStep
+from onelife.io_utils import PydanticJSONLinesReader
+from onelife.crafter_environment_factory import (
     CrafterEnvironmentConfig,
     LanguageSymbolicWrapper,
 )

@@ -11,7 +11,7 @@ from typing import Dict, Generic, TypeVar
 import torch
 from loguru import logger
 
-from distant_sunburn.poe_world.core import ObservableExtractorProtocol
+from onelife.poe_world.core import ObservableExtractorProtocol
 
 from ..typing_utils import implements
 from .core import (

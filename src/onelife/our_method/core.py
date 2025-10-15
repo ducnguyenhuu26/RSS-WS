@@ -1,5 +1,5 @@
 from torch.utils import data
-from distant_sunburn.poe_world.core import ExpertFunction
+from onelife.poe_world.core import ExpertFunction
 from typing import Protocol, TypeVar, Any
 from pathlib import Path
 import cloudpickle

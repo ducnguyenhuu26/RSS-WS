@@ -17,7 +17,7 @@ from crafter.functional_env import (
 from crafter.constants import ActionT
 from crafter import objects, constants
 
-from distant_sunburn.poe_world.core import SymbolicTransition
+from onelife.poe_world.core import SymbolicTransition
 
 
 @pytest.fixture

@@ -11,17 +11,17 @@ import torch
 import copy
 from typing import List
 
-from distant_sunburn.poe_world.core import (
+from onelife.poe_world.core import (
     SymbolicTransition,
     DiscreteDistribution,
     ObservableId,
 )
-from distant_sunburn.poe_world.weight_fitter import (
+from onelife.poe_world.weight_fitter import (
     MaxLikelihoodWeightFitter,
 )
-from distant_sunburn.poe_world.world_model import PoEWorldModel
-from distant_sunburn.poe_world.crafter.observable_extractor import ObservableExtractor
-from distant_sunburn.poe_world.crafter.handwritten_experts import (
+from onelife.poe_world.world_model import PoEWorldModel
+from onelife.poe_world.crafter.observable_extractor import ObservableExtractor
+from onelife.poe_world.crafter.handwritten_experts import (
     correct_player_movement_expert,
     correct_combat_damage_expert,
     correct_entity_ai_expert,

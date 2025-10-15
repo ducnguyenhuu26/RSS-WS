@@ -2,30 +2,30 @@ import random
 import numpy as np
 from typing import List
 
-from distant_sunburn.our_method.core import SymbolicTransition
-from distant_sunburn.mixed_fsm_env import (
+from onelife.our_method.core import SymbolicTransition
+from onelife.mixed_fsm_env import (
     initial_state,
     transition_function,
     Action,
     State,
 )
-from distant_sunburn.our_method.mixed_fsm_env.handwritten_laws import (
+from onelife.our_method.mixed_fsm_env.handwritten_laws import (
     CORRECT_LAWS,
     INCORRECT_LAWS,
     ALL_LAWS,
 )
-from distant_sunburn.our_method.optimization import (
+from onelife.our_method.optimization import (
     MaxLikelihoodWeightFitter,
 )
-from distant_sunburn.our_method.mixed_fsm_env.observable_extractor import (
+from onelife.our_method.mixed_fsm_env.observable_extractor import (
     ObservableExtractor,
 )
-from distant_sunburn.our_method.mixed_fsm_env.handwritten_laws import (
+from onelife.our_method.mixed_fsm_env.handwritten_laws import (
     CorrectDeterministicSwitchLaw,
     IncorrectDeterministicSwitchLawAssumesStatic,
 )
-from distant_sunburn.our_method.core import LawFunctionWrapper, WeightedLaw
-from distant_sunburn.our_method.world_modeling import LawMixture
+from onelife.our_method.core import LawFunctionWrapper, WeightedLaw
+from onelife.our_method.world_modeling import LawMixture
 from rich.console import Console
 from rich.table import Table
 from dataclasses import dataclass

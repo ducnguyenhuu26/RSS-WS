@@ -1,4 +1,4 @@
-from distant_sunburn.json_utils import (
+from onelife.json_utils import (
     flatten_json_to_pathmap,
     compute_patch_intersection_over_union,
 )

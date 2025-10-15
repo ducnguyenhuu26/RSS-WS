@@ -3,12 +3,12 @@ from dataclasses import dataclass, field
 import numpy as np
 import torch
 
-from distant_sunburn.our_method.core import LawFunctionWrapper, WeightedLaw
-from distant_sunburn.our_method.world_modeling import (
+from onelife.our_method.core import LawFunctionWrapper, WeightedLaw
+from onelife.our_method.world_modeling import (
     combine_active_expert_predictions_for_attr,
 )
-from distant_sunburn.our_method.world_modeling import LawMixture
-from distant_sunburn.poe_world.core import DiscreteDistribution, ObservableId
+from onelife.our_method.world_modeling import LawMixture
+from onelife.poe_world.core import DiscreteDistribution, ObservableId
 from typing import TypeAlias, Mapping
 
 

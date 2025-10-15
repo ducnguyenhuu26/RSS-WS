@@ -11,24 +11,24 @@ from typing import List
 
 import numpy as np
 
-import distant_sunburn.simple_1d_env.environment
-from distant_sunburn.evaluator import (
+import onelife.simple_1d_env.environment
+from onelife.evaluator import (
     EvaluationConfig,
     Evaluator,
     NullWorldModel,
     TrueTransitionWorldModel,
 )
-from distant_sunburn.evaluator.simple_1d_env.factory import OneDEvaluationFactory
-from distant_sunburn.log_utils import change_log_level
-from distant_sunburn.poe_world.core import SymbolicTransition
-from distant_sunburn.poe_world.simple_1d_env.handwritten_experts import (
+from onelife.evaluator.simple_1d_env.factory import OneDEvaluationFactory
+from onelife.log_utils import change_log_level
+from onelife.poe_world.core import SymbolicTransition
+from onelife.poe_world.simple_1d_env.handwritten_experts import (
     ALL_EXPERTS,
 )
-from distant_sunburn.poe_world.weight_fitter import (
+from onelife.poe_world.weight_fitter import (
     MaxLikelihoodWeightFitter,
 )
-from distant_sunburn.poe_world.world_model import PoEWorldModel
-from distant_sunburn.simple_1d_env.environment import (
+from onelife.poe_world.world_model import PoEWorldModel
+from onelife.simple_1d_env.environment import (
     DEFAULT_LAWS,
     Action,
     GameState,
@@ -36,7 +36,7 @@ from distant_sunburn.simple_1d_env.environment import (
     initial_state,
     transition_function,
 )
-from distant_sunburn.poe_world.simple_1d_env.observable_extractor import (
+from onelife.poe_world.simple_1d_env.observable_extractor import (
     ObservableExtractor,
 )
 
@@ -86,7 +86,7 @@ def test():
     # Just to suppress logging from the simple 1d environment.
     with change_log_level(
         {
-            "INFO": [distant_sunburn.simple_1d_env.environment],
+            "INFO": [onelife.simple_1d_env.environment],
         }
     ):
         # First we generate some data from a random policy and fit the world model.

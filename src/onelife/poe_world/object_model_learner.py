@@ -29,7 +29,7 @@ from typing import List, Optional, TypeVar, Generic, Dict, Any
 from dataclasses import dataclass
 from loguru import logger
 
-from distant_sunburn.poe_world.core import ExpertSynthesizerProtocol
+from onelife.poe_world.core import ExpertSynthesizerProtocol
 
 from .core import SymbolicTransition, WeightedExpert
 from .expert_manager import ExpertManager

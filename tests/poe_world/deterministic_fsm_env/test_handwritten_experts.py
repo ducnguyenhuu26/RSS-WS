@@ -1,4 +1,4 @@
-from distant_sunburn.poe_world.deterministic_fsm_env.handwritten_experts import (
+from onelife.poe_world.deterministic_fsm_env.handwritten_experts import (
     correct_toggle_a_expert,
     correct_toggle_b_expert,
     incorrect_toggle_a_expert_stays_same,
@@ -6,11 +6,11 @@ from distant_sunburn.poe_world.deterministic_fsm_env.handwritten_experts import 
     incorrect_toggle_a_expert_toggles_b,
     incorrect_toggle_b_expert_toggles_a,
 )
-from distant_sunburn.deterministic_fsm_env import (
+from onelife.deterministic_fsm_env import (
     State,
     Action,
 )
-from distant_sunburn.poe_world.core import DiscreteDistribution
+from onelife.poe_world.core import DiscreteDistribution
 from typing import cast
 
 

@@ -1,11 +1,11 @@
-from distant_sunburn.crafter_environment_factory import (
+from onelife.crafter_environment_factory import (
     build_base_environment,
     MAP_DISPLAY_ACTION_TO_ENGINE_ACTION,
     TextRenderer,
     LanguageSymbolicWrapper,
     get_instruction_prompt,
 )
-from distant_sunburn.crafter_environment_factory import CrafterEnvironmentConfig
+from onelife.crafter_environment_factory import CrafterEnvironmentConfig
 
 
 def test_renderer():

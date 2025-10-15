@@ -8,7 +8,7 @@ protocols for different environments and use cases.
 import copy
 import random
 from typing import TypeVar, Sequence
-from distant_sunburn.typing_utils import implements
+from onelife.typing_utils import implements
 
 import jsonpatch
 

@@ -7,21 +7,21 @@ from crafter.functional_env import EnvConfig, initial_state, transition
 from crafter.state_export import WorldState
 from loguru import logger
 
-from distant_sunburn.evaluator import (
+from onelife.evaluator import (
     EvaluationConfig,
     Evaluator,
     NullWorldModel,
     TrueTransitionWorldModel,
 )
-from distant_sunburn.evaluator.baselines import RandomWorldModel
-from distant_sunburn.evaluator.crafter.components import _gamestate_to_json
-from distant_sunburn.evaluator.crafter.factory import CrafterEvaluationFactory
-from distant_sunburn.evaluator.crafter.utils import MAP_ACTION_TO_INDEX
-from distant_sunburn.our_method.core import SymbolicTransition
-from distant_sunburn.our_method.crafter.handwritten_laws import ALL_EXPERTS
-from distant_sunburn.our_method.crafter.observable_extractor import ObservableExtractor
-from distant_sunburn.our_method.optimization import MaxLikelihoodWeightFitter
-from distant_sunburn.our_method.world_modeling import LawMixture
+from onelife.evaluator.baselines import RandomWorldModel
+from onelife.evaluator.crafter.components import _gamestate_to_json
+from onelife.evaluator.crafter.factory import CrafterEvaluationFactory
+from onelife.evaluator.crafter.utils import MAP_ACTION_TO_INDEX
+from onelife.our_method.core import SymbolicTransition
+from onelife.our_method.crafter.handwritten_laws import ALL_EXPERTS
+from onelife.our_method.crafter.observable_extractor import ObservableExtractor
+from onelife.our_method.optimization import MaxLikelihoodWeightFitter
+from onelife.our_method.world_modeling import LawMixture
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text

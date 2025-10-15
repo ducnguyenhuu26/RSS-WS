@@ -3,7 +3,7 @@ Test for the UnsupervisedTextRenderer to visually inspect output.
 """
 
 from crafter.functional_env import initial_state
-from distant_sunburn.unsupervised_crafter_env_factory import UnsupervisedTextRenderer
+from onelife.unsupervised_crafter_env_factory import UnsupervisedTextRenderer
 
 
 def test_unsupervised_text_renderer():

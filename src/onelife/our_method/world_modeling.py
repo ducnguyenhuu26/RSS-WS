@@ -6,8 +6,8 @@ from typing import Dict, Generic, Mapping, Sequence, TypeVar
 
 import torch
 
-from distant_sunburn.our_method.optimization import LOGSCORE_FLOOR
-from distant_sunburn.poe_world.core import DiscreteDistribution
+from onelife.our_method.optimization import LOGSCORE_FLOOR
+from onelife.poe_world.core import DiscreteDistribution
 
 
 from .core import ObservableExtractorProtocol

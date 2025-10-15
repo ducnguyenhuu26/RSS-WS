@@ -5,19 +5,19 @@ This module tests the core functionality of the hybrid evaluation framework,
 including sanity checks with baseline models and integration tests.
 """
 
-from distant_sunburn.evaluator import (
+from onelife.evaluator import (
     Evaluator,
     EvaluationConfig,
     TrueTransitionWorldModel,
     NullWorldModel,
 )
-from distant_sunburn.evaluator.simple_1d_env.components import (
+from onelife.evaluator.simple_1d_env.components import (
     Semantic1DDistractorGenerator,
     JSONPatchEditDistance,
 )
-from distant_sunburn.evaluator.core import SymbolicTransition
-from distant_sunburn.evaluator.simple_1d_env.factory import OneDEvaluationFactory
-from distant_sunburn.simple_1d_env.environment import (
+from onelife.evaluator.core import SymbolicTransition
+from onelife.evaluator.simple_1d_env.factory import OneDEvaluationFactory
+from onelife.simple_1d_env.environment import (
     WorldConfig,
     Action,
     initial_state,

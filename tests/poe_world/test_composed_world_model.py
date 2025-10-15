@@ -11,15 +11,15 @@ from typing import List
 import numpy as np
 import pytest
 
-from distant_sunburn.poe_world.core import SymbolicTransition, WeightedExpert
-from distant_sunburn.poe_world.world_model import PoEWorldModel
-from distant_sunburn.poe_world.simple_1d_env.observable_extractor import (
+from onelife.poe_world.core import SymbolicTransition, WeightedExpert
+from onelife.poe_world.world_model import PoEWorldModel
+from onelife.poe_world.simple_1d_env.observable_extractor import (
     ObservableExtractor,
 )
-from distant_sunburn.poe_world.simple_1d_env.handwritten_experts import (
+from onelife.poe_world.simple_1d_env.handwritten_experts import (
     CORRECT_EXPERTS,
 )
-from distant_sunburn.simple_1d_env.environment import (
+from onelife.simple_1d_env.environment import (
     initial_state,
     transition_function,
     Action,

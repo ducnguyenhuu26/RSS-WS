@@ -3,30 +3,30 @@ import numpy as np
 import pytest
 from typing import List
 
-from distant_sunburn.poe_world.core import SymbolicTransition
-from distant_sunburn.deterministic_fsm_env import (
+from onelife.poe_world.core import SymbolicTransition
+from onelife.deterministic_fsm_env import (
     initial_state,
     transition_function,
     Action,
     State,
 )
-from distant_sunburn.poe_world.deterministic_fsm_env.handwritten_experts import (
+from onelife.poe_world.deterministic_fsm_env.handwritten_experts import (
     CORRECT_EXPERTS,
     INCORRECT_EXPERTS,
     ALL_EXPERTS,
 )
-from distant_sunburn.poe_world.weight_fitter import (
+from onelife.poe_world.weight_fitter import (
     MaxLikelihoodWeightFitter,
 )
-from distant_sunburn.poe_world.deterministic_fsm_env.observable_extractor import (
+from onelife.poe_world.deterministic_fsm_env.observable_extractor import (
     ObservableExtractor,
 )
-from distant_sunburn.poe_world.deterministic_fsm_env.handwritten_experts import (
+from onelife.poe_world.deterministic_fsm_env.handwritten_experts import (
     correct_toggle_a_expert,
     incorrect_toggle_a_expert_stays_same,
 )
-from distant_sunburn.poe_world.core import ExpertFunctionWrapper, WeightedExpert
-from distant_sunburn.poe_world.world_model import PoEWorldModel
+from onelife.poe_world.core import ExpertFunctionWrapper, WeightedExpert
+from onelife.poe_world.world_model import PoEWorldModel
 
 
 def generate_random_data(

@@ -11,8 +11,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from distant_sunburn.evaluator.core import SymbolicTransition
-from distant_sunburn.evaluator.crafter.scenarios import (
+from onelife.evaluator.core import SymbolicTransition
+from onelife.evaluator.crafter.scenarios import (
     CowMovementScenario,
     EatCowScenario,
     PlayerDeathScenario,
@@ -20,25 +20,25 @@ from distant_sunburn.evaluator.crafter.scenarios import (
     ZombieDefeatScenario,
     run_scenarios,
 )
-from distant_sunburn.poe_world.core import ObservableId, WeightedExpert
-from distant_sunburn.poe_world.core import (
+from onelife.poe_world.core import ObservableId, WeightedExpert
+from onelife.poe_world.core import (
     SymbolicTransition as PoEWorldSymbolicTransition,
 )
-from distant_sunburn.poe_world.crafter.handwritten_experts import (
+from onelife.poe_world.crafter.handwritten_experts import (
     CORRECT_EXPERTS,
 )
-from distant_sunburn.poe_world.crafter.observable_extractor import (
+from onelife.poe_world.crafter.observable_extractor import (
     ObservableExtractor,
     ObservableExtractorConfig,
 )
-from distant_sunburn.poe_world.expert_manager import ExpertManager
-from distant_sunburn.poe_world.object_model_learner import (
+from onelife.poe_world.expert_manager import ExpertManager
+from onelife.poe_world.object_model_learner import (
     ObjectModelOrchestrator,
     ObjectModelOrchestratorConfig,
 )
-from distant_sunburn.poe_world.poe_world_learner import PoEWorldLearner
-from distant_sunburn.poe_world.synthesizer import NoOpSynthesizer
-from distant_sunburn.poe_world.weight_fitter import MaxLikelihoodWeightFitter
+from onelife.poe_world.poe_world_learner import PoEWorldLearner
+from onelife.poe_world.synthesizer import NoOpSynthesizer
+from onelife.poe_world.weight_fitter import MaxLikelihoodWeightFitter
 
 
 def generate_training_transitions() -> (

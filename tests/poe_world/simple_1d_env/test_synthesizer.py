@@ -7,7 +7,7 @@ from state transitions in the simple 1D environment.
 
 import pytest
 import asyncio
-from distant_sunburn.simple_1d_env.environment import (
+from onelife.simple_1d_env.environment import (
     GameState,
     Action,
     WorldConfig,
@@ -16,11 +16,11 @@ from distant_sunburn.simple_1d_env.environment import (
     DEFAULT_LAWS,
 )
 
-from distant_sunburn.poe_world.simple_1d_env.synthesizer import (
+from onelife.poe_world.simple_1d_env.synthesizer import (
     Simple1DExpertSynthesizer,
     Simple1DSynthesisDependenciesProvider,
 )
-from distant_sunburn.poe_world.core import (
+from onelife.poe_world.core import (
     SymbolicTransition,
     WeightedExpert,
 )

@@ -9,10 +9,10 @@ from crafter.testing_helpers import player_utils, world_utils
 from crafter import engine as crafter_engine
 from crafter import objects
 from crafter.state_export import CowState
-from distant_sunburn.evaluator.crafter.mutators.entity_position import (
+from onelife.evaluator.crafter.mutators.entity_position import (
     EntityPositionMutator,
 )
-from distant_sunburn.evaluator.crafter.utils import find_all_objects_for_type
+from onelife.evaluator.crafter.utils import find_all_objects_for_type
 
 
 @pytest.fixture

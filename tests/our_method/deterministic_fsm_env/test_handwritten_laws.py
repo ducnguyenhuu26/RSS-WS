@@ -1,4 +1,4 @@
-from distant_sunburn.our_method.deterministic_fsm_env.handwritten_laws import (
+from onelife.our_method.deterministic_fsm_env.handwritten_laws import (
     CorrectToggleALaw,
     CorrectToggleBLaw,
     IncorrectToggleALawStaysSame,
@@ -6,8 +6,8 @@ from distant_sunburn.our_method.deterministic_fsm_env.handwritten_laws import (
     IncorrectToggleALawTogglesB,
     IncorrectToggleBLawTogglesA,
 )
-from distant_sunburn.deterministic_fsm_env import State, Action
-from distant_sunburn.poe_world.core import DiscreteDistribution
+from onelife.deterministic_fsm_env import State, Action
+from onelife.poe_world.core import DiscreteDistribution
 from typing import cast
 
 

@@ -7,15 +7,15 @@ from crafter.functional_env import (
 )
 import copy
 from crafter.testing_helpers import player_utils, world_utils
-from distant_sunburn.evaluator.crafter.utils import MAP_ACTION_TO_INDEX
+from onelife.evaluator.crafter.utils import MAP_ACTION_TO_INDEX
 import pytest
 from crafter.constants import ActionT
 from crafter import engine as crafter_engine
-from distant_sunburn.evaluator.crafter.mutators.crafting import (
+from onelife.evaluator.crafter.mutators.crafting import (
     CraftIllegalItemMutator,
     CRAFTING_ACTIONS,
 )
-from distant_sunburn.evaluator.crafter.utils import find_player
+from onelife.evaluator.crafter.utils import find_player
 import numpy as np
 from crafter.constants import actions
 

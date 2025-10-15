@@ -17,11 +17,11 @@ from crafter.state_export import (
     Inventory,
 )
 
-from distant_sunburn.poe_world.crafter.creation_synthesizer import (
+from onelife.poe_world.crafter.creation_synthesizer import (
     CrafterCreationSynthesizer,
     CrafterCreationSynthesisDependenciesProvider,
 )
-from distant_sunburn.poe_world.core import (
+from onelife.poe_world.core import (
     SymbolicTransition,
 )
 from loguru import logger

@@ -1,5 +1,5 @@
 import pytest
-from distant_sunburn.local_code_execution import (
+from onelife.local_code_execution import (
     ExecWithLimitedNamespace,
     SecurityException,
 )

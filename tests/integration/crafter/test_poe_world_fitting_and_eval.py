@@ -17,24 +17,24 @@ import numpy as np
 from crafter.functional_env import EnvConfig, initial_state, transition
 from crafter.state_export import WorldState
 
-from distant_sunburn.evaluator import (
+from onelife.evaluator import (
     EvaluationConfig,
     Evaluator,
     NullWorldModel,
     TrueTransitionWorldModel,
 )
-from distant_sunburn.evaluator.crafter.factory import CrafterEvaluationFactory
-from distant_sunburn.evaluator.crafter.components import _gamestate_to_json
-from distant_sunburn.evaluator.crafter.utils import MAP_ACTION_TO_INDEX
-from distant_sunburn.poe_world.core import SymbolicTransition
-from distant_sunburn.poe_world.crafter.handwritten_experts import (
+from onelife.evaluator.crafter.factory import CrafterEvaluationFactory
+from onelife.evaluator.crafter.components import _gamestate_to_json
+from onelife.evaluator.crafter.utils import MAP_ACTION_TO_INDEX
+from onelife.poe_world.core import SymbolicTransition
+from onelife.poe_world.crafter.handwritten_experts import (
     ALL_EXPERTS,
     incorrect_entity_lifecycle_expert_spurious_spawning,
 )
-from distant_sunburn.poe_world.weight_fitter import MaxLikelihoodWeightFitter
-from distant_sunburn.poe_world.world_model import PoEWorldModel
-from distant_sunburn.poe_world.crafter.observable_extractor import ObservableExtractor
-from distant_sunburn.evaluator.baselines import RandomWorldModel
+from onelife.poe_world.weight_fitter import MaxLikelihoodWeightFitter
+from onelife.poe_world.world_model import PoEWorldModel
+from onelife.poe_world.crafter.observable_extractor import ObservableExtractor
+from onelife.evaluator.baselines import RandomWorldModel
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text

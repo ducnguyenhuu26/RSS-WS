@@ -7,7 +7,7 @@ validating all mechanics and ensuring reproducibility.
 
 import random
 
-from distant_sunburn.simple_1d_env.environment import (
+from onelife.simple_1d_env.environment import (
     Action,
     GameState,
     Light,
@@ -18,7 +18,7 @@ from distant_sunburn.simple_1d_env.environment import (
     initial_state,
     transition_function,
 )
-from distant_sunburn.simple_1d_env.environment import (
+from onelife.simple_1d_env.environment import (
     DEFAULT_LAWS,
 )
 

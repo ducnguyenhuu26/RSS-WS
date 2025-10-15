@@ -7,7 +7,7 @@ from crafter.state_export import WorldState, export_world_state
 from PIL import Image
 from pydantic import ConfigDict
 
-from distant_sunburn.balrog_components import EnvironmentConfig
+from onelife.balrog_components import EnvironmentConfig
 from pydantic import Field
 
 from .balrog_interfaces import (

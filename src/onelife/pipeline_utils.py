@@ -21,12 +21,12 @@ from typing import (
     Union,
 )
 
-from distant_sunburn.io_utils import (
+from onelife.io_utils import (
     BaseModelT,
     BufferedPydanticJSONLinesWriter,
     PydanticJSONLinesReader,
 )
-from distant_sunburn.typing_utils import Error, Option, Result
+from onelife.typing_utils import Error, Option, Result
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
 from ulid import ULID

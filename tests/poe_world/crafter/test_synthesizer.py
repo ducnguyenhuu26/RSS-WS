@@ -9,16 +9,16 @@ import os
 
 import pytest
 from crafter.state_export import CowState
-from distant_sunburn.evaluator.crafter.utils import find_all_objects_for_type
-from distant_sunburn.litellm_utils import (
+from onelife.evaluator.crafter.utils import find_all_objects_for_type
+from onelife.litellm_utils import (
     LiteLlmRequest,
     NonStreamingModelResponse,
 )
-from distant_sunburn.poe_world.core import (
+from onelife.poe_world.core import (
     DiscreteDistribution,
     ExpertFunctionWrapper,
 )
-from distant_sunburn.poe_world.crafter.synthesizer import (
+from onelife.poe_world.crafter.synthesizer import (
     CrafterExpertSynthesizer,
     CrafterSynthesisDependenciesProvider,
 )

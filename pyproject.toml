@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "distant_sunburn"
+name = "onelife"
 requires-python = ">=3.12"
 version = "0.0.1"
 description = ""
@@ -26,6 +26,7 @@ dependencies = [
     "litellm==1.75",
     "loguru>=0.7.3",
     "matplotlib>=3.10.6",
+    "omegaconf>=2.3.0",
     "openai[balrog]>=1.90.0",
     "pandas>=2.3.1",
     "pydantic>=2.11.7",
@@ -70,4 +71,4 @@ balrog = [
 
 [tool.ty.src]
 include = ["src", "tests"]
-exclude = ["src/distant_sunburn/external"]
+exclude = ["src/onelife/external"]

@@ -3,11 +3,11 @@ from crafter.functional_env import EnvConfig
 from crafter.functional_env import transition as crafter_transition_fn
 from crafter.state_export import WorldState
 
-from distant_sunburn.evaluator.baselines import NullWorldModel, TrueTransitionWorldModel
-from distant_sunburn.evaluator.core import EvaluationConfig, Evaluator
-from distant_sunburn.evaluator.crafter.components import _gamestate_to_json
-from distant_sunburn.evaluator.crafter.factory import CrafterEvaluationFactory
-from distant_sunburn.evaluator.crafter.utils import MAP_ACTION_TO_INDEX
+from onelife.evaluator.baselines import NullWorldModel, TrueTransitionWorldModel
+from onelife.evaluator.core import EvaluationConfig, Evaluator
+from onelife.evaluator.crafter.components import _gamestate_to_json
+from onelife.evaluator.crafter.factory import CrafterEvaluationFactory
+from onelife.evaluator.crafter.utils import MAP_ACTION_TO_INDEX
 import pytest
 
 

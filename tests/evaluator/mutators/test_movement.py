@@ -1,4 +1,4 @@
-from distant_sunburn.evaluator.crafter.mutators.movement import (
+from onelife.evaluator.crafter.mutators.movement import (
     IllegalMovementMutator,
     NON_MOVEMENT_ACTIONS,
     MOVEMENT_ACTIONS,
@@ -11,8 +11,8 @@ from crafter.functional_env import (
     transition,
 )
 from crafter.testing_helpers import player_utils, world_utils
-from distant_sunburn.evaluator.crafter.utils import find_player
-from distant_sunburn.evaluator.crafter.utils import MAP_ACTION_TO_INDEX
+from onelife.evaluator.crafter.utils import find_player
+from onelife.evaluator.crafter.utils import MAP_ACTION_TO_INDEX
 import copy
 import pytest
 from crafter.constants import ActionT

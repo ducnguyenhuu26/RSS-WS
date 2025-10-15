@@ -18,7 +18,7 @@ from crafter.state_export import (
 from crafter.functional_env import initial_state
 from crafter.constants import ActionT
 
-from distant_sunburn.poe_world.crafter.handwritten_experts import (
+from onelife.poe_world.crafter.handwritten_experts import (
     correct_player_movement_expert,
     correct_combat_damage_expert,
     correct_entity_ai_expert,
@@ -26,17 +26,17 @@ from distant_sunburn.poe_world.crafter.handwritten_experts import (
     incorrect_combat_damage_expert_instakills,
     incorrect_entity_ai_expert_self_destructs,
 )
-from distant_sunburn.poe_world.core import DiscreteDistribution
+from onelife.poe_world.core import DiscreteDistribution
 from loguru import logger
-import distant_sunburn.poe_world.crafter.handwritten_experts
+import onelife.poe_world.crafter.handwritten_experts
 import pytest
 
 
 @pytest.fixture(autouse=True)
 def enable_logging():
-    logger.enable(distant_sunburn.poe_world.crafter.handwritten_experts.__name__)
+    logger.enable(onelife.poe_world.crafter.handwritten_experts.__name__)
     yield
-    logger.disable(distant_sunburn.poe_world.crafter.handwritten_experts.__name__)
+    logger.disable(onelife.poe_world.crafter.handwritten_experts.__name__)
 
 
 def create_simple_test_state() -> WorldState:
