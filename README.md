@@ -63,7 +63,7 @@ Both tests follow this pattern:
 For debugging and understanding the core algorithms, the Simple 1D environment provides a minimal testbed (`tests/integration/simple_1d_env/test_poe_world_fitting_and_eval.py`):
 
 # Crafter-OO
-The Crafter-OO code is located at [codezakh/crafter-oo](https://github.com/codezakh/crafter-oo).
+The Crafter-OO code is located at [codezakh/crafter_oo](https://github.com/codezakh/crafter_oo).
 You don't have to install it separately, as the installation instructions already handle installing it as a submodule.
 
 # Credits

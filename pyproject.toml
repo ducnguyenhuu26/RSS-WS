@@ -13,6 +13,7 @@ dependencies = [
     "anthropic[balrog]>=0.64.0",
     "backoff>=2.2.1",
     "crafter",
+    "crafter-oo",
     "google-generativeai[balrog]>=0.8.5",
     "gymnasium>=1.2.0",
     "hatch>=1.14.1",
@@ -60,7 +61,7 @@ filterwarnings = [
 ]
 
 [tool.uv.sources]
-crafter_oo = { path = "external/crafter_refactored", editable = true }
+crafter-oo = { path = "external/crafter_oo", editable = true }
 
 [dependency-groups]
 balrog = [
