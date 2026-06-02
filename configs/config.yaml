@@ -1,0 +1,32 @@
+problem: Hopper-v5
+probllem: null
+model: ours
+
+seed: 0
+train_steps: 1000
+test_steps: 300
+epochs: 20
+batch_size: 128
+learning_rate: 0.001
+residual_l2_weight: 0.001
+hidden_sizes: [128, 128]
+
+llm:
+  provider: openai
+  model_slug: gpt-4o-mini
+  sample_count: 8
+  dt: 0.05
+
+discretization:
+  state_bins: 21
+  action_bins: 11
+
+output_dir: outputs
+output_name: null
+verbose: false
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/hydra/${now:%Y-%m-%d}/${now:%H-%M-%S}

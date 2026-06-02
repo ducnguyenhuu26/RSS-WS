@@ -20,6 +20,7 @@ dependencies = [
     "google-generativeai[balrog]>=0.8.5",
     "gymnasium[mujoco]>=1.2.0",
     "hatch>=1.14.1",
+    "hydra-core>=1.3.2",
     "httpcore2>=2.3.0",
     "icecream>=2.1.6",
     "ipdb>=0.13.13",

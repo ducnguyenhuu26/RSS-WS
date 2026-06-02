@@ -9,6 +9,7 @@ gymnasium[mujoco]
 cffi>=2.0.0
 docstring-parser
 hatch
+hydra-core
 httpcore2
 setuptools
 pandas

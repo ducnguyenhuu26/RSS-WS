@@ -176,3 +176,6 @@ cython_debug/
 .DS_Store
 
 .vscode
+
+# Experiment outputs
+outputs/
