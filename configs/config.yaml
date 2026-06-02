@@ -21,6 +21,10 @@ discretization:
   state_bins: 21
   action_bins: 11
 
+rollout:
+  horizons: [1, 5, 10, 25, 50]
+  num_rollouts: 20
+
 output_dir: outputs
 output_name: null
 verbose: false

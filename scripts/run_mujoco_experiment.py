@@ -9,6 +9,7 @@ from statistics import mean
 import numpy as np
 import torch
 import torch.nn.functional as F
+import gymnasium as gym
 from loguru import logger
 
 from onelife.litellm_utils import GeminiLiteLlmParams, OpenAILiteLlmParams
@@ -58,6 +59,8 @@ def main() -> None:
     parser.add_argument("--dt", type=float, default=0.05)
     parser.add_argument("--state-bins", type=int, default=21)
     parser.add_argument("--action-bins", type=int, default=11)
+    parser.add_argument("--rollout-horizons", default="1,5,10,25,50")
+    parser.add_argument("--rollout-num-rollouts", type=int, default=20)
     parser.add_argument(
         "--output",
         type=Path,
@@ -123,8 +126,12 @@ def main() -> None:
         model=model,
         train_dataset=train_dataset,
         test_dataset=test_dataset,
+        env_id=args.env_id,
+        seed=args.seed + 10_000,
         state_bins=args.state_bins,
         action_bins=args.action_bins,
+        rollout_horizons=parse_int_list(args.rollout_horizons),
+        rollout_num_rollouts=args.rollout_num_rollouts,
     )
     symbolic_metrics = evaluate_symbolic_baselines(
         train_dataset=train_dataset,
@@ -186,8 +193,12 @@ def evaluate_program_residual(
     model: ProgramResidualWorldModel,
     train_dataset,
     test_dataset,
+    env_id: str,
+    seed: int,
     state_bins: int,
     action_bins: int,
+    rollout_horizons: tuple[int, ...] = (1, 5, 10, 25, 50),
+    rollout_num_rollouts: int = 20,
 ) -> dict[str, float]:
     states, actions, next_states = test_dataset.to_torch()
     model.eval()
@@ -201,7 +212,7 @@ def evaluate_program_residual(
         state_bins=state_bins,
         action_bins=action_bins,
     )
-    return {
+    metrics = {
         "identity_mse": float(identity_mse.cpu()),
         "program_only_mse": float(program_mse.cpu()),
         "program_residual_mse": float(prediction_mse.cpu()),
@@ -216,6 +227,86 @@ def evaluate_program_residual(
                 for next_state in test_dataset.next_states
             ),
         ),
+    }
+    rollout_metrics = evaluate_open_loop_rollouts(
+        model=model,
+        env_id=env_id,
+        seed=seed,
+        horizons=rollout_horizons,
+        num_rollouts=rollout_num_rollouts,
+    )
+    metrics.update(rollout_metrics)
+    return metrics
+
+
+def evaluate_open_loop_rollouts(
+    model: ProgramResidualWorldModel,
+    env_id: str,
+    seed: int,
+    horizons: tuple[int, ...],
+    num_rollouts: int,
+) -> dict[str, float]:
+    if not horizons:
+        return {}
+    if num_rollouts <= 0:
+        raise ValueError("rollout_num_rollouts must be positive")
+    max_horizon = max(horizons)
+    if max_horizon <= 0:
+        raise ValueError("rollout horizons must be positive")
+
+    sums = {horizon: 0.0 for horizon in horizons}
+    counts = {horizon: 0 for horizon in horizons}
+    env = gym.make(env_id)
+    try:
+        if hasattr(env.action_space, "seed"):
+            env.action_space.seed(seed)
+        model.eval()
+        with torch.no_grad():
+            for rollout_idx in range(num_rollouts):
+                reset_result = env.reset(seed=seed + rollout_idx)
+                observation = (
+                    reset_result[0] if isinstance(reset_result, tuple) else reset_result
+                )
+                predicted_state = torch.as_tensor(
+                    np.asarray(observation, dtype=np.float32).reshape(-1),
+                    dtype=torch.float32,
+                )
+                for step in range(1, max_horizon + 1):
+                    action = np.asarray(env.action_space.sample(), dtype=np.float32)
+                    step_result = env.step(action)
+                    if len(step_result) == 5:
+                        next_observation, _reward, terminated, truncated, _info = (
+                            step_result
+                        )
+                        done = bool(terminated or truncated)
+                    else:
+                        next_observation, _reward, done, _info = step_result
+                        done = bool(done)
+                    action_tensor = torch.as_tensor(
+                        action.reshape(-1),
+                        dtype=torch.float32,
+                    )
+                    predicted_state = model.predict_next_state(
+                        predicted_state,
+                        action_tensor,
+                    )
+                    true_next_state = torch.as_tensor(
+                        np.asarray(next_observation, dtype=np.float32).reshape(-1),
+                        dtype=torch.float32,
+                    )
+                    if step in sums:
+                        sums[step] += float(
+                            F.mse_loss(predicted_state, true_next_state).cpu()
+                        )
+                        counts[step] += 1
+                    if done:
+                        break
+    finally:
+        env.close()
+    return {
+        f"open_loop_mse_h{horizon}": sums[horizon] / counts[horizon]
+        for horizon in horizons
+        if counts[horizon] > 0
     }
 
 
@@ -301,6 +392,13 @@ def parse_hidden_sizes(raw: str) -> tuple[int, ...]:
     values = tuple(int(value.strip()) for value in raw.split(",") if value.strip())
     if not values:
         raise ValueError("hidden sizes must not be empty")
+    return values
+
+
+def parse_int_list(raw: str) -> tuple[int, ...]:
+    values = tuple(int(value.strip()) for value in raw.split(",") if value.strip())
+    if not values:
+        raise ValueError("list must not be empty")
     return values
 
 

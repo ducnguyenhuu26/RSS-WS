@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -169,6 +170,11 @@ Each custom law must inherit ContinuousLaw and implement:
     precondition(self, state: torch.Tensor, action: torch.Tensor) -> bool
     predict(self, state: torch.Tensor, action: torch.Tensor) -> LawPrediction
 
+Important tensor shape contract:
+    state is one single 1D tensor with shape [{state_dim}]
+    action is one single 1D tensor with shape [{action_dim}]
+Do not use batched indexing such as state[:, i] or action[:, i].
+
 LawPrediction fields:
     indices: torch.LongTensor containing next-state dimensions predicted by the law
     values: torch.Tensor with predicted values for those dimensions
@@ -230,7 +236,16 @@ def compile_synthesized_laws(
                 "build_laws(...) returned an object that is not a ContinuousLaw: "
                 f"{type(law).__name__}"
             )
-        _smoke_test_law(law, state_dim, action_dim)
+        try:
+            _smoke_test_law(law, state_dim, action_dim)
+        except Exception as exc:
+            warnings.warn(
+                "Skipping invalid LLM-generated law "
+                f"{law.law_name}: {type(exc).__name__}: {exc}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            continue
         laws.append(law)
     return laws
 
@@ -243,8 +258,23 @@ def extract_python_code(raw_response: str) -> str:
 
 
 def _smoke_test_law(law: ContinuousLaw, state_dim: int, action_dim: int) -> None:
-    state = torch.zeros(state_dim, dtype=torch.float32)
-    action = torch.zeros(action_dim, dtype=torch.float32)
+    _smoke_test_law_on_inputs(
+        law,
+        torch.zeros(state_dim, dtype=torch.float32),
+        torch.zeros(action_dim, dtype=torch.float32),
+    )
+    _smoke_test_law_on_inputs(
+        law,
+        torch.linspace(-0.5, 0.5, state_dim, dtype=torch.float32),
+        torch.linspace(-0.25, 0.25, action_dim, dtype=torch.float32),
+    )
+
+
+def _smoke_test_law_on_inputs(
+    law: ContinuousLaw,
+    state: torch.Tensor,
+    action: torch.Tensor,
+) -> None:
     if not law.precondition(state, action):
         return
     prediction = law.predict(state, action)
@@ -254,6 +284,11 @@ def _smoke_test_law(law: ContinuousLaw, state_dim: int, action_dim: int) -> None
         raise ValueError(f"{law.law_name} returned values with wrong shape")
     if prediction.confidence.shape != prediction.indices.shape:
         raise ValueError(f"{law.law_name} returned confidence with wrong shape")
+    if prediction.values.dtype not in (torch.float16, torch.float32, torch.float64):
+        raise ValueError(f"{law.law_name} returned non-floating values")
+    if not torch.all(torch.isfinite(prediction.values)):
+        raise ValueError(f"{law.law_name} returned non-finite values")
+    state_dim = int(state.shape[0])
     if torch.any(prediction.indices < 0) or torch.any(prediction.indices >= state_dim):
         raise ValueError(f"{law.law_name} returned out-of-range indices")
 

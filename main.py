@@ -12,12 +12,13 @@ from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 
 from onelife.litellm_utils import GeminiLiteLlmParams, OpenAILiteLlmParams
+from onelife.mujoco_onelife_llm import (
+    LLMOneLifeMuJoCoSynthesizer,
+    LLMOneLifeSynthesisConfig,
+    evaluate_onelife_llm_baseline,
+)
 from onelife.mujoco_symbolic_adapter import (
     MuJoCoDiscretizer,
-    make_onelife_mujoco_law_mixture,
-    make_poe_mujoco_baseline,
-    to_law_symbolic_transitions,
-    to_poe_symbolic_transitions,
 )
 from onelife.program_residual import (
     LLMLawSynthesisConfig,
@@ -46,7 +47,6 @@ def main(cfg: DictConfig) -> None:
 
     problem = str(cfg.probllem or cfg.problem)
     model_name = str(cfg.model)
-    symbolic_source = symbolic_source_for_model(model_name)
     output_path = build_output_path(cfg, problem, model_name)
 
     torch.manual_seed(int(cfg.seed))
@@ -67,6 +67,17 @@ def main(cfg: DictConfig) -> None:
         )
     )
 
+    if model_name == "onelife":
+        run_onelife_llm_baseline(
+            cfg=cfg,
+            problem=problem,
+            train_dataset=train_dataset,
+            test_dataset=test_dataset,
+            output_path=output_path,
+        )
+        return
+
+    symbolic_source = symbolic_source_for_model(model_name)
     program, llm_code = build_program_from_config(
         cfg=cfg,
         problem=problem,
@@ -105,8 +116,12 @@ def main(cfg: DictConfig) -> None:
         model=model,
         train_dataset=train_dataset,
         test_dataset=test_dataset,
+        env_id=problem,
+        seed=int(cfg.seed) + 10_000,
         state_bins=int(cfg.discretization.state_bins),
         action_bins=int(cfg.discretization.action_bins),
+        rollout_horizons=tuple(int(horizon) for horizon in cfg.rollout.horizons),
+        rollout_num_rollouts=int(cfg.rollout.num_rollouts),
     )
     symbolic_metrics = evaluate_symbolic_baselines(
         train_dataset=train_dataset,
@@ -149,7 +164,7 @@ def symbolic_source_for_model(model_name: str) -> str:
             return "empty"
         case _:
             raise ValueError(
-                "model must be one of: ours, residual, residual_only, empty, no_llm"
+                "model must be one of: ours, onelife, residual, residual_only, empty, no_llm"
             )
 
 
@@ -180,6 +195,69 @@ def build_program_from_config(
         ),
     )
     return bundle.build_program(state_dim=train_dataset.state_dim), bundle.code
+
+
+def run_onelife_llm_baseline(
+    cfg: DictConfig,
+    problem: str,
+    train_dataset,
+    test_dataset,
+    output_path: Path,
+) -> None:
+    discretizer = MuJoCoDiscretizer.fit(
+        train_dataset,
+        state_bins=int(cfg.discretization.state_bins),
+        action_bins=int(cfg.discretization.action_bins),
+    )
+    if cfg.llm.provider == "openai":
+        llm_params = OpenAILiteLlmParams(model_slug=str(cfg.llm.model_slug))
+    elif cfg.llm.provider == "gemini":
+        llm_params = GeminiLiteLlmParams(model_slug=str(cfg.llm.model_slug))
+    else:
+        raise ValueError("llm.provider must be openai or gemini")
+
+    bundle = LLMOneLifeMuJoCoSynthesizer(
+        llm_params=llm_params
+    ).synthesize_from_dataset(
+        train_dataset,
+        discretizer,
+        LLMOneLifeSynthesisConfig(
+            env_id=problem,
+            sample_count=int(cfg.llm.sample_count),
+        ),
+    )
+    onelife_llm_metrics = evaluate_onelife_llm_baseline(
+        laws=bundle.laws,
+        discretizer=discretizer,
+        test_dataset=test_dataset,
+    )
+    symbolic_metrics = evaluate_symbolic_baselines(
+        train_dataset=train_dataset,
+        test_dataset=test_dataset,
+        state_bins=int(cfg.discretization.state_bins),
+        action_bins=int(cfg.discretization.action_bins),
+    )
+    results = {
+        "problem": problem,
+        "model": "onelife",
+        "symbolic_source": "llm",
+        "seed": int(cfg.seed),
+        "train_steps": int(cfg.train_steps),
+        "test_steps": int(cfg.test_steps),
+        "state_dim": train_dataset.state_dim,
+        "action_dim": train_dataset.action_dim,
+        "onelife_llm": onelife_llm_metrics,
+        "symbolic_baselines": symbolic_metrics,
+        "config": OmegaConf.to_container(cfg, resolve=True),
+    }
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
+    law_path = output_path.with_suffix(".laws.py")
+    law_path.write_text(bundle.code, encoding="utf-8")
+    results["llm_law_path"] = str(law_path)
+    output_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
+    print(json.dumps(results, indent=2))
+    print(f"wrote {output_path}")
 
 
 def build_output_path(cfg: DictConfig, problem: str, model_name: str) -> Path:

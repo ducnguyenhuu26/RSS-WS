@@ -113,3 +113,34 @@ def test_compile_synthesized_laws_rejects_imports():
             action_dim=1,
             dt=0.05,
         )
+
+
+def test_compile_synthesized_laws_skips_invalid_llm_laws():
+    code = """
+class BadBatchedIndexLaw(ContinuousLaw):
+    def predict(self, state, action):
+        indices = torch.tensor([0], dtype=torch.long)
+        values = state[:, 0]
+        confidence = torch.ones_like(values)
+        return LawPrediction(indices, values, confidence, self.law_name)
+
+class GoodLaw(ContinuousLaw):
+    def predict(self, state, action):
+        indices = torch.tensor([1], dtype=torch.long)
+        values = state[1:2] + 0.0 * action[0:1]
+        confidence = torch.ones_like(values)
+        return LawPrediction(indices, values, confidence, self.law_name)
+
+def build_laws(state_dim, action_dim, dt, confidence):
+    return [BadBatchedIndexLaw(), GoodLaw()]
+"""
+
+    with pytest.warns(RuntimeWarning, match="Skipping invalid LLM-generated law"):
+        laws = compile_synthesized_laws(
+            code=code,
+            state_dim=2,
+            action_dim=1,
+            dt=0.05,
+        )
+
+    assert [law.law_name for law in laws] == ["GoodLaw"]
