@@ -144,3 +144,35 @@ def build_laws(state_dim, action_dim, dt, confidence):
         )
 
     assert [law.law_name for law in laws] == ["GoodLaw"]
+
+
+def test_compile_synthesized_laws_skips_laws_that_fail_batch_validation():
+    code = """
+class BadLaw(ContinuousLaw):
+    def predict(self, state, action):
+        indices = torch.tensor([0], dtype=torch.long)
+        values = state[0:1] + 100.0
+        confidence = torch.ones_like(values)
+        return LawPrediction(indices, values, confidence, self.law_name)
+
+class GoodLaw(ContinuousLaw):
+    def predict(self, state, action):
+        indices = torch.tensor([0], dtype=torch.long)
+        values = state[0:1] + action[0:1]
+        confidence = torch.ones_like(values)
+        return LawPrediction(indices, values, confidence, self.law_name)
+
+def build_laws(state_dim, action_dim, dt, confidence):
+    return [BadLaw(), GoodLaw()]
+"""
+
+    with pytest.warns(RuntimeWarning, match="failed validation"):
+        laws = compile_synthesized_laws(
+            code=code,
+            state_dim=2,
+            action_dim=1,
+            dt=0.05,
+            validation_batch=make_batch(),
+        )
+
+    assert [law.law_name for law in laws] == ["GoodLaw"]

@@ -10,7 +10,7 @@ from .program import SymbolicProgram
 
 
 class ProgramResidualWorldModel(nn.Module):
-    """Continuous world model: executable program plus masked neural residual."""
+    """Continuous world model: executable program plus neural residual correction."""
 
     def __init__(
         self,
@@ -18,7 +18,7 @@ class ProgramResidualWorldModel(nn.Module):
         action_dim: int,
         program: SymbolicProgram,
         residual_model: nn.Module,
-        apply_unknown_mask: bool = True,
+        apply_unknown_mask: bool = False,
     ) -> None:
         super().__init__()
         if state_dim <= 0 or action_dim <= 0:
@@ -93,9 +93,21 @@ class ProgramResidualWorldModel(nn.Module):
     ) -> torch.Tensor:
         was_training = self.training
         self.eval()
-        state_tensor = torch.as_tensor(state, dtype=torch.float32)
-        action_tensor = torch.as_tensor(action, dtype=torch.float32)
+        input_device = state.device if isinstance(state, torch.Tensor) else torch.device("cpu")
+        model_device = _module_device(self)
+        state_tensor = torch.as_tensor(state, dtype=torch.float32, device=model_device)
+        action_tensor = torch.as_tensor(action, dtype=torch.float32, device=model_device)
         output = self(state_tensor, action_tensor)
         if was_training:
             self.train()
-        return output.prediction
+        return output.prediction.to(input_device)
+
+
+def _module_device(module: nn.Module) -> torch.device:
+    parameter = next(module.parameters(), None)
+    if parameter is not None:
+        return parameter.device
+    buffer = next(module.buffers(), None)
+    if buffer is not None:
+        return buffer.device
+    return torch.device("cpu")

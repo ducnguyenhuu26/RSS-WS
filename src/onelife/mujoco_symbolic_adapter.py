@@ -98,6 +98,36 @@ class MuJoCoDiscretizer:
     def digitize_action(self, action: npt.ArrayLike) -> BinnedMuJoCoAction:
         return BinnedMuJoCoAction(_digitize_vector(action, self.action_edges))
 
+    def undigitize_state(
+        self,
+        state: BinnedMuJoCoState | Sequence[int],
+    ) -> npt.NDArray[np.float32]:
+        bins = state.observed_bins() if isinstance(state, BinnedMuJoCoState) else state
+        if len(bins) != self.state_dim:
+            raise ValueError("state bin dimension does not match fitted discretizer")
+        return np.array(
+            [
+                _bin_center(int(bin_id), self.state_edges[dim])
+                for dim, bin_id in enumerate(bins)
+            ],
+            dtype=np.float32,
+        )
+
+    def undigitize_action(
+        self,
+        action: BinnedMuJoCoAction | Sequence[int],
+    ) -> npt.NDArray[np.float32]:
+        bins = action.bins if isinstance(action, BinnedMuJoCoAction) else action
+        if len(bins) != self.action_dim:
+            raise ValueError("action bin dimension does not match fitted discretizer")
+        return np.array(
+            [
+                _bin_center(int(bin_id), self.action_edges[dim])
+                for dim, bin_id in enumerate(bins)
+            ],
+            dtype=np.float32,
+        )
+
 
 @dataclass(frozen=True)
 class MuJoCoBinnedObservableExtractor:
@@ -423,6 +453,25 @@ def _digitize_vector(
         int(np.digitize(float(array[dim]), edges[dim]))
         for dim in range(len(edges))
     )
+
+
+def _bin_center(bin_id: int, edges: npt.NDArray[np.float32]) -> float:
+    if bin_id < 0 or bin_id > len(edges):
+        raise ValueError("bin id out of range for fitted discretizer")
+    if len(edges) == 0:
+        return 0.0
+    if len(edges) == 1:
+        width = 1.0
+        centers = (float(edges[0]) - width, float(edges[0]) + width)
+        return centers[bin_id]
+
+    if bin_id == 0:
+        width = float(edges[1] - edges[0])
+        return float(edges[0] - 0.5 * width)
+    if bin_id == len(edges):
+        width = float(edges[-1] - edges[-2])
+        return float(edges[-1] + 0.5 * width)
+    return float(0.5 * (edges[bin_id - 1] + edges[bin_id]))
 
 
 def _state_observable_id(dim: int) -> ObservableId:

@@ -38,6 +38,9 @@ class LLMLawSynthesisConfig:
     max_prompt_float_precision: int = 4
     max_tokens: int = 2500
     confidence: float = 1.0
+    validation_sample_count: int = 256
+    max_validation_mse_ratio: float = 1.25
+    validation_abs_tolerance: float = 1e-3
 
 
 @dataclass(frozen=True)
@@ -123,6 +126,10 @@ class LLMSymbolicLawSynthesizer:
             action_dim=action_dim,
             dt=config.dt,
             default_confidence=config.confidence,
+            validation_batch=batch,
+            validation_sample_count=config.validation_sample_count,
+            max_validation_mse_ratio=config.max_validation_mse_ratio,
+            validation_abs_tolerance=config.validation_abs_tolerance,
         )
         return LLMSynthesizedLaws(
             laws=tuple(laws),
@@ -147,7 +154,7 @@ def build_mujoco_law_synthesis_prompt(
     samples = _format_transition_samples(batch, config)
     return f"""
 We are building a hybrid MuJoCo world model:
-    s_next_hat = F_program(s, a) + mask_unknown * R_theta(s, a, F_program(s, a))
+    s_next_hat = F_program(s, a) + R_theta(s, a, F_program(s, a))
 
 Your task is to propose executable symbolic/code laws for F_program.
 
@@ -195,6 +202,10 @@ def compile_synthesized_laws(
     action_dim: int,
     dt: float,
     default_confidence: float = 1.0,
+    validation_batch: TransitionBatch | None = None,
+    validation_sample_count: int = 256,
+    max_validation_mse_ratio: float = 1.25,
+    validation_abs_tolerance: float = 1e-3,
 ) -> list[ContinuousLaw]:
     executor = ExecWithLimitedNamespace(
         allowed_names={
@@ -238,6 +249,14 @@ def compile_synthesized_laws(
             )
         try:
             _smoke_test_law(law, state_dim, action_dim)
+            if validation_batch is not None:
+                _validate_law_against_batch(
+                    law=law,
+                    batch=validation_batch,
+                    sample_count=validation_sample_count,
+                    max_mse_ratio=max_validation_mse_ratio,
+                    abs_tolerance=validation_abs_tolerance,
+                )
         except Exception as exc:
             warnings.warn(
                 "Skipping invalid LLM-generated law "
@@ -248,6 +267,49 @@ def compile_synthesized_laws(
             continue
         laws.append(law)
     return laws
+
+
+def _validate_law_against_batch(
+    law: ContinuousLaw,
+    batch: TransitionBatch,
+    sample_count: int,
+    max_mse_ratio: float,
+    abs_tolerance: float,
+) -> None:
+    limit = min(int(sample_count), int(batch.states.shape[0]))
+    if limit <= 0:
+        return
+
+    law_squared_errors: list[torch.Tensor] = []
+    identity_squared_errors: list[torch.Tensor] = []
+    active_count = 0
+    for idx in range(limit):
+        state = batch.states[idx]
+        action = batch.actions[idx]
+        if not law.precondition(state, action):
+            continue
+        prediction = law.predict(state, action)
+        _validate_prediction_shape(prediction, state_dim=int(batch.states.shape[1]))
+        indices = prediction.indices.to(dtype=torch.long, device=batch.states.device)
+        values = prediction.values.to(dtype=batch.states.dtype, device=batch.states.device)
+        target_values = batch.next_states[idx, indices]
+        identity_values = batch.states[idx, indices]
+        law_squared_errors.append((values - target_values).square())
+        identity_squared_errors.append((identity_values - target_values).square())
+        active_count += 1
+
+    if active_count == 0:
+        raise ValueError(f"{law.law_name} was never active on validation samples")
+
+    law_mse = torch.cat(law_squared_errors).mean()
+    identity_mse = torch.cat(identity_squared_errors).mean()
+    allowed_mse = identity_mse * float(max_mse_ratio) + float(abs_tolerance)
+    if law_mse > allowed_mse:
+        raise ValueError(
+            f"{law.law_name} failed validation: law_mse={float(law_mse):.6g}, "
+            f"identity_mse={float(identity_mse):.6g}, "
+            f"allowed_mse={float(allowed_mse):.6g}"
+        )
 
 
 def extract_python_code(raw_response: str) -> str:
@@ -278,19 +340,22 @@ def _smoke_test_law_on_inputs(
     if not law.precondition(state, action):
         return
     prediction = law.predict(state, action)
+    _validate_prediction_shape(prediction, state_dim=int(state.shape[0]))
+
+
+def _validate_prediction_shape(prediction: LawPrediction, state_dim: int) -> None:
     if prediction.indices.ndim != 1:
-        raise ValueError(f"{law.law_name} returned non-1D indices")
+        raise ValueError(f"{prediction.law_name} returned non-1D indices")
     if prediction.values.shape != prediction.indices.shape:
-        raise ValueError(f"{law.law_name} returned values with wrong shape")
+        raise ValueError(f"{prediction.law_name} returned values with wrong shape")
     if prediction.confidence.shape != prediction.indices.shape:
-        raise ValueError(f"{law.law_name} returned confidence with wrong shape")
+        raise ValueError(f"{prediction.law_name} returned confidence with wrong shape")
     if prediction.values.dtype not in (torch.float16, torch.float32, torch.float64):
-        raise ValueError(f"{law.law_name} returned non-floating values")
+        raise ValueError(f"{prediction.law_name} returned non-floating values")
     if not torch.all(torch.isfinite(prediction.values)):
-        raise ValueError(f"{law.law_name} returned non-finite values")
-    state_dim = int(state.shape[0])
+        raise ValueError(f"{prediction.law_name} returned non-finite values")
     if torch.any(prediction.indices < 0) or torch.any(prediction.indices >= state_dim):
-        raise ValueError(f"{law.law_name} returned out-of-range indices")
+        raise ValueError(f"{prediction.law_name} returned out-of-range indices")
 
 
 def _response_text(response: Any) -> str:

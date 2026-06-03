@@ -84,6 +84,32 @@ def test_program_residual_model_applies_residual_only_to_unknown_dimensions():
     assert torch.allclose(output.prediction, torch.tensor([1.3, 2.0]))
 
 
+def test_program_residual_model_default_allows_residual_to_correct_known_dimensions():
+    program = SymbolicProgram(
+        state_dim=2,
+        laws=[
+            KinematicPositionLaw(
+                position_indices=[0],
+                velocity_indices=[1],
+                dt=0.1,
+                confidence=1.0,
+            )
+        ],
+    )
+    model = ProgramResidualWorldModel(
+        state_dim=2,
+        action_dim=1,
+        program=program,
+        residual_model=ConstantResidual(torch.tensor([10.0, -1.0])),
+    )
+
+    output = model(torch.tensor([1.0, 3.0]), torch.tensor([0.0]))
+
+    assert torch.allclose(output.program_next_state, torch.tensor([1.3, 3.0]))
+    assert torch.allclose(output.applied_residual, torch.tensor([10.0, -1.0]))
+    assert torch.allclose(output.prediction, torch.tensor([11.3, 2.0]))
+
+
 def test_training_step_updates_residual_model_parameters():
     torch.manual_seed(0)
     program = SymbolicProgram(state_dim=2, laws=[])

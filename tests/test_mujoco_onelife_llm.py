@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import math
 import numpy as np
+import pytest
 
 from onelife.litellm_utils import OpenAILiteLlmParams
 from onelife.mujoco_dataset import MuJoCoTransitions
@@ -69,6 +70,52 @@ def test_compile_onelife_mujoco_laws_and_evaluate():
     assert math.isfinite(metrics["mean_log_probability"])
     assert 0.0 <= metrics["bin_accuracy"] <= 1.0
     assert metrics["num_laws"] == 1.0
+
+
+def test_compile_onelife_mujoco_laws_skips_invalid_laws():
+    code = """
+class BadOutOfRangeLaw(BinnedMuJoCoLaw):
+    def effect(self, current_state, action):
+        bins = list(current_state.observed_bins())
+        bins[0] = DiscreteDistribution(support=[999])
+        current_state.bins = tuple(bins)
+
+class GoodIdentityLaw(BinnedMuJoCoLaw):
+    def effect(self, current_state, action):
+        bins = list(current_state.observed_bins())
+        bins[0] = DiscreteDistribution(support=[bins[0]])
+        current_state.bins = tuple(bins)
+
+def build_laws(num_state_bins, num_action_bins):
+    return [BadOutOfRangeLaw(), GoodIdentityLaw()]
+"""
+    dataset = make_dataset()
+    discretizer = MuJoCoDiscretizer.fit(dataset, state_bins=5, action_bins=3)
+
+    with pytest.warns(RuntimeWarning, match="Skipping invalid LLM-generated"):
+        laws = compile_onelife_mujoco_laws(code, discretizer)
+
+    assert [law.__name__ for law in laws] == ["GoodIdentityLaw"]
+
+
+def test_compile_onelife_mujoco_laws_skips_non_law_objects():
+    code = """
+class GoodIdentityLaw(BinnedMuJoCoLaw):
+    def effect(self, current_state, action):
+        bins = list(current_state.observed_bins())
+        bins[0] = DiscreteDistribution(support=[bins[0]])
+        current_state.bins = tuple(bins)
+
+def build_laws(num_state_bins, num_action_bins):
+    return [GoodIdentityLaw, GoodIdentityLaw()]
+"""
+    dataset = make_dataset()
+    discretizer = MuJoCoDiscretizer.fit(dataset, state_bins=5, action_bins=3)
+
+    with pytest.warns(RuntimeWarning, match="expected BinnedMuJoCoLaw instance"):
+        laws = compile_onelife_mujoco_laws(code, discretizer)
+
+    assert [law.__name__ for law in laws] == ["GoodIdentityLaw"]
 
 
 def test_onelife_llm_synthesizer_calls_mock_client():

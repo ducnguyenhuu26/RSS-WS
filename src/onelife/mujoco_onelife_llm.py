@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -235,11 +236,23 @@ def compile_onelife_mujoco_laws(
     laws: list[BinnedMuJoCoLaw] = []
     for law in raw_laws:
         if not isinstance(law, BinnedMuJoCoLaw):
-            raise TypeError(
-                "build_laws(...) returned an object that is not a BinnedMuJoCoLaw: "
-                f"{type(law).__name__}"
+            warnings.warn(
+                "Skipping invalid LLM-generated OneLife MuJoCo law object: "
+                f"expected BinnedMuJoCoLaw instance, got {type(law).__name__}",
+                RuntimeWarning,
+                stacklevel=2,
             )
-        _smoke_test_law(law, discretizer)
+            continue
+        try:
+            _smoke_test_law(law, discretizer)
+        except Exception as exc:
+            warnings.warn(
+                "Skipping invalid LLM-generated OneLife MuJoCo law "
+                f"{law.__name__}: {type(exc).__name__}: {exc}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            continue
         laws.append(law)
     return laws
 

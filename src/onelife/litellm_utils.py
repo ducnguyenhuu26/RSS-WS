@@ -1,3 +1,6 @@
+from collections.abc import Callable
+from dataclasses import dataclass
+
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Literal, Optional, Any, cast
 from litellm.types.utils import ModelResponse, Choices
@@ -109,6 +112,96 @@ class LiteLlmRequest(BaseModel):
         )
         response = cast(ModelResponse, response)
         return NonStreamingModelResponse.model_validate(response, from_attributes=True)
+
+
+@dataclass
+class LLMCallTracker:
+    """Tracks logical LiteLLM requests for experiment ablations."""
+
+    calls: int = 0
+    successful_calls: int = 0
+    failed_calls: int = 0
+    prompt_messages: int = 0
+    prompt_chars: int = 0
+    response_chars: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+    def __call__(self, request: LiteLlmRequest) -> Any:
+        self.calls += 1
+        self.prompt_messages += len(request.messages)
+        self.prompt_chars += sum(len(message.content) for message in request.messages)
+        try:
+            response = request()
+        except Exception:
+            self.failed_calls += 1
+            raise
+        self.successful_calls += 1
+        self.response_chars += len(_response_text_or_empty(response))
+        self._record_usage(response)
+        return response
+
+    def client(self) -> Callable[[LiteLlmRequest], Any]:
+        return self
+
+    def as_dict(self) -> dict[str, int]:
+        return {
+            "calls": self.calls,
+            "successful_calls": self.successful_calls,
+            "failed_calls": self.failed_calls,
+            "prompt_messages": self.prompt_messages,
+            "prompt_chars": self.prompt_chars,
+            "response_chars": self.response_chars,
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens,
+        }
+
+    def _record_usage(self, response: Any) -> None:
+        usage = getattr(response, "usage", None)
+        self.prompt_tokens += _usage_int(usage, "prompt_tokens", "input_tokens")
+        self.completion_tokens += _usage_int(
+            usage,
+            "completion_tokens",
+            "output_tokens",
+        )
+        self.total_tokens += _usage_int(usage, "total_tokens")
+
+
+def zero_llm_usage() -> dict[str, int]:
+    return LLMCallTracker().as_dict()
+
+
+def _usage_int(usage: Any, *names: str) -> int:
+    if usage is None:
+        return 0
+    for name in names:
+        if isinstance(usage, dict):
+            value = usage.get(name)
+        else:
+            value = getattr(usage, name, None)
+        if value is not None:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return 0
+    return 0
+
+
+def _response_text_or_empty(response: Any) -> str:
+    choices = getattr(response, "choices", None)
+    if not choices:
+        return ""
+    choice = choices[0]
+    message = getattr(choice, "message", None)
+    if isinstance(message, dict):
+        content = message.get("content")
+    else:
+        content = getattr(message, "content", None)
+    if content is None:
+        content = getattr(choice, "text", None)
+    return content if isinstance(content, str) else ""
 
 
 if __name__ == "__main__":
