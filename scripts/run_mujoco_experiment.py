@@ -1010,6 +1010,8 @@ def mujoco_planning_reward_proxy(
         angle = _safe_state_value(state, 1)
         healthy = 1.0 if height > 0.7 and abs(angle) < 0.4 else -1.0
         return _safe_state_value(state, 5) + healthy - 0.001 * action_cost
+    if "swimmer" in env:
+        return _safe_state_value(state, 3) - 0.0001 * action_cost
     if "inverteddoublependulum" in env:
         return -float(np.sum(np.square(state[: min(5, state.shape[0])]))) - 0.001 * action_cost
     if "invertedpendulum" in env:

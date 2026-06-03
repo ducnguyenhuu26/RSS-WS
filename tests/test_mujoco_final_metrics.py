@@ -40,6 +40,17 @@ def test_reward_proxy_prefers_forward_velocity_for_halfcheetah():
     )
 
 
+def test_reward_proxy_prefers_forward_velocity_for_swimmer():
+    slow = np.zeros(8, dtype=np.float32)
+    fast = np.zeros(8, dtype=np.float32)
+    fast[3] = 1.0
+    action = np.zeros(2, dtype=np.float32)
+
+    assert mujoco_planning_reward_proxy("Swimmer-v5", fast, action) > (
+        mujoco_planning_reward_proxy("Swimmer-v5", slow, action)
+    )
+
+
 def test_score_action_sequences_rolls_model_forward():
     def predict_next(state, action):
         return np.asarray(state, dtype=np.float32) + np.asarray(action, dtype=np.float32)

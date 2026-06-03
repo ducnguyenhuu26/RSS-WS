@@ -61,6 +61,7 @@ Run:
 InvertedPendulum-v5
 InvertedDoublePendulum-v5
 Reacher-v5
+Swimmer-v5
 Hopper-v5
 Walker2d-v5
 HalfCheetah-v5

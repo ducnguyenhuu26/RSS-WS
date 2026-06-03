@@ -30,6 +30,7 @@ Use the MuJoCo v5 tasks up to HalfCheetah:
 InvertedPendulum-v5
 InvertedDoublePendulum-v5
 Reacher-v5
+Swimmer-v5
 Hopper-v5
 Walker2d-v5
 HalfCheetah-v5
@@ -76,7 +77,7 @@ Example full sweep command:
 
 ```bash
 uv run --env-file .env python main.py -m \
-  problem=InvertedPendulum-v5,InvertedDoublePendulum-v5,Reacher-v5,Hopper-v5,Walker2d-v5,HalfCheetah-v5 \
+  problem=InvertedPendulum-v5,InvertedDoublePendulum-v5,Reacher-v5,Swimmer-v5,Hopper-v5,Walker2d-v5,HalfCheetah-v5 \
   model=onelife,ours,program_only,neural,symbolic,symbolic_neural \
   seed=0,1,2
 ```
