@@ -21,24 +21,23 @@ ENV_ORDER = [
 
 MODEL_ORDER = [
     "onelife",
-    "ours_new",
-    "ours_gated_island",
-    "ours_gated",
-    "ours",
-    "program_only",
+    "pets_ensemble",
     "neural",
-    "symbolic",
-    "symbolic_neural",
+    "program_only",
+    "ours",
+    "ours_gated",
+    "ours_new",
 ]
 
 MODEL_LABELS = {
     "onelife": "Adaptive OneLife",
+    "pets_ensemble": "PETS-style neural ensemble + MPC",
+    "neural": "Neural only + MPC",
+    "program_only": "Ours: LLM symbolic only",
+    "ours": "Ours: LLM symbolic + neural",
+    "ours_gated": "Ours: gated LLM symbolic + neural",
     "ours_new": "Ours New: niche-island gated LLM + neural",
     "ours_gated_island": "Ours: niche-island gated LLM + neural",
-    "ours_gated": "Ours: gated LLM symbolic + neural",
-    "ours": "Ours: LLM symbolic + neural",
-    "program_only": "Ours: LLM symbolic only",
-    "neural": "Ours: neural only",
     "symbolic": "Ours: standard symbolic only",
     "symbolic_neural": "Ours: standard symbolic + neural",
 }

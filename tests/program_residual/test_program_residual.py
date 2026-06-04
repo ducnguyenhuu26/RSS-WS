@@ -6,6 +6,7 @@ import torch.nn as nn
 
 from onelife.program_residual import (
     KinematicPositionLaw,
+    NeuralEnsembleWorldModel,
     ProgramResidualTrainerConfig,
     ProgramResidualWorldModel,
     ResidualMLP,
@@ -150,6 +151,28 @@ def test_gated_model_uses_symbolic_only_for_known_dimensions():
 
     assert torch.allclose(output.symbolic_gate, torch.tensor([1.0, 0.0]))
     assert torch.allclose(output.prediction, torch.tensor([1.3, 2.0]))
+
+
+def test_neural_ensemble_world_model_averages_member_predictions():
+    member_a = ProgramResidualWorldModel(
+        state_dim=2,
+        action_dim=1,
+        program=SymbolicProgram(state_dim=2, laws=[]),
+        residual_model=ConstantResidual(torch.tensor([1.0, 3.0])),
+    )
+    member_b = ProgramResidualWorldModel(
+        state_dim=2,
+        action_dim=1,
+        program=SymbolicProgram(state_dim=2, laws=[]),
+        residual_model=ConstantResidual(torch.tensor([3.0, 5.0])),
+    )
+    model = NeuralEnsembleWorldModel([member_a, member_b])
+
+    output = model(torch.tensor([10.0, 20.0]), torch.tensor([0.0]))
+
+    assert torch.allclose(output.prediction, torch.tensor([12.0, 24.0]))
+    assert output.ensemble_variance is not None
+    assert torch.allclose(output.ensemble_variance, torch.tensor([1.0, 1.0]))
 
 
 def test_training_step_updates_residual_model_parameters():

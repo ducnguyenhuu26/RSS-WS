@@ -22,14 +22,14 @@ discretization:
   action_bins: 11
 
 rollout:
-  horizons: [1, 5, 10, 25, 50]
+  horizons: []
   num_rollouts: 20
   action_policy: zero
   stop_on_done: false
 
 planning:
   enabled: true
-  num_episodes: 2
+  num_episodes: 1
   max_episode_steps: 200
   horizon: 5
   random_candidates: 64
@@ -46,6 +46,13 @@ island_search:
   migrants_per_island: 1
   max_laws_per_program: 5
   validation_sample_count: 1024
+
+pets:
+  ensemble_size: 5
+  bootstrap: true
+
+diagnostics:
+  symbolic_baselines: false
 
 output_dir: outputs
 output_name: null

@@ -39,7 +39,9 @@ from onelife.program_residual import (
     ResidualMLP,
     SymbolicProgram,
     TransitionBatch,
+    build_neural_ensemble_world_model,
     collect_mujoco_dataset,
+    fit_neural_ensemble,
     fit_supervised,
     synthesize_with_island_search,
 )
@@ -102,6 +104,16 @@ def main(cfg: DictConfig) -> None:
 
     if model_name == "onelife":
         run_onelife_llm_baseline(
+            cfg=cfg,
+            problem=problem,
+            train_dataset=train_dataset,
+            test_dataset=test_dataset,
+            output_path=output_path,
+        )
+        return
+
+    if is_pets_ensemble_model(model_name):
+        run_pets_ensemble_baseline(
             cfg=cfg,
             problem=problem,
             train_dataset=train_dataset,
@@ -182,17 +194,11 @@ def main(cfg: DictConfig) -> None:
         rollout_stop_on_done=bool(cfg.rollout.stop_on_done),
         planner_config=build_planner_config(cfg),
     )
-    symbolic_metrics = evaluate_symbolic_baselines(
+    symbolic_metrics = evaluate_optional_symbolic_diagnostics(
+        cfg=cfg,
+        problem=problem,
         train_dataset=train_dataset,
         test_dataset=test_dataset,
-        state_bins=int(cfg.discretization.state_bins),
-        action_bins=int(cfg.discretization.action_bins),
-        env_id=problem,
-        seed=int(cfg.seed) + 20_000,
-        rollout_horizons=tuple(int(horizon) for horizon in cfg.rollout.horizons),
-        rollout_num_rollouts=int(cfg.rollout.num_rollouts),
-        rollout_action_policy=str(cfg.rollout.action_policy),
-        rollout_stop_on_done=bool(cfg.rollout.stop_on_done),
     )
     results = {
         "problem": problem,
@@ -265,7 +271,7 @@ def symbolic_source_for_model(model_name: str) -> str:
             raise ValueError(
                 "model must be one of: ours, program_only, neural, symbolic, "
                 "symbolic_neural, ours_new, ours_gated, ours_gated_island, "
-                "symbolic_neural_gated, onelife, discrete_symbolic"
+                "symbolic_neural_gated, onelife, pets_ensemble, discrete_symbolic"
             )
 
 
@@ -317,6 +323,15 @@ def is_discrete_symbolic_model(model_name: str) -> bool:
         "discrete_symbolic",
         "symbolic_discrete",
         "onelife_standard",
+    }
+
+
+def is_pets_ensemble_model(model_name: str) -> bool:
+    return model_name in {
+        "pets",
+        "pets_ensemble",
+        "neural_ensemble",
+        "ensemble",
     }
 
 
@@ -425,6 +440,92 @@ class ZeroResidual(nn.Module):
         unknown_mask: torch.Tensor,
     ) -> torch.Tensor:
         return torch.zeros_like(states)
+
+
+def run_pets_ensemble_baseline(
+    cfg: DictConfig,
+    problem: str,
+    train_dataset,
+    test_dataset,
+    output_path: Path,
+) -> None:
+    device = resolve_torch_device(cfg.get("device", "auto"))
+    if device.type == "cuda":
+        torch.cuda.manual_seed_all(int(cfg.seed))
+    pets_cfg = cfg.get("pets", {})
+    ensemble_size = int(pets_cfg.get("ensemble_size", 5))
+    bootstrap = bool(pets_cfg.get("bootstrap", True))
+    model = build_neural_ensemble_world_model(
+        state_dim=train_dataset.state_dim,
+        action_dim=train_dataset.action_dim,
+        hidden_sizes=tuple(int(size) for size in cfg.hidden_sizes),
+        ensemble_size=ensemble_size,
+    ).to(device)
+    histories = fit_neural_ensemble(
+        model=model,
+        dataset=train_dataset,
+        batch_size=int(cfg.batch_size),
+        config=ProgramResidualTrainerConfig(
+            learning_rate=float(cfg.learning_rate),
+            residual_l2_weight=float(cfg.residual_l2_weight),
+        ),
+        num_epochs=int(cfg.epochs),
+        seed=int(cfg.seed),
+        device=device,
+        bootstrap=bootstrap,
+    )
+    continuous_metrics = evaluate_program_residual(
+        model=model,
+        train_dataset=train_dataset,
+        test_dataset=test_dataset,
+        env_id=problem,
+        seed=int(cfg.seed) + 10_000,
+        state_bins=int(cfg.discretization.state_bins),
+        action_bins=int(cfg.discretization.action_bins),
+        rollout_horizons=tuple(int(horizon) for horizon in cfg.rollout.horizons),
+        rollout_num_rollouts=int(cfg.rollout.num_rollouts),
+        rollout_action_policy=str(cfg.rollout.action_policy),
+        rollout_stop_on_done=bool(cfg.rollout.stop_on_done),
+        planner_config=build_planner_config(cfg),
+    )
+    symbolic_metrics = evaluate_optional_symbolic_diagnostics(
+        cfg=cfg,
+        problem=problem,
+        train_dataset=train_dataset,
+        test_dataset=test_dataset,
+    )
+    final_losses = [history[-1].loss for history in histories if history]
+    results = {
+        "problem": problem,
+        "model": "pets_ensemble",
+        "symbolic_source": "empty",
+        "neural_residual": True,
+        "symbolic_gate": False,
+        "neural_ensemble": True,
+        "ensemble_size": ensemble_size,
+        "bootstrap": bootstrap,
+        "residual_correction": "all_dimensions",
+        "seed": int(cfg.seed),
+        **runtime_metadata(device),
+        "llm_calls": 0,
+        "llm_usage": zero_llm_usage(),
+        "train_steps": int(cfg.train_steps),
+        "test_steps": int(cfg.test_steps),
+        "state_dim": train_dataset.state_dim,
+        "action_dim": train_dataset.action_dim,
+        "final_train_loss": float(np.mean(final_losses)) if final_losses else None,
+        "member_final_train_losses": final_losses,
+        "score": score_payload_from_metrics(continuous_metrics),
+        "reward": reward_payload_from_metrics(continuous_metrics),
+        "program_residual": continuous_metrics,
+        "symbolic_baselines": symbolic_metrics,
+        "island_search": {},
+        "config": OmegaConf.to_container(cfg, resolve=True),
+    }
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
+    print(json.dumps(results, indent=2))
+    print(f"wrote {output_path}")
 
 
 def run_discrete_symbolic_baseline(
@@ -537,17 +638,11 @@ def run_onelife_llm_baseline(
                 config=planner_config,
             )
         )
-    symbolic_metrics = evaluate_symbolic_baselines(
+    symbolic_metrics = evaluate_optional_symbolic_diagnostics(
+        cfg=cfg,
+        problem=problem,
         train_dataset=train_dataset,
         test_dataset=test_dataset,
-        state_bins=int(cfg.discretization.state_bins),
-        action_bins=int(cfg.discretization.action_bins),
-        env_id=problem,
-        seed=int(cfg.seed) + 20_000,
-        rollout_horizons=tuple(int(horizon) for horizon in cfg.rollout.horizons),
-        rollout_num_rollouts=int(cfg.rollout.num_rollouts),
-        rollout_action_policy=str(cfg.rollout.action_policy),
-        rollout_stop_on_done=bool(cfg.rollout.stop_on_done),
     )
     llm_usage = llm_tracker.as_dict()
     results = {
@@ -586,6 +681,29 @@ def build_output_path(cfg: DictConfig, problem: str, model_name: str) -> Path:
         safe_problem = problem.replace("/", "_")
         output_name = f"{safe_problem}-{model_name}-seed{int(cfg.seed)}.json"
     return output_dir / str(output_name)
+
+
+def evaluate_optional_symbolic_diagnostics(
+    cfg: DictConfig,
+    problem: str,
+    train_dataset,
+    test_dataset,
+) -> dict[str, object]:
+    diagnostics_cfg = cfg.get("diagnostics", {})
+    if not bool(diagnostics_cfg.get("symbolic_baselines", False)):
+        return {}
+    return evaluate_symbolic_baselines(
+        train_dataset=train_dataset,
+        test_dataset=test_dataset,
+        state_bins=int(cfg.discretization.state_bins),
+        action_bins=int(cfg.discretization.action_bins),
+        env_id=problem,
+        seed=int(cfg.seed) + 20_000,
+        rollout_horizons=tuple(int(horizon) for horizon in cfg.rollout.horizons),
+        rollout_num_rollouts=int(cfg.rollout.num_rollouts),
+        rollout_action_policy=str(cfg.rollout.action_policy),
+        rollout_stop_on_done=bool(cfg.rollout.stop_on_done),
+    )
 
 
 def build_planner_config(cfg: DictConfig) -> PlannerEvaluationConfig:

@@ -1,4 +1,10 @@
 from .core import LawPrediction, ModelOutput, ProgramOutput, TransitionBatch
+from .ensemble import (
+    NeuralEnsembleConfig,
+    NeuralEnsembleWorldModel,
+    build_neural_ensemble_world_model,
+    fit_neural_ensemble,
+)
 from .laws import (
     ContinuousLaw,
     JointLimitVelocityLaw,
@@ -51,6 +57,8 @@ __all__ = [
     "IslandSearchResult",
     "ModelOutput",
     "MuJoCoCollectionConfig",
+    "NeuralEnsembleConfig",
+    "NeuralEnsembleWorldModel",
     "ProgramOutput",
     "ProgramResidualTrainerConfig",
     "ProgramResidualWorldModel",
@@ -66,6 +74,8 @@ __all__ = [
     "compute_program_residual_loss",
     "extract_python_code",
     "fit_supervised",
+    "build_neural_ensemble_world_model",
+    "fit_neural_ensemble",
     "make_optimizer",
     "synthesize_with_island_search",
     "train_step",

@@ -3,6 +3,7 @@ import torch
 from main import (
     ZeroResidual,
     is_discrete_symbolic_model,
+    is_pets_ensemble_model,
     model_uses_island_search,
     model_uses_neural_residual,
     model_uses_symbolic_gate,
@@ -42,6 +43,8 @@ def test_model_options_map_to_expected_components():
     assert is_discrete_symbolic_model("discrete_symbolic")
     assert not is_discrete_symbolic_model("symbolic")
     assert not is_discrete_symbolic_model("ours")
+    assert is_pets_ensemble_model("pets_ensemble")
+    assert not is_pets_ensemble_model("neural")
 
 
 def test_zero_residual_returns_zero_state_shaped_tensor():

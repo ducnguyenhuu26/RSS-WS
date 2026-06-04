@@ -27,6 +27,9 @@ MuJoCo states.
 world model is used by the planner to choose actions; the selected actions are
 executed in the real Gymnasium environment.
 
+The final protocol averages both prediction and planner metrics over three
+seeds. Planner evaluation uses one episode per seed.
+
 ## Planners
 
 Two planners are included:
@@ -42,18 +45,16 @@ elite candidates.
 
 ## Compared Models
 
-The final comparison keeps adaptive OneLife plus framework variants including
-gated and niche-island hybrids:
+The final comparison uses seven models:
 
 ```text
 onelife
-ours_new
-ours_gated
-ours
-program_only
+pets_ensemble
 neural
-symbolic
-symbolic_neural
+program_only
+ours
+ours_gated
+ours_new
 ```
 
 ## Environments
@@ -84,6 +85,9 @@ Pusher-v5
   available GPU. The resolved device is stored in the output JSON.
 - `llm_calls` and `llm_usage` are stored in each output JSON for LLM-call
   ablations. Non-LLM baselines record zero calls.
+- `pets_ensemble` is a PETS-style bootstrap ensemble of neural dynamics models
+  trained on the same offline transitions and evaluated with the same MPC
+  planners.
 - `ours_new` performs single-LLM, niche-based symbolic law search:
   kinematic, action-dynamics, sparse-conservative, and broad-exploratory
   islands exchange validated candidates through controlled migration before the
@@ -96,7 +100,9 @@ Pusher-v5
   selection also considers an archive-union program assembled from validated
   laws, reducing the chance that useful laws are discarded early.
 - Legacy metrics are still kept under `program_residual`, `onelife_llm`, and
-  `symbolic_baselines` for debugging.
+  `symbolic_baselines` for debugging when diagnostics are enabled. The final
+  config disables extra diagnostics by default to keep the 3-seed full sweep
+  tractable.
 - The default aggregation metric is now
   `score.one_step_delta_r2_uniform`.
 - `scripts/format_mujoco_final_table.py` formats final markdown tables directly

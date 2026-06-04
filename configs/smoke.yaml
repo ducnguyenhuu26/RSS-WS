@@ -47,6 +47,13 @@ island_search:
   max_laws_per_program: 2
   validation_sample_count: 4
 
+pets:
+  ensemble_size: 2
+  bootstrap: true
+
+diagnostics:
+  symbolic_baselines: false
+
 output_dir: outputs
 output_name: null
 skip_existing: false
