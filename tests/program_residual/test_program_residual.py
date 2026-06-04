@@ -33,6 +33,22 @@ class ConstantResidual(nn.Module):
         return self.residual.expand_as(states)
 
 
+class FixedGate(nn.Module):
+    def __init__(self, gate: torch.Tensor) -> None:
+        super().__init__()
+        self.register_buffer("gate", gate)
+
+    def forward(
+        self,
+        states: torch.Tensor,
+        actions: torch.Tensor,
+        symbolic_delta: torch.Tensor,
+        confidence: torch.Tensor,
+        unknown_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        return self.gate.expand_as(states)
+
+
 def test_symbolic_program_marks_uncovered_dimensions_unknown():
     program = SymbolicProgram(
         state_dim=2,
@@ -108,6 +124,32 @@ def test_program_residual_model_default_allows_residual_to_correct_known_dimensi
     assert torch.allclose(output.program_next_state, torch.tensor([1.3, 3.0]))
     assert torch.allclose(output.applied_residual, torch.tensor([10.0, -1.0]))
     assert torch.allclose(output.prediction, torch.tensor([11.3, 2.0]))
+
+
+def test_gated_model_uses_symbolic_only_for_known_dimensions():
+    program = SymbolicProgram(
+        state_dim=2,
+        laws=[
+            KinematicPositionLaw(
+                position_indices=[0],
+                velocity_indices=[1],
+                dt=0.1,
+                confidence=1.0,
+            )
+        ],
+    )
+    model = ProgramResidualWorldModel(
+        state_dim=2,
+        action_dim=1,
+        program=program,
+        residual_model=ConstantResidual(torch.tensor([10.0, -1.0])),
+        gate_model=FixedGate(torch.tensor([1.0, 1.0])),
+    )
+
+    output = model(torch.tensor([1.0, 3.0]), torch.tensor([0.0]))
+
+    assert torch.allclose(output.symbolic_gate, torch.tensor([1.0, 0.0]))
+    assert torch.allclose(output.prediction, torch.tensor([1.3, 2.0]))
 
 
 def test_training_step_updates_residual_model_parameters():

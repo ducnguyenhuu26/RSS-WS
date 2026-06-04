@@ -1,6 +1,5 @@
 problem: Hopper-v5
-probllem: null
-model: ours
+model: ours_new
 
 seed: 0
 train_steps: 10000
@@ -38,8 +37,19 @@ planning:
   cem_elites: 8
   cem_iterations: 2
 
+island_search:
+  candidates_per_niche: 2
+  generations: 2
+  island_size: 6
+  elite_per_island: 2
+  migration_interval: 1
+  migrants_per_island: 1
+  max_laws_per_program: 5
+  validation_sample_count: 1024
+
 output_dir: outputs
 output_name: null
+skip_existing: false
 verbose: false
 
 hydra:

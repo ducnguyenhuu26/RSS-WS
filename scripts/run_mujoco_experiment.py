@@ -327,6 +327,8 @@ def evaluate_program_residual(
             ),
         ),
     }
+    if output.symbolic_gate is not None:
+        metrics["mean_symbolic_gate"] = float(output.symbolic_gate.float().mean().cpu())
     rollout_metrics = evaluate_open_loop_rollouts(
         model=model,
         env_id=env_id,

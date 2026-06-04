@@ -12,6 +12,11 @@ from .llm_synthesizer import (
     compile_synthesized_laws,
     extract_python_code,
 )
+from .island_search import (
+    IslandSearchConfig,
+    IslandSearchResult,
+    synthesize_with_island_search,
+)
 from .model import ProgramResidualWorldModel
 from .mujoco import (
     MuJoCoCollectionConfig,
@@ -22,7 +27,7 @@ from .mujoco import (
     transitions_to_batch,
 )
 from .program import SymbolicProgram
-from .residual import ResidualMLP
+from .residual import DeltaGateMLP, ResidualMLP
 from .trainer import (
     ProgramResidualTrainerConfig,
     TrainingMetrics,
@@ -34,6 +39,7 @@ from .trainer import (
 
 __all__ = [
     "ContinuousLaw",
+    "DeltaGateMLP",
     "JointLimitVelocityLaw",
     "KinematicPositionLaw",
     "LawPrediction",
@@ -41,6 +47,8 @@ __all__ = [
     "LLMLawSynthesisConfig",
     "LLMSymbolicLawSynthesizer",
     "LLMSynthesizedLaws",
+    "IslandSearchConfig",
+    "IslandSearchResult",
     "ModelOutput",
     "MuJoCoCollectionConfig",
     "ProgramOutput",
@@ -59,6 +67,7 @@ __all__ = [
     "extract_python_code",
     "fit_supervised",
     "make_optimizer",
+    "synthesize_with_island_search",
     "train_step",
     "transitions_to_batch",
 ]

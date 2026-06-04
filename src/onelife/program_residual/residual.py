@@ -82,3 +82,65 @@ class ResidualMLP(nn.Module):
             unknown_mask=unknown_mask,
         )
         return self.net(features)
+
+
+class DeltaGateMLP(nn.Module):
+    """Dimension-wise reliability gate for symbolic delta predictions."""
+
+    def __init__(
+        self,
+        state_dim: int,
+        action_dim: int,
+        hidden_sizes: Sequence[int] = (128, 128),
+        activation: str = "silu",
+        initial_logit: float = -4.0,
+    ) -> None:
+        super().__init__()
+        if state_dim <= 0 or action_dim <= 0:
+            raise ValueError("state_dim and action_dim must be positive")
+        self.state_dim = int(state_dim)
+        self.action_dim = int(action_dim)
+
+        input_dim = state_dim + action_dim + state_dim + state_dim + state_dim
+        layers: list[nn.Module] = []
+        previous_dim = input_dim
+        for hidden_size in hidden_sizes:
+            layers.append(nn.Linear(previous_dim, int(hidden_size)))
+            layers.append(_activation_module(activation))
+            previous_dim = int(hidden_size)
+        output_layer = nn.Linear(previous_dim, state_dim)
+        nn.init.zeros_(output_layer.weight)
+        nn.init.constant_(output_layer.bias, float(initial_logit))
+        layers.append(output_layer)
+        self.net = nn.Sequential(*layers)
+
+    def build_features(
+        self,
+        states: torch.Tensor,
+        actions: torch.Tensor,
+        symbolic_delta: torch.Tensor,
+        confidence: torch.Tensor,
+        unknown_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        known_mask = 1.0 - unknown_mask
+        return torch.cat(
+            [states, actions, symbolic_delta, confidence, known_mask],
+            dim=-1,
+        )
+
+    def forward(
+        self,
+        states: torch.Tensor,
+        actions: torch.Tensor,
+        symbolic_delta: torch.Tensor,
+        confidence: torch.Tensor,
+        unknown_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        features = self.build_features(
+            states=states,
+            actions=actions,
+            symbolic_delta=symbolic_delta,
+            confidence=confidence,
+            unknown_mask=unknown_mask,
+        )
+        return torch.sigmoid(self.net(features))

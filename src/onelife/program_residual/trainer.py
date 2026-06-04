@@ -24,6 +24,7 @@ class TrainingMetrics:
     prediction_loss: float
     residual_l2: float
     mean_unknown_fraction: float
+    mean_symbolic_gate: float | None = None
 
 
 def compute_program_residual_loss(
@@ -39,6 +40,9 @@ def compute_program_residual_loss(
         "residual_l2": residual_l2.detach(),
         "mean_unknown_fraction": output.unknown_mask.float().mean().detach(),
     }
+    symbolic_gate = getattr(output, "symbolic_gate", None)
+    if symbolic_gate is not None:
+        metrics["mean_symbolic_gate"] = symbolic_gate.float().mean().detach()
     return loss, metrics
 
 
@@ -76,6 +80,9 @@ def train_step(
         prediction_loss=float(tensors["prediction_loss"].cpu()),
         residual_l2=float(tensors["residual_l2"].cpu()),
         mean_unknown_fraction=float(tensors["mean_unknown_fraction"].cpu()),
+        mean_symbolic_gate=float(tensors["mean_symbolic_gate"].cpu())
+        if "mean_symbolic_gate" in tensors
+        else None,
     )
 
 

@@ -42,10 +42,13 @@ elite candidates.
 
 ## Compared Models
 
-The final comparison keeps adaptive OneLife plus five framework variants:
+The final comparison keeps adaptive OneLife plus framework variants including
+gated and niche-island hybrids:
 
 ```text
 onelife
+ours_new
+ours_gated
 ours
 program_only
 neural
@@ -81,6 +84,17 @@ Pusher-v5
   available GPU. The resolved device is stored in the output JSON.
 - `llm_calls` and `llm_usage` are stored in each output JSON for LLM-call
   ablations. Non-LLM baselines record zero calls.
+- `ours_new` performs single-LLM, niche-based symbolic law search:
+  kinematic, action-dynamics, sparse-conservative, and broad-exploratory
+  islands exchange validated candidates through controlled migration before the
+  selected program is passed to the learned gate.
+- `ours_gated_island` remains as a compatibility alias for `ours_new`, but new
+  result files should use `model=ours_new`.
+- Island selection is intentionally soft: each island keeps elites under
+  multiple criteria rather than only top fitness, including delta R2, coverage,
+  sparsity, and niche-specific focus. A global archive is retained and final
+  selection also considers an archive-union program assembled from validated
+  laws, reducing the chance that useful laws are discarded early.
 - Legacy metrics are still kept under `program_residual`, `onelife_llm`, and
   `symbolic_baselines` for debugging.
 - The default aggregation metric is now

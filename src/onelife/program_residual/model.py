@@ -18,6 +18,7 @@ class ProgramResidualWorldModel(nn.Module):
         action_dim: int,
         program: SymbolicProgram,
         residual_model: nn.Module,
+        gate_model: nn.Module | None = None,
         apply_unknown_mask: bool = False,
     ) -> None:
         super().__init__()
@@ -27,6 +28,7 @@ class ProgramResidualWorldModel(nn.Module):
         self.action_dim = int(action_dim)
         self.program = program
         self.residual_model = residual_model
+        self.gate_model = gate_model
         self.apply_unknown_mask = bool(apply_unknown_mask)
 
     def forward(self, states: torch.Tensor, actions: torch.Tensor) -> ModelOutput:
@@ -56,12 +58,26 @@ class ProgramResidualWorldModel(nn.Module):
             program_output.next_state,
             program_output.unknown_mask,
         )
-        applied_residual = (
-            program_output.unknown_mask * residual
-            if self.apply_unknown_mask
-            else residual
-        )
-        prediction = program_output.next_state + applied_residual
+        symbolic_gate = None
+        if self.gate_model is None:
+            applied_residual = (
+                program_output.unknown_mask * residual
+                if self.apply_unknown_mask
+                else residual
+            )
+            prediction = program_output.next_state + applied_residual
+        else:
+            symbolic_delta = program_output.next_state - states_batched
+            raw_gate = self.gate_model(
+                states_batched,
+                actions_batched,
+                symbolic_delta,
+                program_output.confidence,
+                program_output.unknown_mask,
+            )
+            symbolic_gate = raw_gate * (1.0 - program_output.unknown_mask)
+            applied_residual = (1.0 - symbolic_gate) * residual
+            prediction = states_batched + symbolic_gate * symbolic_delta + applied_residual
 
         if squeeze:
             prediction = prediction.squeeze(0)
@@ -70,6 +86,8 @@ class ProgramResidualWorldModel(nn.Module):
             applied_residual = applied_residual.squeeze(0)
             confidence = program_output.confidence.squeeze(0)
             unknown_mask = program_output.unknown_mask.squeeze(0)
+            if symbolic_gate is not None:
+                symbolic_gate = symbolic_gate.squeeze(0)
         else:
             program_next_state = program_output.next_state
             confidence = program_output.confidence
@@ -83,6 +101,7 @@ class ProgramResidualWorldModel(nn.Module):
             confidence=confidence,
             unknown_mask=unknown_mask,
             active_laws=program_output.active_laws,
+            symbolic_gate=symbolic_gate,
         )
 
     @torch.no_grad()

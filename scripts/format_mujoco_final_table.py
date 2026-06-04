@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 from collections import defaultdict
 from pathlib import Path
@@ -20,6 +21,9 @@ ENV_ORDER = [
 
 MODEL_ORDER = [
     "onelife",
+    "ours_new",
+    "ours_gated_island",
+    "ours_gated",
     "ours",
     "program_only",
     "neural",
@@ -29,6 +33,9 @@ MODEL_ORDER = [
 
 MODEL_LABELS = {
     "onelife": "Adaptive OneLife",
+    "ours_new": "Ours New: niche-island gated LLM + neural",
+    "ours_gated_island": "Ours: niche-island gated LLM + neural",
+    "ours_gated": "Ours: gated LLM symbolic + neural",
     "ours": "Ours: LLM symbolic + neural",
     "program_only": "Ours: LLM symbolic only",
     "neural": "Ours: neural only",
@@ -51,7 +58,7 @@ def main() -> None:
     args = parser.parse_args()
 
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
-    for path in args.files:
+    for path in expand_input_paths(args.files):
         payload = json.loads(path.read_text(encoding="utf-8"))
         env = payload.get("problem") or payload.get("env_id")
         model = payload.get("model")
@@ -84,6 +91,18 @@ def _ordered_envs(grouped: dict[tuple[str, str], list[dict[str, Any]]]) -> list[
     ordered = [env for env in ENV_ORDER if env in available]
     ordered.extend(sorted(available - set(ordered)))
     return ordered
+
+
+def expand_input_paths(paths: list[Path]) -> list[Path]:
+    expanded: list[Path] = []
+    for path in paths:
+        raw = str(path)
+        if any(char in raw for char in "*?["):
+            matches = [Path(match) for match in sorted(glob.glob(raw))]
+            expanded.extend(matches or [path])
+        else:
+            expanded.append(path)
+    return expanded
 
 
 def _format_metric(

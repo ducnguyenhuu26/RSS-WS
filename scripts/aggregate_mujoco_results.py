@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 from pathlib import Path
 from statistics import mean, stdev
@@ -21,7 +22,7 @@ def main() -> None:
     args = parser.parse_args()
 
     rows = []
-    for path in args.files:
+    for path in expand_input_paths(args.files):
         payload = json.loads(path.read_text(encoding="utf-8"))
         rows.append(
             {
@@ -32,6 +33,9 @@ def main() -> None:
                 "value": float(get_nested(payload, args.metric)),
             }
         )
+
+    if not rows:
+        raise SystemExit("no readable result rows")
 
     values = [row["value"] for row in rows]
     avg = mean(values)
@@ -61,6 +65,18 @@ def get_nested(payload: dict[str, Any], dotted_key: str) -> Any:
             raise KeyError(f"metric '{dotted_key}' not found; missing '{part}'")
         current = current[part]
     return current
+
+
+def expand_input_paths(paths: list[Path]) -> list[Path]:
+    expanded: list[Path] = []
+    for path in paths:
+        raw = str(path)
+        if any(char in raw for char in "*?["):
+            matches = [Path(match) for match in sorted(glob.glob(raw))]
+            expanded.extend(matches or [path])
+        else:
+            expanded.append(path)
+    return expanded
 
 
 if __name__ == "__main__":

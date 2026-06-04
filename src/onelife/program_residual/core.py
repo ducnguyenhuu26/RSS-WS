@@ -53,6 +53,7 @@ class ModelOutput:
     confidence: torch.Tensor
     unknown_mask: torch.Tensor
     active_laws: tuple[tuple[str, ...], ...]
+    symbolic_gate: torch.Tensor | None = None
 
 
 class ContinuousLawProtocol(Protocol):

@@ -1,6 +1,5 @@
 problem: InvertedPendulum-v5
-probllem: null
-model: ours
+model: ours_new
 
 seed: 0
 train_steps: 8
@@ -38,8 +37,19 @@ planning:
   cem_elites: 2
   cem_iterations: 1
 
+island_search:
+  candidates_per_niche: 1
+  generations: 1
+  island_size: 2
+  elite_per_island: 1
+  migration_interval: 1
+  migrants_per_island: 1
+  max_laws_per_program: 2
+  validation_sample_count: 4
+
 output_dir: outputs
 output_name: null
+skip_existing: false
 verbose: false
 
 hydra:

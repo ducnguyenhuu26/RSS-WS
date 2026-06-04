@@ -1,3 +1,3 @@
 [submodule "external/crafter_oo"]
 	path = external/crafter_oo
-	url = git@github.com:codezakh/crafter_oo.git
+	url = https://github.com/codezakh/crafter_oo.git

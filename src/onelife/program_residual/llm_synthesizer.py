@@ -41,6 +41,8 @@ class LLMLawSynthesisConfig:
     validation_sample_count: int = 256
     max_validation_mse_ratio: float = 1.25
     validation_abs_tolerance: float = 1e-3
+    niche: str | None = None
+    extra_instructions: str = ""
 
 
 @dataclass(frozen=True)
@@ -162,6 +164,7 @@ Environment: {config.env_id}
 State dimension: {state_dim}
 Action dimension: {action_dim}
 Integration dt: {config.dt}
+Search niche: {config.niche or "general"}
 
 Return only Python code inside one ```python fenced block.
 Do not import anything. The execution namespace already contains:
@@ -190,6 +193,7 @@ LawPrediction fields:
 
 Prefer compact interpretable laws. Use the neural residual for dimensions you cannot
 explain confidently. Avoid predicting every dimension with weak made-up rules.
+{config.extra_instructions}
 
 Observed transitions:
 {samples}

@@ -2,8 +2,8 @@
 
 This repository is based on One Life to Learn and adapts the symbolic OneLife
 world-modeling framework to MuJoCo continuous-control environments. The current
-experiments compare adaptive OneLife against five variants of our MuJoCo
-framework.
+experiments compare adaptive OneLife against gated, ungated, and niche-island
+variants of our MuJoCo framework.
 
 ## Final Evaluation
 
@@ -45,11 +45,16 @@ Pusher-v5
 
 ## Model Set
 
-The final table keeps the previous comparison principle: adaptive OneLife plus
-five variants of our framework.
+The final table keeps the previous comparison principle and adds gated hybrid
+variants that learn when to trust symbolic dynamics. The island variant treats
+LLM laws as a population search problem rather than trusting one generated law
+set.
 
 ```text
 onelife          Adaptive OneLife binned LLM law mixture
+ours_new        Final niche-island LLM law search + gated neural residual
+ours_gated_island  Compatibility alias for the niche-island gated variant
+ours_gated       Gated LLM symbolic program + neural residual
 ours             LLM symbolic program + neural residual
 program_only     LLM symbolic program only
 neural           Neural residual only
@@ -62,6 +67,8 @@ symbolic_neural  Standard symbolic prior + neural residual
 Default Hydra config is in `configs/config.yaml`. The smoke config is
 `configs/smoke.yaml`. `device: auto` uses CUDA when PyTorch can see a GPU and
 falls back to CPU otherwise.
+Use `uv` with `pyproject.toml` and `uv.lock` for setup; stale pip requirements
+files are not part of the final MuJoCo run path.
 
 Check the GPU environment on the 3060 machine before the sweep:
 
@@ -78,8 +85,9 @@ Example full sweep command:
 ```bash
 uv run --env-file .env python main.py -m \
   problem=InvertedPendulum-v5,InvertedDoublePendulum-v5,Reacher-v5,Swimmer-v5,Hopper-v5,Walker2d-v5,HalfCheetah-v5 \
-  model=onelife,ours,program_only,neural,symbolic,symbolic_neural \
-  seed=0,1,2
+  model=onelife,ours_new,ours_gated,ours,program_only,neural,symbolic,symbolic_neural \
+  seed=0,1,2,3,4 \
+  skip_existing=true
 ```
 
 Format the final markdown tables from JSON outputs:
@@ -110,6 +118,17 @@ uv run --env-file .env python scripts/aggregate_mujoco_results.py outputs/*.json
   precondition-effect laws.
 - The neural residual is a full correction term, not masked to only unknown
   symbolic dimensions.
+- `ours_gated` uses a learned dimension-wise gate initialized near neural-only
+  behavior. The gate can open on dimensions where symbolic dynamics are useful
+  and stays closed on dimensions that symbolic laws do not cover.
+- `ours_new` asks a single LLM to propose niche-specific law programs,
+  partitions candidates into dynamics-specialized islands, applies numeric
+  selection/crossover/mutation/migration, and trains the same gated hybrid on
+  the selected program. The search keeps a global archive and uses soft
+  multi-objective survivor selection so useful laws are not discarded solely
+  because one scalar fitness is temporarily low.
+- `ours_gated_island` remains accepted as a compatibility alias, but the paper
+  runs should use `ours_new`.
 - Planner scoring uses a task proxy inside MPC; reported Reward is real
   environment return after executing the selected actions.
 - Each LLM-based run records logical synthesis calls and available token usage

@@ -28,6 +28,8 @@ from onelife.mujoco_symbolic_adapter import (
     MuJoCoDiscretizer,
 )
 from onelife.program_residual import (
+    DeltaGateMLP,
+    IslandSearchConfig,
     KinematicPositionLaw,
     LLMLawSynthesisConfig,
     LLMSymbolicLawSynthesizer,
@@ -39,6 +41,7 @@ from onelife.program_residual import (
     TransitionBatch,
     collect_mujoco_dataset,
     fit_supervised,
+    synthesize_with_island_search,
 )
 from scripts.run_mujoco_experiment import (
     PlannerEvaluationConfig,
@@ -59,9 +62,12 @@ def main(cfg: DictConfig) -> None:
     if not cfg.verbose:
         logger.disable("onelife")
 
-    problem = str(cfg.probllem or cfg.problem)
+    problem = str(cfg.get("probllem", None) or cfg.problem)
     model_name = str(cfg.model)
     output_path = build_output_path(cfg, problem, model_name)
+    if bool(cfg.get("skip_existing", False)) and output_path.exists():
+        print(f"skipping existing output {output_path}")
+        return
 
     torch.manual_seed(int(cfg.seed))
     np.random.seed(int(cfg.seed))
@@ -105,9 +111,10 @@ def main(cfg: DictConfig) -> None:
         return
 
     symbolic_source = symbolic_source_for_model(model_name)
-    program, llm_code, llm_usage = build_program_from_config(
+    program, llm_code, llm_usage, island_search_summary = build_program_from_config(
         cfg=cfg,
         problem=problem,
+        model_name=model_name,
         symbolic_source=symbolic_source,
         train_dataset=train_dataset,
     )
@@ -120,11 +127,22 @@ def main(cfg: DictConfig) -> None:
         )
     else:
         residual = ZeroResidual()
+    uses_symbolic_gate = model_uses_symbolic_gate(model_name)
+    gate_model = (
+        DeltaGateMLP(
+            state_dim=train_dataset.state_dim,
+            action_dim=train_dataset.action_dim,
+            hidden_sizes=tuple(int(size) for size in cfg.hidden_sizes),
+        )
+        if uses_symbolic_gate
+        else None
+    )
     model = ProgramResidualWorldModel(
         state_dim=train_dataset.state_dim,
         action_dim=train_dataset.action_dim,
         program=program,
         residual_model=residual,
+        gate_model=gate_model,
         apply_unknown_mask=not trains_neural_residual,
     ).to(device)
     batches = [
@@ -181,6 +199,7 @@ def main(cfg: DictConfig) -> None:
         "model": model_name,
         "symbolic_source": symbolic_source,
         "neural_residual": trains_neural_residual,
+        "symbolic_gate": uses_symbolic_gate,
         "residual_correction": "all_dimensions"
         if trains_neural_residual
         else "none",
@@ -197,6 +216,7 @@ def main(cfg: DictConfig) -> None:
         "reward": reward_payload_from_metrics(continuous_metrics),
         "program_residual": continuous_metrics,
         "symbolic_baselines": symbolic_metrics,
+        "island_search": island_search_summary,
         "config": OmegaConf.to_container(cfg, resolve=True),
     }
 
@@ -214,7 +234,18 @@ def main(cfg: DictConfig) -> None:
 
 def symbolic_source_for_model(model_name: str) -> str:
     match model_name:
-        case "ours" | "program_only" | "llm_symbolic" | "symbolic_llm":
+        case (
+            "ours"
+            | "ours_new"
+            | "ours_gated"
+            | "ours_gated_island"
+            | "ours_island"
+            | "gated"
+            | "llm_gated"
+            | "program_only"
+            | "llm_symbolic"
+            | "symbolic_llm"
+        ):
             return "llm"
         case (
             "symbolic"
@@ -222,7 +253,9 @@ def symbolic_source_for_model(model_name: str) -> str:
             | "symbolic_only"
             | "no_llm_symbolic"
             | "symbolic_neural"
+            | "symbolic_neural_gated"
             | "standard_symbolic_neural"
+            | "standard_symbolic_neural_gated"
             | "no_llm_symbolic_neural"
         ):
             return "standard"
@@ -231,21 +264,51 @@ def symbolic_source_for_model(model_name: str) -> str:
         case _:
             raise ValueError(
                 "model must be one of: ours, program_only, neural, symbolic, "
-                "symbolic_neural, onelife, discrete_symbolic"
+                "symbolic_neural, ours_new, ours_gated, ours_gated_island, "
+                "symbolic_neural_gated, onelife, discrete_symbolic"
             )
 
 
 def model_uses_neural_residual(model_name: str) -> bool:
     return model_name in {
         "ours",
+        "ours_new",
+        "ours_gated",
+        "ours_gated_island",
+        "ours_island",
+        "gated",
+        "llm_gated",
         "neural",
         "symbolic_neural",
+        "symbolic_neural_gated",
         "standard_symbolic_neural",
+        "standard_symbolic_neural_gated",
         "no_llm_symbolic_neural",
         "residual",
         "residual_only",
         "empty",
         "no_llm",
+    }
+
+
+def model_uses_symbolic_gate(model_name: str) -> bool:
+    return model_name in {
+        "ours_gated",
+        "ours_new",
+        "ours_gated_island",
+        "ours_island",
+        "gated",
+        "llm_gated",
+        "symbolic_neural_gated",
+        "standard_symbolic_neural_gated",
+    }
+
+
+def model_uses_island_search(model_name: str) -> bool:
+    return model_name in {
+        "ours_gated_island",
+        "ours_new",
+        "ours_island",
     }
 
 
@@ -260,20 +323,22 @@ def is_discrete_symbolic_model(model_name: str) -> bool:
 def build_program_from_config(
     cfg: DictConfig,
     problem: str,
+    model_name: str,
     symbolic_source: str,
     train_dataset,
-) -> tuple[SymbolicProgram, str | None, dict[str, int]]:
+) -> tuple[SymbolicProgram, str | None, dict[str, int], dict[str, object]]:
     if symbolic_source == "empty":
         return (
             SymbolicProgram(state_dim=train_dataset.state_dim, laws=[]),
             None,
             zero_llm_usage(),
+            {},
         )
     if symbolic_source == "standard":
         return build_standard_symbolic_program(
             state_dim=train_dataset.state_dim,
             dt=resolve_mujoco_dt(problem, cfg.llm.dt),
-        ), None, zero_llm_usage()
+        ), None, zero_llm_usage(), {}
 
     if cfg.llm.provider == "openai":
         llm_params = OpenAILiteLlmParams(model_slug=str(cfg.llm.model_slug))
@@ -283,21 +348,40 @@ def build_program_from_config(
         raise ValueError("llm.provider must be openai or gemini")
 
     llm_tracker = LLMCallTracker()
-    bundle = LLMSymbolicLawSynthesizer(
+    synthesizer = LLMSymbolicLawSynthesizer(
         llm_params=llm_params,
         llm_client=llm_tracker.client(),
-    ).synthesize_from_mujoco_dataset(
-        train_dataset,
-        LLMLawSynthesisConfig(
-            env_id=problem,
-            dt=resolve_mujoco_dt(problem, cfg.llm.dt),
-            sample_count=int(cfg.llm.sample_count),
-        ),
     )
+    law_config = LLMLawSynthesisConfig(
+        env_id=problem,
+        dt=resolve_mujoco_dt(problem, cfg.llm.dt),
+        sample_count=int(cfg.llm.sample_count),
+    )
+    island_summary: dict[str, object] = {}
+    if model_uses_island_search(model_name):
+        states, actions, next_states = train_dataset.to_torch()
+        search_result = synthesize_with_island_search(
+            synthesizer=synthesizer,
+            batch=TransitionBatch(
+                states=states,
+                actions=actions,
+                next_states=next_states,
+            ),
+            config=law_config,
+            search_config=build_island_search_config(cfg, env_id=problem),
+        )
+        bundle = search_result.bundle
+        island_summary = dict(search_result.summary)
+    else:
+        bundle = synthesizer.synthesize_from_mujoco_dataset(
+            train_dataset,
+            law_config,
+        )
     return (
         bundle.build_program(state_dim=train_dataset.state_dim),
         bundle.code,
         llm_tracker.as_dict(),
+        island_summary,
     )
 
 
@@ -515,6 +599,21 @@ def build_planner_config(cfg: DictConfig) -> PlannerEvaluationConfig:
         cem_candidates=int(planning_cfg.get("cem_candidates", 64)),
         cem_elites=int(planning_cfg.get("cem_elites", 8)),
         cem_iterations=int(planning_cfg.get("cem_iterations", 2)),
+    )
+
+
+def build_island_search_config(cfg: DictConfig, env_id: str | None = None) -> IslandSearchConfig:
+    island_cfg = cfg.get("island_search", {})
+    return IslandSearchConfig(
+        env_id=env_id,
+        candidates_per_niche=int(island_cfg.get("candidates_per_niche", 1)),
+        generations=int(island_cfg.get("generations", 1)),
+        island_size=int(island_cfg.get("island_size", 4)),
+        elite_per_island=int(island_cfg.get("elite_per_island", 1)),
+        migration_interval=int(island_cfg.get("migration_interval", 1)),
+        migrants_per_island=int(island_cfg.get("migrants_per_island", 1)),
+        max_laws_per_program=int(island_cfg.get("max_laws_per_program", 4)),
+        validation_sample_count=int(island_cfg.get("validation_sample_count", 512)),
     )
 
 

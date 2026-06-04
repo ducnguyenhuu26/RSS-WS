@@ -179,3 +179,5 @@ cython_debug/
 
 # Experiment outputs
 outputs/
+outputs_*/
+multirun/
