@@ -5,14 +5,15 @@ prediction quality and planning utility.
 
 ## Main Table
 
-Each environment should be shown with two columns:
+Each environment should be shown with three metric columns:
 
 ```text
-Score   = one_step_delta_r2_uniform
+R2@1    = one-step delta R2
+R2@10   = ten-step open-loop delta R2
 Reward  = CEM-MPC return / PEC-CEM-MPC return
 ```
 
-`Score` is R2 on one-step state deltas. It is computed per state dimension and
+`R2@1` is R2 on one-step state deltas. It is computed per state dimension and
 then averaged uniformly across dimensions:
 
 ```text
@@ -22,6 +23,13 @@ pred_delta   = model(s, a) - s
 
 This avoids giving too much credit to identity prediction on slowly changing
 MuJoCo states.
+
+`R2@10` uses the same delta-R2 calculation after ten open-loop rollout steps:
+
+```text
+target_delta = s_{t+10} - s_t
+pred_delta   = model_rollout_10(s_t, a_t:t+9) - s_t
+```
 
 `Reward` is actual environment return from model-predictive control. The learned
 world model is used by the planner to choose actions; the selected actions are

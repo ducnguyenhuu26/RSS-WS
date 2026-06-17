@@ -7,10 +7,11 @@ Dreamer V3.
 
 ## Final Evaluation
 
-Each environment is reported with two columns:
+Each environment is reported with three metric columns:
 
-- **Score**: `one_step_delta_r2_uniform`, the mean per-state-dimension R2 for
+- **R2@1**: `r2_at_1_delta_uniform`, the mean per-state-dimension R2 for
   predicting the one-step state delta `s_next - s`.
+- **R2@10**: ten-step open-loop delta R2, computed on `s_{t+10} - s_t`.
 - **Reward**: planner return in the real environment using the learned world
   model, reported as `CEM-MPC / PEC-CEM-MPC`.
 
@@ -111,7 +112,8 @@ Dreamer V3 is treated as an external baseline. Add its result JSON files with
 `model: "dreamer_v3"` and the same `score` / `reward` schema before formatting
 the final table.
 
-Format the final markdown tables from JSON outputs:
+Format the final markdown tables from JSON outputs. The table reports `R2@1`,
+`R2@10`, and real planner reward:
 
 ```powershell
 $files = Get-ChildItem outputs_final_answer_3seed -Filter *.json | Select-Object -ExpandProperty FullName

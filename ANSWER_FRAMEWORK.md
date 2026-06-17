@@ -233,7 +233,7 @@ src/onelife/program_residual/model.py
 
 ## Metrics
 
-The score column is one-step delta R2:
+The main table reports one-step and ten-step delta R2:
 
 \[
 y = s' - s,
@@ -246,6 +246,14 @@ R^2_i = 1 - \frac{\sum_t (y_{t,i}-\hat{y}_{t,i})^2}
                   {\sum_t (y_{t,i}-\bar{y}_i)^2},
 \qquad
 R^2_\Delta = \frac{1}{d}\sum_i R^2_i.
+\]
+
+\[
+R^2@1 = R^2_\Delta(s_{t+1}-s_t,\hat{s}_{t+1}-s_t),
+\]
+
+\[
+R^2@10 = R^2_\Delta(s_{t+10}-s_t,\hat{s}_{t+10}-s_t).
 \]
 
 The reward column reports real environment return after planning with the

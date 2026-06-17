@@ -40,7 +40,7 @@ class LLMLawSynthesisConfig:
     max_tokens: int = 2500
     confidence: float = 1.0
     validation_sample_count: int = 256
-    max_validation_mse_ratio: float = 1.25
+    max_validation_mse_ratio: float = 1.0
     validation_abs_tolerance: float = 1e-3
     niche: str | None = None
     extra_instructions: str = ""

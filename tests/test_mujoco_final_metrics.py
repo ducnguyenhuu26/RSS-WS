@@ -7,6 +7,7 @@ from scripts.run_mujoco_experiment import (
     one_step_r2_metrics,
     r2_global,
     r2_uniform,
+    rollout_delta_r2_metrics,
     score_action_sequences,
 )
 
@@ -27,6 +28,34 @@ def test_one_step_delta_r2_uses_state_delta():
 
     assert metrics["one_step_delta_r2_uniform"] == 1.0
     assert metrics["one_step_next_state_r2_uniform"] == 1.0
+
+
+def test_rollout_delta_r2_uses_cumulative_delta():
+    starts = {
+        10: [
+            np.array([10.0], dtype=np.float32),
+            np.array([20.0], dtype=np.float32),
+            np.array([30.0], dtype=np.float32),
+        ]
+    }
+    targets = {
+        10: [
+            np.array([11.0], dtype=np.float32),
+            np.array([22.0], dtype=np.float32),
+            np.array([33.0], dtype=np.float32),
+        ]
+    }
+    predictions = {
+        10: [
+            np.array([11.0], dtype=np.float32),
+            np.array([22.0], dtype=np.float32),
+            np.array([33.0], dtype=np.float32),
+        ]
+    }
+
+    metrics = rollout_delta_r2_metrics(starts, predictions, targets)
+
+    assert metrics["open_loop_delta_r2_uniform_h10"] == 1.0
 
 
 def test_reward_proxy_prefers_forward_velocity_for_halfcheetah():

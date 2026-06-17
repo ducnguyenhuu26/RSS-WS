@@ -399,6 +399,9 @@ def evaluate_open_loop_rollouts(
     counts = {horizon: 0 for horizon in horizons}
     bin_correct = {horizon: 0 for horizon in horizons}
     bin_total = {horizon: 0 for horizon in horizons}
+    rollout_starts = {horizon: [] for horizon in horizons}
+    rollout_predictions = {horizon: [] for horizon in horizons}
+    rollout_targets = {horizon: [] for horizon in horizons}
     env = gym.make(env_id)
     try:
         if hasattr(env.action_space, "seed"):
@@ -410,8 +413,12 @@ def evaluate_open_loop_rollouts(
                 observation = (
                     reset_result[0] if isinstance(reset_result, tuple) else reset_result
                 )
+                initial_observation = np.asarray(
+                    observation,
+                    dtype=np.float32,
+                ).reshape(-1)
                 predicted_state = torch.as_tensor(
-                    np.asarray(observation, dtype=np.float32).reshape(-1),
+                    initial_observation,
                     dtype=torch.float32,
                 )
                 for step in range(1, max_horizon + 1):
@@ -442,6 +449,13 @@ def evaluate_open_loop_rollouts(
                             F.mse_loss(predicted_state, true_next_state).cpu()
                         )
                         counts[step] += 1
+                        rollout_starts[step].append(initial_observation)
+                        rollout_predictions[step].append(
+                            predicted_state.detach().cpu().numpy().astype(np.float32)
+                        )
+                        rollout_targets[step].append(
+                            true_next_state.detach().cpu().numpy().astype(np.float32)
+                        )
                         predicted_bins = discretizer.digitize_state(
                             predicted_state.detach().cpu().numpy()
                         ).observed_bins()
@@ -470,6 +484,13 @@ def evaluate_open_loop_rollouts(
             for horizon in horizons
             if bin_total[horizon] > 0
         }
+    )
+    metrics.update(
+        rollout_delta_r2_metrics(
+            starts=rollout_starts,
+            predictions=rollout_predictions,
+            targets=rollout_targets,
+        )
     )
     return metrics
 
@@ -604,6 +625,9 @@ def evaluate_symbolic_open_loop_rollouts(
     total = {horizon: 0 for horizon in horizons}
     log_prob_sums = {horizon: 0.0 for horizon in horizons}
     log_prob_counts = {horizon: 0 for horizon in horizons}
+    rollout_starts = {horizon: [] for horizon in horizons}
+    rollout_predictions = {horizon: [] for horizon in horizons}
+    rollout_targets = {horizon: [] for horizon in horizons}
     env = gym.make(env_id)
     try:
         if hasattr(env.action_space, "seed"):
@@ -613,6 +637,7 @@ def evaluate_symbolic_open_loop_rollouts(
             observation = (
                 reset_result[0] if isinstance(reset_result, tuple) else reset_result
             )
+            initial_observation = np.asarray(observation, dtype=np.float32).reshape(-1)
             predicted_state = discretizer.digitize_state(observation)
             cumulative_log_prob = 0.0
             for step in range(1, max_horizon + 1):
@@ -645,6 +670,13 @@ def evaluate_symbolic_open_loop_rollouts(
                         correct[step] += int(predicted_bin == target_bin)
                     log_prob_sums[step] += cumulative_log_prob
                     log_prob_counts[step] += 1
+                    rollout_starts[step].append(initial_observation)
+                    rollout_predictions[step].append(
+                        discretizer.undigitize_state(predicted_state)
+                    )
+                    rollout_targets[step].append(
+                        np.asarray(next_observation, dtype=np.float32).reshape(-1)
+                    )
                 if done and stop_on_done:
                     break
     finally:
@@ -661,6 +693,13 @@ def evaluate_symbolic_open_loop_rollouts(
             for horizon in horizons
             if log_prob_counts[horizon] > 0
         }
+    )
+    metrics.update(
+        rollout_delta_r2_metrics(
+            starts=rollout_starts,
+            predictions=rollout_predictions,
+            targets=rollout_targets,
+        )
     )
     return metrics
 
@@ -684,6 +723,31 @@ def one_step_r2_metrics(
         "one_step_next_state_r2_uniform": r2_uniform(next_states, predictions),
         "one_step_next_state_r2_global": r2_global(next_states, predictions),
     }
+
+
+def rollout_delta_r2_metrics(
+    starts: dict[int, list[np.ndarray]],
+    predictions: dict[int, list[np.ndarray]],
+    targets: dict[int, list[np.ndarray]],
+) -> dict[str, float]:
+    metrics: dict[str, float] = {}
+    for horizon in sorted(starts):
+        if not starts[horizon]:
+            continue
+        start_array = np.stack(starts[horizon]).astype(np.float32)
+        prediction_array = np.stack(predictions[horizon]).astype(np.float32)
+        target_array = np.stack(targets[horizon]).astype(np.float32)
+        target_delta = target_array - start_array
+        prediction_delta = prediction_array - start_array
+        metrics[f"open_loop_delta_r2_uniform_h{horizon}"] = r2_uniform(
+            target_delta,
+            prediction_delta,
+        )
+        metrics[f"open_loop_delta_r2_global_h{horizon}"] = r2_global(
+            target_delta,
+            prediction_delta,
+        )
+    return metrics
 
 
 def r2_uniform(
@@ -745,12 +809,19 @@ def evaluate_binned_model_r2(
 
 
 def score_payload_from_metrics(metrics: dict[str, float]) -> dict[str, float]:
-    return {
+    payload = {
         "one_step_delta_r2_uniform": metrics["one_step_delta_r2_uniform"],
         "one_step_delta_r2_global": metrics["one_step_delta_r2_global"],
         "one_step_next_state_r2_uniform": metrics["one_step_next_state_r2_uniform"],
         "one_step_next_state_r2_global": metrics["one_step_next_state_r2_global"],
+        "r2_at_1_delta_uniform": metrics["one_step_delta_r2_uniform"],
+        "r2_at_1_delta_global": metrics["one_step_delta_r2_global"],
     }
+    if "open_loop_delta_r2_uniform_h10" in metrics:
+        payload["r2_at_10_delta_uniform"] = metrics["open_loop_delta_r2_uniform_h10"]
+    if "open_loop_delta_r2_global_h10" in metrics:
+        payload["r2_at_10_delta_global"] = metrics["open_loop_delta_r2_global_h10"]
+    return payload
 
 
 def reward_payload_from_metrics(metrics: dict[str, float]) -> dict[str, float]:

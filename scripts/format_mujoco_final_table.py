@@ -44,7 +44,8 @@ MODEL_LABELS = {
     "symbolic_neural": "Symbolic library + neural ODE",
 }
 
-SCORE_KEY = "score.one_step_delta_r2_uniform"
+R2_AT_1_KEY = "score.r2_at_1_delta_uniform"
+R2_AT_10_KEY = "score.r2_at_10_delta_uniform"
 CEM_REWARD_KEY = "reward.cem_mpc_return_mean"
 CEM_PEC_REWARD_KEY = "reward.cem_pec_mpc_return_mean"
 
@@ -71,14 +72,14 @@ def main() -> None:
 
     for env in _ordered_envs(grouped):
         print(f"### {env}")
-        print("| Model | Score (R2) | Reward (CEM-MPC / PEC-CEM-MPC) |")
-        print("|---|---:|---:|")
+        print("| Model | R2@1 | R2@10 | Reward (CEM-MPC / PEC-CEM-MPC) |")
+        print("|---|---:|---:|---:|")
         _print_model_rows(env, grouped, MODEL_ORDER, args.precision, args.no_std)
         if any(grouped.get((env, model), []) for model in ABLATION_MODEL_ORDER):
             print()
             print("Ablation:")
-            print("| Model | Score (R2) | Reward (CEM-MPC / PEC-CEM-MPC) |")
-            print("|---|---:|---:|")
+            print("| Model | R2@1 | R2@10 | Reward (CEM-MPC / PEC-CEM-MPC) |")
+            print("|---|---:|---:|---:|")
             _print_model_rows(
                 env,
                 grouped,
@@ -100,11 +101,18 @@ def _print_model_rows(
         rows = grouped.get((env, model), [])
         if not rows:
             continue
-        score = _format_metric(rows, SCORE_KEY, precision, no_std)
+        r2_at_1 = _format_metric_with_fallback(
+            rows,
+            R2_AT_1_KEY,
+            "score.one_step_delta_r2_uniform",
+            precision,
+            no_std,
+        )
+        r2_at_10 = _format_metric(rows, R2_AT_10_KEY, precision, no_std)
         cem_reward = _format_metric(rows, CEM_REWARD_KEY, precision, no_std)
         cem_pec_reward = _format_metric(rows, CEM_PEC_REWARD_KEY, precision, no_std)
         label = MODEL_LABELS.get(model, model)
-        print(f"| {label} | {score} | {cem_reward} / {cem_pec_reward} |")
+        print(f"| {label} | {r2_at_1} | {r2_at_10} | {cem_reward} / {cem_pec_reward} |")
 
 
 def _ordered_envs(grouped: dict[tuple[str, str], list[dict[str, Any]]]) -> list[str]:
@@ -140,6 +148,19 @@ def _format_metric(
     if no_std or len(values) == 1:
         return fmt.format(avg)
     return f"{fmt.format(avg)} +/- {fmt.format(stdev(values))}"
+
+
+def _format_metric_with_fallback(
+    rows: list[dict[str, Any]],
+    key: str,
+    fallback_key: str,
+    precision: int,
+    no_std: bool,
+) -> str:
+    value = _format_metric(rows, key, precision, no_std)
+    if value != "n/a":
+        return value
+    return _format_metric(rows, fallback_key, precision, no_std)
 
 
 def _has_nested(payload: dict[str, Any], dotted_key: str) -> bool:

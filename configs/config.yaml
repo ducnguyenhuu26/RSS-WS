@@ -15,8 +15,8 @@ ode:
   steps: 4
 
 symbolic:
-  initial_law_logit: -8.0
-  l1_weight: 0.001
+  initial_law_logit: -4.0
+  l1_weight: 0.0001
   unknown_confidence_threshold: 0.001
   base_delta_precision: 1.0
 
@@ -34,7 +34,7 @@ discretization:
   action_bins: 11
 
 rollout:
-  horizons: []
+  horizons: [10]
   num_rollouts: 20
   action_policy: zero
   stop_on_done: false
