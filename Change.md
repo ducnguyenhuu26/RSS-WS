@@ -9,7 +9,7 @@ Each environment should be shown with two columns:
 
 ```text
 Score   = one_step_delta_r2_uniform
-Reward  = Random MPC return / CEM-MPC return
+Reward  = CEM return / CEM-PEC return
 ```
 
 `Score` is R2 on one-step state deltas. It is computed per state dimension and
@@ -35,26 +35,33 @@ seeds. Planner evaluation uses one episode per seed.
 Two planners are included:
 
 ```text
-Random MPC
-CEM-MPC
+CEM
+CEM-PEC
 ```
 
-Both use the same learned model interface. Random MPC samples action sequences
-uniformly. CEM-MPC iteratively refits a Gaussian action-sequence distribution to
-elite candidates.
+Both use the same learned model interface. CEM iteratively refits a Gaussian
+action-sequence distribution to elite candidates. CEM-PEC uses the same CEM
+planner but subtracts planning error/control penalties such as state/action OOD,
+symbolic-neural disagreement, and ensemble variance when those signals are
+available.
 
 ## Compared Models
 
-The final comparison uses seven models:
+The main comparison uses four models:
 
 ```text
+answer
 onelife
 pets_ensemble
+dreamer_v3
+```
+
+The ablation comparison uses three models:
+
+```text
 neural
 program_only
-ours
-ours_gated
-ours_new
+symbolic_neural
 ```
 
 ## Environments
@@ -85,15 +92,16 @@ Pusher-v5
   available GPU. The resolved device is stored in the output JSON.
 - `llm_calls` and `llm_usage` are stored in each output JSON for LLM-call
   ablations. Non-LLM baselines record zero calls.
+- `answer` is the final proposed model: semantic LLM symbolic laws plus
+  leader/follower concept prompting, semantic island evolution, and an ODE
+  neural residual.
+- `dreamer_v3` is an external baseline. Import its outputs as JSON files with
+  `model: "dreamer_v3"` and the same final `score` / `reward` schema.
 - `pets_ensemble` is a PETS-style bootstrap ensemble of neural dynamics models
   trained on the same offline transitions and evaluated with the same MPC
   planners.
-- `ours_new` performs single-LLM, niche-based symbolic law search:
-  kinematic, action-dynamics, sparse-conservative, and broad-exploratory
-  islands exchange validated candidates through controlled migration before the
-  selected program is passed to the learned gate.
-- `ours_gated_island` remains as a compatibility alias for `ours_new`, but new
-  result files should use `model=ours_new`.
+- Continuous MPC scoring includes a risk guard that penalizes OOD predicted
+  states/actions, symbolic-neural disagreement, and ensemble variance.
 - Island selection is intentionally soft: each island keeps elites under
   multiple criteria rather than only top fitness, including delta R2, coverage,
   sparsity, and niche-specific focus. A global archive is retained and final

@@ -3,10 +3,14 @@ import torch
 from main import (
     ZeroResidual,
     is_discrete_symbolic_model,
+    is_dreamer_v3_model,
     is_pets_ensemble_model,
     model_uses_island_search,
     model_uses_neural_residual,
+    model_uses_ode_residual,
     model_uses_symbolic_gate,
+    normalize_model_name,
+    residual_backbone_name,
     resolve_mujoco_dt,
     resolve_torch_device,
     symbolic_source_for_model,
@@ -14,37 +18,33 @@ from main import (
 
 
 def test_model_options_map_to_expected_components():
-    assert symbolic_source_for_model("ours") == "llm"
-    assert symbolic_source_for_model("ours_new") == "llm"
-    assert symbolic_source_for_model("ours_gated") == "llm"
-    assert symbolic_source_for_model("ours_gated_island") == "llm"
+    assert normalize_model_name("ANSWER") == "answer"
+    assert normalize_model_name("DreamerV3") == "dreamer_v3"
+    assert symbolic_source_for_model("answer") == "llm"
     assert symbolic_source_for_model("program_only") == "llm"
     assert symbolic_source_for_model("neural") == "empty"
-    assert symbolic_source_for_model("symbolic") == "standard"
     assert symbolic_source_for_model("symbolic_neural") == "standard"
 
-    assert model_uses_neural_residual("ours")
-    assert model_uses_neural_residual("ours_new")
-    assert model_uses_neural_residual("ours_gated")
-    assert model_uses_neural_residual("ours_gated_island")
+    assert model_uses_neural_residual("answer")
     assert model_uses_neural_residual("neural")
     assert model_uses_neural_residual("symbolic_neural")
     assert not model_uses_neural_residual("program_only")
-    assert not model_uses_neural_residual("symbolic")
-    assert model_uses_symbolic_gate("ours_new")
-    assert model_uses_symbolic_gate("ours_gated")
-    assert model_uses_symbolic_gate("ours_gated_island")
-    assert not model_uses_symbolic_gate("ours")
+    assert not model_uses_symbolic_gate("answer")
     assert not model_uses_symbolic_gate("neural")
-    assert model_uses_island_search("ours_new")
-    assert model_uses_island_search("ours_gated_island")
-    assert not model_uses_island_search("ours_gated")
+    assert model_uses_island_search("answer")
+    assert not model_uses_island_search("program_only")
+    assert model_uses_ode_residual("answer")
+    assert not model_uses_ode_residual("neural")
+    assert residual_backbone_name("answer") == "ode"
+    assert residual_backbone_name("neural") == "mlp"
 
     assert is_discrete_symbolic_model("discrete_symbolic")
-    assert not is_discrete_symbolic_model("symbolic")
-    assert not is_discrete_symbolic_model("ours")
+    assert not is_discrete_symbolic_model("answer")
     assert is_pets_ensemble_model("pets_ensemble")
     assert not is_pets_ensemble_model("neural")
+    assert is_dreamer_v3_model("dreamer_v3")
+    assert is_dreamer_v3_model("DreamerV3")
+    assert not is_dreamer_v3_model("pets_ensemble")
 
 
 def test_zero_residual_returns_zero_state_shaped_tensor():

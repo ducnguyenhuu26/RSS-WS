@@ -6,10 +6,12 @@ import torch.nn as nn
 
 from onelife.program_residual import (
     KinematicPositionLaw,
+    LawPrediction,
     NeuralEnsembleWorldModel,
     ProgramResidualTrainerConfig,
     ProgramResidualWorldModel,
     ResidualMLP,
+    ResidualODE,
     SymbolicProgram,
     TransitionBatch,
     collect_transitions_from_env,
@@ -50,6 +52,30 @@ class FixedGate(nn.Module):
         return self.gate.expand_as(states)
 
 
+class FixedProbabilisticLaw(nn.Module):
+    def __init__(self, value: float, std: float, name: str) -> None:
+        super().__init__()
+        self.value = float(value)
+        self.std = float(std)
+        self._law_name = name
+
+    @property
+    def law_name(self) -> str:
+        return self._law_name
+
+    def precondition(self, state: torch.Tensor, action: torch.Tensor) -> bool:
+        return True
+
+    def predict(self, state: torch.Tensor, action: torch.Tensor) -> LawPrediction:
+        return LawPrediction(
+            indices=torch.tensor([0], dtype=torch.long),
+            values=torch.tensor([self.value], dtype=state.dtype),
+            confidence=torch.tensor([1.0], dtype=state.dtype),
+            law_name=self.law_name,
+            std=torch.tensor([self.std], dtype=state.dtype),
+        )
+
+
 def test_symbolic_program_marks_uncovered_dimensions_unknown():
     program = SymbolicProgram(
         state_dim=2,
@@ -71,7 +97,28 @@ def test_symbolic_program_marks_uncovered_dimensions_unknown():
     assert torch.allclose(output.next_state, torch.tensor([1.3, 3.0]))
     assert torch.allclose(output.confidence, torch.tensor([2.0, 0.0]))
     assert torch.allclose(output.unknown_mask, torch.tensor([0.0, 1.0]))
+    assert output.variance is not None
+    assert torch.allclose(output.variance[0], torch.tensor(0.5))
+    assert torch.isinf(output.variance[1])
     assert output.active_laws == (("KinematicPositionLaw",),)
+
+
+def test_symbolic_program_combines_probabilistic_laws_by_precision():
+    program = SymbolicProgram(
+        state_dim=2,
+        laws=[
+            FixedProbabilisticLaw(value=10.0, std=10.0, name="weak_high_value"),
+            FixedProbabilisticLaw(value=2.0, std=0.1, name="sharp_low_value"),
+        ],
+    )
+
+    output = program(torch.tensor([0.0, 0.0]), torch.tensor([0.0]))
+
+    assert torch.isclose(output.next_state[0], torch.tensor(2.0008), atol=1e-3)
+    assert output.confidence[0] > 100.0
+    assert output.variance is not None
+    assert output.variance[0] < 0.01
+    assert torch.allclose(output.unknown_mask, torch.tensor([0.0, 1.0]))
 
 
 def test_program_residual_model_applies_residual_only_to_unknown_dimensions():
@@ -208,6 +255,69 @@ def test_training_step_updates_residual_model_parameters():
 
     assert metrics.loss > 0
     assert not torch.allclose(before, after)
+
+
+def test_residual_ode_zero_init_preserves_symbolic_transition():
+    program = SymbolicProgram(
+        state_dim=2,
+        laws=[
+            KinematicPositionLaw(
+                position_indices=[0],
+                velocity_indices=[1],
+                dt=0.1,
+                confidence=1.0,
+            )
+        ],
+    )
+    model = ProgramResidualWorldModel(
+        state_dim=2,
+        action_dim=1,
+        program=program,
+        residual_model=ResidualODE(
+            state_dim=2,
+            action_dim=1,
+            hidden_sizes=(8,),
+            transition_dt=0.1,
+            ode_steps=4,
+        ),
+    )
+
+    output = model(torch.tensor([1.0, 3.0]), torch.tensor([0.0]))
+
+    assert torch.allclose(output.program_next_state, torch.tensor([1.3, 3.0]))
+    assert torch.allclose(output.residual, torch.zeros(2), atol=1e-6)
+    assert torch.allclose(output.prediction, output.program_next_state, atol=1e-6)
+
+
+def test_gated_residual_ode_blends_full_ode_delta_not_raw_correction():
+    program = SymbolicProgram(
+        state_dim=2,
+        laws=[
+            KinematicPositionLaw(
+                position_indices=[0],
+                velocity_indices=[1],
+                dt=0.1,
+                confidence=1.0,
+            )
+        ],
+    )
+    model = ProgramResidualWorldModel(
+        state_dim=2,
+        action_dim=1,
+        program=program,
+        residual_model=ResidualODE(
+            state_dim=2,
+            action_dim=1,
+            hidden_sizes=(8,),
+            transition_dt=0.1,
+            ode_steps=4,
+        ),
+        gate_model=FixedGate(torch.tensor([0.0, 0.0])),
+    )
+
+    output = model(torch.tensor([1.0, 3.0]), torch.tensor([0.0]))
+
+    assert torch.allclose(output.prediction, output.program_next_state, atol=1e-6)
 
 
 def test_loss_penalizes_applied_residual():

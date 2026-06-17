@@ -33,7 +33,14 @@ from .mujoco import (
     transitions_to_batch,
 )
 from .program import SymbolicProgram
-from .residual import DeltaGateMLP, ResidualMLP
+from .residual import DeltaGateMLP, ResidualMLP, ResidualODE
+from .task_specs import (
+    ActionSpec,
+    DimensionSpec,
+    MujocoTaskSpec,
+    format_task_spec_for_prompt,
+    get_mujoco_task_spec,
+)
 from .trainer import (
     ProgramResidualTrainerConfig,
     TrainingMetrics,
@@ -46,6 +53,8 @@ from .trainer import (
 __all__ = [
     "ContinuousLaw",
     "DeltaGateMLP",
+    "ActionSpec",
+    "DimensionSpec",
     "JointLimitVelocityLaw",
     "KinematicPositionLaw",
     "LawPrediction",
@@ -56,6 +65,7 @@ __all__ = [
     "IslandSearchConfig",
     "IslandSearchResult",
     "ModelOutput",
+    "MujocoTaskSpec",
     "MuJoCoCollectionConfig",
     "NeuralEnsembleConfig",
     "NeuralEnsembleWorldModel",
@@ -63,6 +73,7 @@ __all__ = [
     "ProgramResidualTrainerConfig",
     "ProgramResidualWorldModel",
     "ResidualMLP",
+    "ResidualODE",
     "SymbolicProgram",
     "TrainingMetrics",
     "TransitionBatch",
@@ -76,6 +87,8 @@ __all__ = [
     "fit_supervised",
     "build_neural_ensemble_world_model",
     "fit_neural_ensemble",
+    "format_task_spec_for_prompt",
+    "get_mujoco_task_spec",
     "make_optimizer",
     "synthesize_with_island_search",
     "train_step",

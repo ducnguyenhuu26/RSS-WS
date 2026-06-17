@@ -20,31 +20,31 @@ ENV_ORDER = [
 ]
 
 MODEL_ORDER = [
+    "answer",
     "onelife",
     "pets_ensemble",
+    "dreamer_v3",
+]
+
+ABLATION_MODEL_ORDER = [
     "neural",
     "program_only",
-    "ours",
-    "ours_gated",
-    "ours_new",
+    "symbolic_neural",
 ]
 
 MODEL_LABELS = {
+    "answer": "ANSWER",
     "onelife": "Adaptive OneLife",
     "pets_ensemble": "PETS-style neural ensemble + MPC",
+    "dreamer_v3": "Dreamer V3",
     "neural": "Neural only + MPC",
-    "program_only": "Ours: LLM symbolic only",
-    "ours": "Ours: LLM symbolic + neural",
-    "ours_gated": "Ours: gated LLM symbolic + neural",
-    "ours_new": "Ours New: niche-island gated LLM + neural",
-    "ours_gated_island": "Ours: niche-island gated LLM + neural",
-    "symbolic": "Ours: standard symbolic only",
-    "symbolic_neural": "Ours: standard symbolic + neural",
+    "program_only": "Symbolic only (LLM laws)",
+    "symbolic_neural": "Symbolic library + neural",
 }
 
 SCORE_KEY = "score.one_step_delta_r2_uniform"
-RANDOM_REWARD_KEY = "reward.random_mpc_return_mean"
 CEM_REWARD_KEY = "reward.cem_mpc_return_mean"
+CEM_PEC_REWARD_KEY = "reward.cem_pec_mpc_return_mean"
 
 
 def main() -> None:
@@ -69,20 +69,40 @@ def main() -> None:
 
     for env in _ordered_envs(grouped):
         print(f"### {env}")
-        print("| Model | Score (R2) | Reward (Random MPC / CEM-MPC) |")
+        print("| Model | Score (R2) | Reward (CEM / CEM-PEC) |")
         print("|---|---:|---:|")
-        for model in MODEL_ORDER:
-            rows = grouped.get((env, model), [])
-            if not rows:
-                continue
-            score = _format_metric(rows, SCORE_KEY, args.precision, args.no_std)
-            random_reward = _format_metric(
-                rows, RANDOM_REWARD_KEY, args.precision, args.no_std
+        _print_model_rows(env, grouped, MODEL_ORDER, args.precision, args.no_std)
+        if any(grouped.get((env, model), []) for model in ABLATION_MODEL_ORDER):
+            print()
+            print("Ablation:")
+            print("| Model | Score (R2) | Reward (CEM / CEM-PEC) |")
+            print("|---|---:|---:|")
+            _print_model_rows(
+                env,
+                grouped,
+                ABLATION_MODEL_ORDER,
+                args.precision,
+                args.no_std,
             )
-            cem_reward = _format_metric(rows, CEM_REWARD_KEY, args.precision, args.no_std)
-            label = MODEL_LABELS.get(model, model)
-            print(f"| {label} | {score} | {random_reward} / {cem_reward} |")
         print()
+
+
+def _print_model_rows(
+    env: str,
+    grouped: dict[tuple[str, str], list[dict[str, Any]]],
+    model_order: list[str],
+    precision: int,
+    no_std: bool,
+) -> None:
+    for model in model_order:
+        rows = grouped.get((env, model), [])
+        if not rows:
+            continue
+        score = _format_metric(rows, SCORE_KEY, precision, no_std)
+        cem_reward = _format_metric(rows, CEM_REWARD_KEY, precision, no_std)
+        cem_pec_reward = _format_metric(rows, CEM_PEC_REWARD_KEY, precision, no_std)
+        label = MODEL_LABELS.get(model, model)
+        print(f"| {label} | {score} | {cem_reward} / {cem_pec_reward} |")
 
 
 def _ordered_envs(grouped: dict[tuple[str, str], list[dict[str, Any]]]) -> list[str]:

@@ -26,6 +26,7 @@ from .laws import (
     LinearVelocityLaw,
 )
 from .program import SymbolicProgram
+from .task_specs import format_task_spec_for_prompt, get_mujoco_task_spec
 
 
 @dataclass(frozen=True)
@@ -154,17 +155,28 @@ def build_mujoco_law_synthesis_prompt(
     config: LLMLawSynthesisConfig,
 ) -> str:
     samples = _format_transition_samples(batch, config)
+    task_spec = get_mujoco_task_spec(
+        config.env_id,
+        state_dim=state_dim,
+        action_dim=action_dim,
+    )
+    task_context = format_task_spec_for_prompt(task_spec)
     return f"""
 We are building a hybrid MuJoCo world model:
     s_next_hat = F_program(s, a) + R_theta(s, a, F_program(s, a))
 
 Your task is to propose executable symbolic/code laws for F_program.
+The symbolic program is a sparse probabilistic transition theory: each law is a
+local piece of evidence for selected next-state coordinates, not a full world
+model by itself.
 
 Environment: {config.env_id}
 State dimension: {state_dim}
 Action dimension: {action_dim}
 Integration dt: {config.dt}
 Search niche: {config.niche or "general"}
+
+{task_context}
 
 Return only Python code inside one ```python fenced block.
 Do not import anything. The execution namespace already contains:
@@ -188,8 +200,28 @@ Do not use batched indexing such as state[:, i] or action[:, i].
 LawPrediction fields:
     indices: torch.LongTensor containing next-state dimensions predicted by the law
     values: torch.Tensor with predicted values for those dimensions
-    confidence: torch.Tensor same shape as values
+    confidence: torch.Tensor same shape as values; use as prior law reliability
     law_name: str
+Optional LawPrediction fields:
+    std: torch.Tensor same shape as values; smaller std means sharper likelihood
+    weight: torch.Tensor same shape as values; nonnegative product-of-experts weight
+
+Probabilistic symbolic interpretation:
+    A law predicting coordinate i supplies p_l(delta_i | s,a) as local Gaussian
+    evidence around its implied next-state value. When multiple laws predict the
+    same coordinate, SymbolicProgram combines them by precision weighting. Use
+    confidence/std/weight to express uncertainty. Low-confidence narrow laws are
+    safer than broad fabricated laws.
+
+Leader/follower/DAG design rule:
+    Treat MuJoCo semantic groups as concept leaders: qpos/angle coordinates,
+    qvel velocity coordinates, ctrl torque/force inputs, qfrc_constraint signals,
+    and derived geometry/target observations. Implement follower laws as code
+    nodes that follow one or more leaders, e.g. qpos follower from (qpos, qvel,
+    dt), action-dynamics follower from (qvel, ctrl/torque), or conservative
+    identity follower from (target/geometry). Each law should be a reusable DAG
+    node with a clear parent-concept set in its law_name or class name. Do not
+    create one monolithic law that hides all assumptions.
 
 Prefer compact interpretable laws. Use the neural residual for dimensions you cannot
 explain confidently. Avoid predicting every dimension with weak made-up rules.
@@ -354,10 +386,24 @@ def _validate_prediction_shape(prediction: LawPrediction, state_dim: int) -> Non
         raise ValueError(f"{prediction.law_name} returned values with wrong shape")
     if prediction.confidence.shape != prediction.indices.shape:
         raise ValueError(f"{prediction.law_name} returned confidence with wrong shape")
+    if prediction.std is not None:
+        std = torch.as_tensor(prediction.std)
+        if std.shape != prediction.indices.shape:
+            raise ValueError(f"{prediction.law_name} returned std with wrong shape")
+    if prediction.weight is not None:
+        weight = torch.as_tensor(prediction.weight)
+        if weight.shape != prediction.indices.shape:
+            raise ValueError(f"{prediction.law_name} returned weight with wrong shape")
     if prediction.values.dtype not in (torch.float16, torch.float32, torch.float64):
         raise ValueError(f"{prediction.law_name} returned non-floating values")
     if not torch.all(torch.isfinite(prediction.values)):
         raise ValueError(f"{prediction.law_name} returned non-finite values")
+    if not torch.all(torch.isfinite(prediction.confidence)):
+        raise ValueError(f"{prediction.law_name} returned non-finite confidence")
+    if prediction.std is not None and not torch.all(torch.isfinite(std)):
+        raise ValueError(f"{prediction.law_name} returned non-finite std")
+    if prediction.weight is not None and not torch.all(torch.isfinite(weight)):
+        raise ValueError(f"{prediction.law_name} returned non-finite weight")
     if torch.any(prediction.indices < 0) or torch.any(prediction.indices >= state_dim):
         raise ValueError(f"{prediction.law_name} returned out-of-range indices")
 
@@ -413,5 +459,6 @@ def _round_vector(values: torch.Tensor, precision: int) -> list[float]:
 _SYSTEM_PROMPT = """
 You write concise, safe Python for a MuJoCo symbolic dynamics module.
 Return only law code. No prose. No imports. No file, network, shell, or eval calls.
-Use the provided ContinuousLaw/LawPrediction API exactly.
+Use the provided ContinuousLaw/LawPrediction API exactly. Prefer semantic,
+coordinate-local, probabilistic laws over broad anonymous-array heuristics.
 """.strip()

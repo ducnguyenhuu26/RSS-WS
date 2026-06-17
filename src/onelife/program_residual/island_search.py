@@ -6,9 +6,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from functools import lru_cache
 
-import gymnasium as gym
 import torch
 import torch.nn.functional as F
+
+try:
+    import gymnasium as gym
+except ModuleNotFoundError:  # pragma: no cover - exercised only in slim test envs.
+    gym = None
 
 from .core import TransitionBatch
 from .laws import ContinuousLaw
@@ -18,6 +22,7 @@ from .llm_synthesizer import (
     LLMSynthesizedLaws,
 )
 from .program import SymbolicProgram
+from .task_specs import get_mujoco_task_spec
 
 
 @dataclass(frozen=True)
@@ -79,8 +84,11 @@ NICHES: tuple[NicheSpec, ...] = (
         name="kinematic",
         instructions=(
             "Focus on high-precision kinematic laws, especially position or angle "
-            "updates of the form q_next = q + dt * qdot. Avoid velocity/contact "
-            "laws unless the transition samples strongly justify them."
+            "updates of the form q_next = q + dt * qdot. Use the semantic state "
+            "labels to find matching qpos/qvel concept leaders. Implement each "
+            "law as a follower code node attached to explicit concept parents. "
+            "Avoid velocity/contact laws unless the transition samples strongly "
+            "justify them."
         ),
         coverage_weight=0.03,
         complexity_weight=0.015,
@@ -90,8 +98,10 @@ NICHES: tuple[NicheSpec, ...] = (
         name="action_dynamics",
         instructions=(
             "Focus on action-conditioned velocity or angular-velocity changes. "
-            "Prefer sparse linear action effects and damping terms. Do not predict "
-            "position dimensions unless needed for a precondition."
+            "Prefer sparse linear action effects and damping terms. Treat actions "
+            "as ctrl/torque concept leaders and implement only local qvel follower "
+            "laws. Do not predict position dimensions unless needed for a "
+            "precondition."
         ),
         coverage_weight=0.04,
         complexity_weight=0.012,
@@ -102,7 +112,9 @@ NICHES: tuple[NicheSpec, ...] = (
         instructions=(
             "Be conservative. Predict only dimensions that are clearly improved "
             "over identity dynamics. Prefer few laws, narrow dimension masks, and "
-            "lower confidence over broad speculative rules."
+            "lower confidence/std-aware probabilistic evidence over broad "
+            "speculative rules. Good followers here are identity/near-identity "
+            "laws for target, geometry, or constraint concepts."
         ),
         coverage_weight=0.015,
         complexity_weight=0.03,
@@ -113,7 +125,8 @@ NICHES: tuple[NicheSpec, ...] = (
         instructions=(
             "Explore broader but still interpretable laws. It is acceptable to "
             "cover more dimensions, but each law must remain safe, executable, "
-            "and grounded in the observed transition deltas."
+            "and grounded in the observed transition deltas. Keep the law set as "
+            "a DAG of small follower nodes rather than one monolithic program."
         ),
         coverage_weight=0.08,
         complexity_weight=0.006,
@@ -192,7 +205,10 @@ def _generate_initial_population(
                 extra_instructions=(
                     f"{niche.instructions}\n"
                     f"Candidate id within this niche: {candidate_idx}. Prefer a "
-                    "distinct law set from other candidates."
+                    "distinct law set from other candidates. Name each law with "
+                    "its leader/follower semantic parent concepts, for example "
+                    "'follower__qpos_cart_position__qvel_cart_velocity' or "
+                    "'follower__qvel_joint_velocity__ctrl_joint_torque'."
                 ),
             )
             try:
@@ -438,12 +454,13 @@ def _crossover_candidates(
     generation: int,
 ) -> LawProgramCandidate:
     law_pool = [_clone_law(law) for law in (*parent_a.laws, *parent_b.laws)]
-    ranked_laws = sorted(
-        law_pool,
-        key=lambda law: evaluate_laws((law,), batch, niche, search_config).fitness,
-        reverse=True,
+    child_laws = _select_semantic_crossover_laws(
+        law_pool=law_pool,
+        niche=niche,
+        batch=batch,
+        search_config=search_config,
+        max_laws=max(1, search_config.max_laws_per_program),
     )
-    child_laws = tuple(ranked_laws[: max(1, search_config.max_laws_per_program)])
     return LawProgramCandidate(
         laws=child_laws,
         code=f"# crossover({parent_a.origin}, {parent_b.origin})",
@@ -463,11 +480,7 @@ def _mutate_candidate(
 ) -> LawProgramCandidate:
     laws = [_clone_law(law) for law in candidate.laws]
     if batch is not None and len(laws) > 1:
-        scored = [
-            (evaluate_laws((law,), batch, niche, search_config).fitness, index)
-            for index, law in enumerate(laws)
-        ]
-        _worst_fitness, worst_index = min(scored, key=lambda item: item[0])
+        worst_index = _semantic_mutation_drop_index(laws, batch, niche, search_config)
         laws = [law for index, law in enumerate(laws) if index != worst_index]
     elif len(laws) > search_config.max_laws_per_program:
         laws = laws[: search_config.max_laws_per_program]
@@ -485,6 +498,153 @@ def _mutate_candidate(
         generation=generation,
         metrics=metrics,
     )
+
+
+def _select_semantic_crossover_laws(
+    law_pool: Sequence[ContinuousLaw],
+    niche: NicheSpec,
+    batch: TransitionBatch,
+    search_config: IslandSearchConfig,
+    max_laws: int,
+) -> tuple[ContinuousLaw, ...]:
+    if not law_pool or max_laws <= 0:
+        return ()
+    scored = [
+        (
+            law,
+            evaluate_laws((law,), batch, niche, search_config).fitness,
+            _law_semantic_tokens(law, batch, search_config),
+        )
+        for law in law_pool
+    ]
+    selected: list[tuple[ContinuousLaw, float, frozenset[str]]] = []
+    remaining = list(scored)
+    semantic_novelty_weight = 0.20 if niche.name == "broad_exploratory" else 0.12
+    while remaining and len(selected) < max_laws:
+        if not selected:
+            chosen = max(remaining, key=lambda item: item[1])
+        else:
+            chosen = max(
+                remaining,
+                key=lambda item: item[1]
+                + semantic_novelty_weight
+                * _semantic_novelty(item[2], [existing[2] for existing in selected]),
+            )
+        selected.append(chosen)
+        remaining.remove(chosen)
+    return tuple(_clone_law(item[0]) for item in selected)
+
+
+def _semantic_mutation_drop_index(
+    laws: Sequence[ContinuousLaw],
+    batch: TransitionBatch,
+    niche: NicheSpec,
+    search_config: IslandSearchConfig,
+) -> int:
+    profiles = [_law_semantic_tokens(law, batch, search_config) for law in laws]
+    scores: list[tuple[float, int]] = []
+    for index, law in enumerate(laws):
+        fitness = evaluate_laws((law,), batch, niche, search_config).fitness
+        redundancy = max(
+            (
+                _semantic_similarity(profiles[index], other)
+                for other_idx, other in enumerate(profiles)
+                if other_idx != index
+            ),
+            default=0.0,
+        )
+        scores.append((fitness - 0.20 * redundancy, index))
+    _score, index_to_drop = min(scores, key=lambda item: item[0])
+    return index_to_drop
+
+
+def _law_semantic_tokens(
+    law: ContinuousLaw,
+    batch: TransitionBatch,
+    search_config: IslandSearchConfig,
+) -> frozenset[str]:
+    tokens = set(_name_tokens(_law_signature(law)))
+    state_dim = int(batch.states.shape[1])
+    concepts = _dimension_concepts(search_config.env_id, state_dim)
+    limit = min(int(batch.states.shape[0]), max(8, search_config.validation_sample_count // 8))
+    for idx in range(limit):
+        state = batch.states[idx]
+        action = batch.actions[idx]
+        try:
+            if not law.precondition(state, action):
+                continue
+            prediction = law.predict(state, action)
+        except Exception:
+            continue
+        for raw_index in prediction.indices.detach().cpu().to(torch.long).tolist():
+            index = int(raw_index)
+            tokens.add(f"state_{index}")
+            tokens.update(concepts.get(index, ()))
+    return frozenset(tokens)
+
+
+def _dimension_concepts(
+    env_id: str | None,
+    state_dim: int,
+) -> dict[int, tuple[str, ...]]:
+    concepts: dict[int, tuple[str, ...]] = {}
+    if env_id:
+        spec = get_mujoco_task_spec(env_id, state_dim=state_dim, action_dim=None)
+        for dim in spec.state_dimensions:
+            if dim.kind == "unknown":
+                continue
+            concepts[dim.index] = tuple(
+                sorted(
+                    {
+                        dim.kind.lower(),
+                        dim.name.lower(),
+                        *_name_tokens(dim.name),
+                    }
+                )
+            )
+    if concepts:
+        return concepts
+    position_indices, velocity_indices = _dimension_groups(env_id, state_dim)
+    for index in position_indices:
+        concepts[index] = ("qpos", f"state_{index}")
+    for index in velocity_indices:
+        concepts[index] = ("qvel", f"state_{index}")
+    return concepts
+
+
+def _semantic_novelty(
+    tokens: frozenset[str],
+    existing: Sequence[frozenset[str]],
+) -> float:
+    if not existing:
+        return 1.0
+    return 1.0 - max(_semantic_similarity(tokens, other) for other in existing)
+
+
+def _semantic_similarity(
+    left: frozenset[str],
+    right: frozenset[str],
+) -> float:
+    if not left and not right:
+        return 1.0
+    union = left | right
+    if not union:
+        return 0.0
+    return len(left & right) / len(union)
+
+
+def _name_tokens(value: str) -> tuple[str, ...]:
+    token = []
+    tokens: list[str] = []
+    for char in value.lower():
+        if char.isalnum():
+            token.append(char)
+        elif token:
+            tokens.append("".join(token))
+            token = []
+    if token:
+        tokens.append("".join(token))
+    return tuple(tokens)
 
 
 def _retarget_candidate(
@@ -649,6 +809,9 @@ def _dimension_groups(
     state_dim: int,
 ) -> tuple[tuple[int, ...], tuple[int, ...]]:
     if env_id:
+        groups = _dimension_groups_from_task_spec(env_id, state_dim)
+        if groups is not None:
+            return groups
         groups = _dimension_groups_from_gym(env_id, state_dim)
         if groups is not None:
             return groups
@@ -656,10 +819,32 @@ def _dimension_groups(
     return tuple(range(split)), tuple(range(split, state_dim))
 
 
+def _dimension_groups_from_task_spec(
+    env_id: str,
+    state_dim: int,
+) -> tuple[tuple[int, ...], tuple[int, ...]] | None:
+    spec = get_mujoco_task_spec(env_id, state_dim=state_dim, action_dim=None)
+    position_indices: list[int] = []
+    velocity_indices: list[int] = []
+    for dim in spec.state_dimensions:
+        kind = dim.kind.lower()
+        if kind == "unknown":
+            continue
+        if "qvel" in kind or "velocity" in kind:
+            velocity_indices.append(dim.index)
+        elif "qpos" in kind or kind in {"sin_angle", "cos_angle"}:
+            position_indices.append(dim.index)
+    if not position_indices and not velocity_indices:
+        return None
+    return tuple(position_indices), tuple(velocity_indices)
+
+
 def _dimension_groups_from_gym(
     env_id: str,
     state_dim: int,
 ) -> tuple[tuple[int, ...], tuple[int, ...]] | None:
+    if gym is None:
+        return None
     try:
         env = gym.make(env_id)
     except Exception:

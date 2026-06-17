@@ -28,7 +28,6 @@ from onelife.mujoco_symbolic_adapter import (
     MuJoCoDiscretizer,
 )
 from onelife.program_residual import (
-    DeltaGateMLP,
     IslandSearchConfig,
     KinematicPositionLaw,
     LLMLawSynthesisConfig,
@@ -37,6 +36,7 @@ from onelife.program_residual import (
     ProgramResidualTrainerConfig,
     ProgramResidualWorldModel,
     ResidualMLP,
+    ResidualODE,
     SymbolicProgram,
     TransitionBatch,
     build_neural_ensemble_world_model,
@@ -65,7 +65,7 @@ def main(cfg: DictConfig) -> None:
         logger.disable("onelife")
 
     problem = str(cfg.get("probllem", None) or cfg.problem)
-    model_name = str(cfg.model)
+    model_name = normalize_model_name(str(cfg.model))
     output_path = build_output_path(cfg, problem, model_name)
     if bool(cfg.get("skip_existing", False)) and output_path.exists():
         print(f"skipping existing output {output_path}")
@@ -122,6 +122,13 @@ def main(cfg: DictConfig) -> None:
         )
         return
 
+    if is_dreamer_v3_model(model_name):
+        raise NotImplementedError(
+            "Dreamer V3 is an external baseline in this repo. Generate or import "
+            "Dreamer V3 result JSON files with model='dreamer_v3' and the same "
+            "score/reward schema, then include them in the formatter input."
+        )
+
     symbolic_source = symbolic_source_for_model(model_name)
     program, llm_code, llm_usage, island_search_summary = build_program_from_config(
         cfg=cfg,
@@ -132,29 +139,29 @@ def main(cfg: DictConfig) -> None:
     )
     trains_neural_residual = model_uses_neural_residual(model_name)
     if trains_neural_residual:
-        residual = ResidualMLP(
-            state_dim=train_dataset.state_dim,
-            action_dim=train_dataset.action_dim,
-            hidden_sizes=tuple(int(size) for size in cfg.hidden_sizes),
-        )
+        if model_uses_ode_residual(model_name):
+            residual = ResidualODE(
+                state_dim=train_dataset.state_dim,
+                action_dim=train_dataset.action_dim,
+                hidden_sizes=tuple(int(size) for size in cfg.hidden_sizes),
+                transition_dt=resolve_mujoco_dt(problem, cfg.llm.dt),
+                ode_steps=int(cfg.get("ode", {}).get("steps", 4)),
+            )
+        else:
+            residual = ResidualMLP(
+                state_dim=train_dataset.state_dim,
+                action_dim=train_dataset.action_dim,
+                hidden_sizes=tuple(int(size) for size in cfg.hidden_sizes),
+            )
     else:
         residual = ZeroResidual()
-    uses_symbolic_gate = model_uses_symbolic_gate(model_name)
-    gate_model = (
-        DeltaGateMLP(
-            state_dim=train_dataset.state_dim,
-            action_dim=train_dataset.action_dim,
-            hidden_sizes=tuple(int(size) for size in cfg.hidden_sizes),
-        )
-        if uses_symbolic_gate
-        else None
-    )
+    uses_symbolic_gate = False
     model = ProgramResidualWorldModel(
         state_dim=train_dataset.state_dim,
         action_dim=train_dataset.action_dim,
         program=program,
         residual_model=residual,
-        gate_model=gate_model,
+        gate_model=None,
         apply_unknown_mask=not trains_neural_residual,
     ).to(device)
     batches = [
@@ -205,6 +212,7 @@ def main(cfg: DictConfig) -> None:
         "model": model_name,
         "symbolic_source": symbolic_source,
         "neural_residual": trains_neural_residual,
+        "residual_backbone": residual_backbone_name(model_name),
         "symbolic_gate": uses_symbolic_gate,
         "residual_correction": "all_dimensions"
         if trains_neural_residual
@@ -240,82 +248,57 @@ def main(cfg: DictConfig) -> None:
 
 def symbolic_source_for_model(model_name: str) -> str:
     match model_name:
-        case (
-            "ours"
-            | "ours_new"
-            | "ours_gated"
-            | "ours_gated_island"
-            | "ours_island"
-            | "gated"
-            | "llm_gated"
-            | "program_only"
-            | "llm_symbolic"
-            | "symbolic_llm"
-        ):
+        case "answer" | "program_only":
             return "llm"
-        case (
-            "symbolic"
-            | "standard_symbolic"
-            | "symbolic_only"
-            | "no_llm_symbolic"
-            | "symbolic_neural"
-            | "symbolic_neural_gated"
-            | "standard_symbolic_neural"
-            | "standard_symbolic_neural_gated"
-            | "no_llm_symbolic_neural"
-        ):
+        case "symbolic_neural":
             return "standard"
-        case "neural" | "residual" | "residual_only" | "empty" | "no_llm":
+        case "neural":
             return "empty"
         case _:
             raise ValueError(
-                "model must be one of: ours, program_only, neural, symbolic, "
-                "symbolic_neural, ours_new, ours_gated, ours_gated_island, "
-                "symbolic_neural_gated, onelife, pets_ensemble, discrete_symbolic"
+                "model must be one of: answer, onelife, pets_ensemble, "
+                "dreamer_v3, neural, program_only, symbolic_neural"
             )
 
 
 def model_uses_neural_residual(model_name: str) -> bool:
     return model_name in {
-        "ours",
-        "ours_new",
-        "ours_gated",
-        "ours_gated_island",
-        "ours_island",
-        "gated",
-        "llm_gated",
+        "answer",
         "neural",
         "symbolic_neural",
-        "symbolic_neural_gated",
-        "standard_symbolic_neural",
-        "standard_symbolic_neural_gated",
-        "no_llm_symbolic_neural",
-        "residual",
-        "residual_only",
-        "empty",
-        "no_llm",
     }
 
 
 def model_uses_symbolic_gate(model_name: str) -> bool:
-    return model_name in {
-        "ours_gated",
-        "ours_new",
-        "ours_gated_island",
-        "ours_island",
-        "gated",
-        "llm_gated",
-        "symbolic_neural_gated",
-        "standard_symbolic_neural_gated",
-    }
+    return False
 
 
 def model_uses_island_search(model_name: str) -> bool:
-    return model_name in {
-        "ours_gated_island",
-        "ours_new",
-        "ours_island",
+    return model_name == "answer"
+
+
+def model_uses_ode_residual(model_name: str) -> bool:
+    return model_name == "answer"
+
+
+def residual_backbone_name(model_name: str) -> str:
+    if not model_uses_neural_residual(model_name):
+        return "none"
+    if model_uses_ode_residual(model_name):
+        return "ode"
+    return "mlp"
+
+
+def normalize_model_name(model_name: str) -> str:
+    raw = str(model_name).strip()
+    lowered = raw.lower()
+    aliases = {
+        "answer": "answer",
+        "dreamer": "dreamer_v3",
+        "dreamerv3": "dreamer_v3",
+        "dreamer-v3": "dreamer_v3",
     }
+    return aliases.get(lowered, raw)
 
 
 def is_discrete_symbolic_model(model_name: str) -> bool:
@@ -332,6 +315,14 @@ def is_pets_ensemble_model(model_name: str) -> bool:
         "pets_ensemble",
         "neural_ensemble",
         "ensemble",
+    }
+
+
+def is_dreamer_v3_model(model_name: str) -> bool:
+    return str(model_name).lower() in {
+        "dreamer_v3",
+        "dreamerv3",
+        "dreamer",
     }
 
 
@@ -713,10 +704,16 @@ def build_planner_config(cfg: DictConfig) -> PlannerEvaluationConfig:
         num_episodes=int(planning_cfg.get("num_episodes", 2)),
         max_episode_steps=int(planning_cfg.get("max_episode_steps", 200)),
         horizon=int(planning_cfg.get("horizon", 5)),
-        random_candidates=int(planning_cfg.get("random_candidates", 64)),
         cem_candidates=int(planning_cfg.get("cem_candidates", 64)),
         cem_elites=int(planning_cfg.get("cem_elites", 8)),
         cem_iterations=int(planning_cfg.get("cem_iterations", 2)),
+        state_ood_weight=float(planning_cfg.get("state_ood_weight", 0.0)),
+        action_ood_weight=float(planning_cfg.get("action_ood_weight", 0.0)),
+        disagreement_weight=float(planning_cfg.get("disagreement_weight", 0.0)),
+        ensemble_variance_weight=float(
+            planning_cfg.get("ensemble_variance_weight", 0.0)
+        ),
+        ood_z_clip=float(planning_cfg.get("ood_z_clip", 3.0)),
     )
 
 

@@ -71,3 +71,43 @@ def test_score_action_sequences_rolls_model_forward():
     )
 
     assert scores[1] > scores[0]
+
+
+def test_score_action_sequences_can_apply_planner_risk_penalty():
+    class RiskyState:
+        def __init__(self, observation: np.ndarray, risk: float) -> None:
+            self.observation = observation
+            self.risk = risk
+
+    def predict_next(state, action):
+        base = state.observation if isinstance(state, RiskyState) else state
+        return RiskyState(
+            np.asarray(base, dtype=np.float32) + np.asarray(action, dtype=np.float32),
+            risk=10.0,
+        )
+
+    def observation(state):
+        return state.observation if isinstance(state, RiskyState) else state
+
+    start = np.zeros(17, dtype=np.float32)
+    action_sequences = np.zeros((1, 1, 17), dtype=np.float32)
+    action_sequences[0, 0, 8] = 1.0
+
+    plain = score_action_sequences(
+        start,
+        action_sequences,
+        "HalfCheetah-v5",
+        predict_next,
+        observation,
+        penalize_risk=False,
+    )
+    guarded = score_action_sequences(
+        start,
+        action_sequences,
+        "HalfCheetah-v5",
+        predict_next,
+        observation,
+        penalize_risk=True,
+    )
+
+    assert plain[0] > guarded[0]

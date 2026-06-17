@@ -30,6 +30,8 @@ class LawPrediction:
     values: torch.Tensor
     confidence: torch.Tensor
     law_name: str
+    std: torch.Tensor | None = None
+    weight: torch.Tensor | None = None
 
 
 @dataclass(frozen=True)
@@ -40,6 +42,7 @@ class ProgramOutput:
     confidence: torch.Tensor
     unknown_mask: torch.Tensor
     active_laws: tuple[tuple[str, ...], ...]
+    variance: torch.Tensor | None = None
 
 
 @dataclass(frozen=True)
@@ -55,6 +58,7 @@ class ModelOutput:
     active_laws: tuple[tuple[str, ...], ...]
     symbolic_gate: torch.Tensor | None = None
     ensemble_variance: torch.Tensor | None = None
+    program_variance: torch.Tensor | None = None
 
 
 class ContinuousLawProtocol(Protocol):

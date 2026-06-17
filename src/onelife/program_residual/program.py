@@ -13,9 +13,10 @@ class SymbolicProgram(nn.Module):
     Executable continuous symbolic dynamics program.
 
     The program applies active laws to a single state-action pair, combines
-    overlapping predictions by confidence-weighted averaging, and marks
+    overlapping predictions as diagonal Gaussian product-of-experts, and marks
     dimensions with no confident symbolic prediction as unknown for the neural
-    residual.
+    residual. Old laws that only return ``confidence`` remain valid: confidence
+    is treated as a precision-like law weight.
     """
 
     def __init__(
@@ -70,18 +71,29 @@ class SymbolicProgram(nn.Module):
         next_state = torch.stack([output.next_state for output in outputs], dim=0)
         confidence = torch.stack([output.confidence for output in outputs], dim=0)
         unknown_mask = torch.stack([output.unknown_mask for output in outputs], dim=0)
+        variance = torch.stack(
+            [
+                output.variance
+                if output.variance is not None
+                else torch.full_like(output.confidence, float("inf"))
+                for output in outputs
+            ],
+            dim=0,
+        )
         active_laws = tuple(output.active_laws[0] for output in outputs)
 
         if squeeze:
             next_state = next_state.squeeze(0)
             confidence = confidence.squeeze(0)
             unknown_mask = unknown_mask.squeeze(0)
+            variance = variance.squeeze(0)
 
         return ProgramOutput(
             next_state=next_state,
             confidence=confidence,
             unknown_mask=unknown_mask,
             active_laws=active_laws,
+            variance=variance,
         )
 
     def _predict_one(self, state: torch.Tensor, action: torch.Tensor) -> ProgramOutput:
@@ -99,15 +111,27 @@ class SymbolicProgram(nn.Module):
                 device=state.device,
                 dtype=state.dtype,
             )
+            precision = _prediction_precision(
+                prediction=prediction,
+                confidence=confidence,
+                device=state.device,
+                dtype=state.dtype,
+            )
             if indices.ndim != 1:
                 raise ValueError("law prediction indices must be one-dimensional")
-            if values.shape != indices.shape or confidence.shape != indices.shape:
-                raise ValueError("law prediction values/confidence must match indices")
+            if (
+                values.shape != indices.shape
+                or confidence.shape != indices.shape
+                or precision.shape != indices.shape
+            ):
+                raise ValueError(
+                    "law prediction values/confidence/precision must match indices"
+                )
             if torch.any(indices < 0) or torch.any(indices >= self.state_dim):
                 raise ValueError("law prediction index out of bounds")
 
-            numerator.index_add_(0, indices, values * confidence)
-            denominator.index_add_(0, indices, confidence)
+            numerator.index_add_(0, indices, values * precision)
+            denominator.index_add_(0, indices, precision)
             active_laws.append(prediction.law_name)
 
         known = denominator > self.unknown_confidence_threshold
@@ -121,10 +145,33 @@ class SymbolicProgram(nn.Module):
             next_state,
         )
         unknown_mask = (~known).to(dtype=state.dtype)
+        variance = torch.where(
+            known,
+            denominator.clamp_min(1e-12).reciprocal(),
+            torch.full_like(denominator, float("inf")),
+        )
 
         return ProgramOutput(
             next_state=next_state,
             confidence=denominator,
             unknown_mask=unknown_mask,
             active_laws=(tuple(active_laws),),
+            variance=variance,
         )
+
+
+def _prediction_precision(
+    prediction,
+    confidence: torch.Tensor,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> torch.Tensor:
+    precision = confidence.clamp_min(0.0)
+    weight = getattr(prediction, "weight", None)
+    if weight is not None:
+        precision = torch.as_tensor(weight, device=device, dtype=dtype).clamp_min(0.0)
+    std = getattr(prediction, "std", None)
+    if std is not None:
+        std_tensor = torch.as_tensor(std, device=device, dtype=dtype).abs().clamp_min(1e-6)
+        precision = precision / std_tensor.square()
+    return precision

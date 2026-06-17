@@ -76,7 +76,10 @@ class ProgramResidualWorldModel(nn.Module):
                 program_output.unknown_mask,
             )
             symbolic_gate = raw_gate * (1.0 - program_output.unknown_mask)
-            applied_residual = (1.0 - symbolic_gate) * residual
+            neural_delta = residual
+            if getattr(self.residual_model, "residual_output_kind", "") == "correction":
+                neural_delta = symbolic_delta + residual
+            applied_residual = (1.0 - symbolic_gate) * neural_delta
             prediction = states_batched + symbolic_gate * symbolic_delta + applied_residual
 
         if squeeze:
@@ -86,12 +89,18 @@ class ProgramResidualWorldModel(nn.Module):
             applied_residual = applied_residual.squeeze(0)
             confidence = program_output.confidence.squeeze(0)
             unknown_mask = program_output.unknown_mask.squeeze(0)
+            program_variance = (
+                program_output.variance.squeeze(0)
+                if program_output.variance is not None
+                else None
+            )
             if symbolic_gate is not None:
                 symbolic_gate = symbolic_gate.squeeze(0)
         else:
             program_next_state = program_output.next_state
             confidence = program_output.confidence
             unknown_mask = program_output.unknown_mask
+            program_variance = program_output.variance
 
         return ModelOutput(
             prediction=prediction,
@@ -102,6 +111,7 @@ class ProgramResidualWorldModel(nn.Module):
             unknown_mask=unknown_mask,
             active_laws=program_output.active_laws,
             symbolic_gate=symbolic_gate,
+            program_variance=program_variance,
         )
 
     @torch.no_grad()

@@ -1,5 +1,5 @@
 problem: InvertedPendulum-v5
-model: ours_new
+model: answer
 
 seed: 0
 train_steps: 8
@@ -10,6 +10,9 @@ learning_rate: 0.001
 residual_l2_weight: 0.001
 hidden_sizes: [128, 128]
 device: auto
+
+ode:
+  steps: 2
 
 llm:
   provider: openai
@@ -32,10 +35,14 @@ planning:
   num_episodes: 1
   max_episode_steps: 3
   horizon: 2
-  random_candidates: 4
   cem_candidates: 4
   cem_elites: 2
   cem_iterations: 1
+  state_ood_weight: 0.05
+  action_ood_weight: 0.01
+  disagreement_weight: 0.10
+  ensemble_variance_weight: 0.10
+  ood_z_clip: 3.0
 
 island_search:
   candidates_per_niche: 1

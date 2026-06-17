@@ -49,11 +49,29 @@ class PlannerEvaluationConfig:
     num_episodes: int = 2
     max_episode_steps: int = 200
     horizon: int = 5
-    random_candidates: int = 64
     cem_candidates: int = 64
     cem_elites: int = 8
     cem_iterations: int = 2
     action_policy_seed_offset: int = 40_000
+    state_ood_weight: float = 0.0
+    action_ood_weight: float = 0.0
+    disagreement_weight: float = 0.0
+    ensemble_variance_weight: float = 0.0
+    ood_z_clip: float = 3.0
+
+
+@dataclass(frozen=True)
+class PlannerGuardStats:
+    state_mean: np.ndarray
+    state_std: np.ndarray
+    action_mean: np.ndarray
+    action_std: np.ndarray
+
+
+@dataclass(frozen=True)
+class ContinuousPlannerState:
+    observation: np.ndarray
+    risk: float = 0.0
 
 
 def main() -> None:
@@ -98,7 +116,6 @@ def main() -> None:
     parser.add_argument("--planner-episodes", type=int, default=2)
     parser.add_argument("--planner-max-steps", type=int, default=200)
     parser.add_argument("--planner-horizon", type=int, default=5)
-    parser.add_argument("--planner-random-candidates", type=int, default=64)
     parser.add_argument("--planner-cem-candidates", type=int, default=64)
     parser.add_argument("--planner-cem-elites", type=int, default=8)
     parser.add_argument("--planner-cem-iterations", type=int, default=2)
@@ -186,7 +203,6 @@ def main() -> None:
             num_episodes=args.planner_episodes,
             max_episode_steps=args.planner_max_steps,
             horizon=args.planner_horizon,
-            random_candidates=args.planner_random_candidates,
             cem_candidates=args.planner_cem_candidates,
             cem_elites=args.planner_cem_elites,
             cem_iterations=args.planner_cem_iterations,
@@ -348,6 +364,7 @@ def evaluate_program_residual(
         metrics.update(
             evaluate_continuous_planner_rewards(
                 model=model,
+                train_dataset=train_dataset,
                 env_id=env_id,
                 seed=seed + planner_config.action_policy_seed_offset,
                 config=planner_config,
@@ -734,37 +751,69 @@ def score_payload_from_metrics(metrics: dict[str, float]) -> dict[str, float]:
 
 def reward_payload_from_metrics(metrics: dict[str, float]) -> dict[str, float]:
     reward_keys = [
-        "random_mpc_return_mean",
-        "random_mpc_return_std",
         "cem_mpc_return_mean",
         "cem_mpc_return_std",
-        "random_mpc_episode_length_mean",
         "cem_mpc_episode_length_mean",
+        "cem_pec_mpc_return_mean",
+        "cem_pec_mpc_return_std",
+        "cem_pec_mpc_episode_length_mean",
     ]
     return {key: metrics[key] for key in reward_keys if key in metrics}
 
 
 def evaluate_continuous_planner_rewards(
     model: ProgramResidualWorldModel,
+    train_dataset,
     env_id: str,
     seed: int,
     config: PlannerEvaluationConfig,
 ) -> dict[str, float]:
-    def predict_next(planner_state: Any, action: np.ndarray) -> np.ndarray:
-        prediction = model.predict_next_state(
-            np.asarray(planner_state, dtype=np.float32),
-            np.asarray(action, dtype=np.float32),
+    guard_stats = build_planner_guard_stats(train_dataset)
+
+    def predict_next(planner_state: Any, action: np.ndarray) -> ContinuousPlannerState:
+        state_array = observation(planner_state)
+        action_array = np.asarray(action, dtype=np.float32).reshape(-1)
+        model_device = module_device(model)
+        state_tensor = torch.as_tensor(
+            state_array,
+            dtype=torch.float32,
+            device=model_device,
         )
-        return prediction.detach().cpu().numpy().astype(np.float32)
+        action_tensor = torch.as_tensor(
+            action_array,
+            dtype=torch.float32,
+            device=model_device,
+        )
+        was_training = model.training
+        model.eval()
+        with torch.no_grad():
+            output = model(state_tensor, action_tensor)
+        if was_training:
+            model.train()
+        prediction = output.prediction.detach().cpu().numpy().astype(np.float32)
+        risk = continuous_planner_risk(
+            state=state_array,
+            action=action_array,
+            next_state=prediction,
+            output=output,
+            config=config,
+            stats=guard_stats,
+        )
+        return ContinuousPlannerState(observation=prediction, risk=risk)
 
     def observation(planner_state: Any) -> np.ndarray:
+        if isinstance(planner_state, ContinuousPlannerState):
+            return np.asarray(planner_state.observation, dtype=np.float32).reshape(-1)
         return np.asarray(planner_state, dtype=np.float32)
 
     return evaluate_planner_rewards(
         env_id=env_id,
         seed=seed,
         config=config,
-        initial_planner_state=lambda obs: np.asarray(obs, dtype=np.float32).reshape(-1),
+        initial_planner_state=lambda obs: ContinuousPlannerState(
+            observation=np.asarray(obs, dtype=np.float32).reshape(-1),
+            risk=0.0,
+        ),
         predict_next=predict_next,
         observation_for_reward=observation,
     )
@@ -809,8 +858,8 @@ def evaluate_planner_rewards(
     predict_next: Callable[[Any, np.ndarray], Any],
     observation_for_reward: Callable[[Any], np.ndarray],
 ) -> dict[str, float]:
-    random_returns, random_lengths = _run_planner_episodes(
-        planner_name="random_mpc",
+    cem_returns, cem_lengths = _run_planner_episodes(
+        planner_name="cem_mpc",
         env_id=env_id,
         seed=seed,
         config=config,
@@ -818,8 +867,8 @@ def evaluate_planner_rewards(
         predict_next=predict_next,
         observation_for_reward=observation_for_reward,
     )
-    cem_returns, cem_lengths = _run_planner_episodes(
-        planner_name="cem_mpc",
+    cem_pec_returns, cem_pec_lengths = _run_planner_episodes(
+        planner_name="cem_pec_mpc",
         env_id=env_id,
         seed=seed + 10_000,
         config=config,
@@ -828,12 +877,12 @@ def evaluate_planner_rewards(
         observation_for_reward=observation_for_reward,
     )
     return {
-        "random_mpc_return_mean": _mean(random_returns),
-        "random_mpc_return_std": _std(random_returns),
-        "random_mpc_episode_length_mean": _mean(random_lengths),
         "cem_mpc_return_mean": _mean(cem_returns),
         "cem_mpc_return_std": _std(cem_returns),
         "cem_mpc_episode_length_mean": _mean(cem_lengths),
+        "cem_pec_mpc_return_mean": _mean(cem_pec_returns),
+        "cem_pec_mpc_return_std": _std(cem_pec_returns),
+        "cem_pec_mpc_episode_length_mean": _mean(cem_pec_lengths),
     }
 
 
@@ -866,18 +915,7 @@ def _run_planner_episodes(
                     -1
                 )
                 planner_state = initial_planner_state(current_observation)
-                if planner_name == "random_mpc":
-                    action = random_shooting_action(
-                        planner_state=planner_state,
-                        env_id=env_id,
-                        rng=rng,
-                        config=config,
-                        action_low=action_low,
-                        action_high=action_high,
-                        predict_next=predict_next,
-                        observation_for_reward=observation_for_reward,
-                    )
-                elif planner_name == "cem_mpc":
+                if planner_name in {"cem_mpc", "cem_pec_mpc"}:
                     action = cem_mpc_action(
                         planner_state=planner_state,
                         env_id=env_id,
@@ -887,6 +925,7 @@ def _run_planner_episodes(
                         action_high=action_high,
                         predict_next=predict_next,
                         observation_for_reward=observation_for_reward,
+                        penalize_risk=planner_name == "cem_pec_mpc",
                     )
                 else:
                     raise ValueError(f"unknown planner: {planner_name}")
@@ -908,31 +947,6 @@ def _run_planner_episodes(
     return returns, lengths
 
 
-def random_shooting_action(
-    planner_state: Any,
-    env_id: str,
-    rng: np.random.Generator,
-    config: PlannerEvaluationConfig,
-    action_low: np.ndarray,
-    action_high: np.ndarray,
-    predict_next: Callable[[Any, np.ndarray], Any],
-    observation_for_reward: Callable[[Any], np.ndarray],
-) -> np.ndarray:
-    action_sequences = rng.uniform(
-        low=action_low,
-        high=action_high,
-        size=(config.random_candidates, config.horizon, action_low.shape[0]),
-    ).astype(np.float32)
-    scores = score_action_sequences(
-        planner_state,
-        action_sequences,
-        env_id,
-        predict_next,
-        observation_for_reward,
-    )
-    return action_sequences[int(np.argmax(scores)), 0]
-
-
 def cem_mpc_action(
     planner_state: Any,
     env_id: str,
@@ -942,6 +956,7 @@ def cem_mpc_action(
     action_high: np.ndarray,
     predict_next: Callable[[Any, np.ndarray], Any],
     observation_for_reward: Callable[[Any], np.ndarray],
+    penalize_risk: bool = True,
 ) -> np.ndarray:
     action_dim = int(action_low.shape[0])
     mean_sequence = np.zeros((config.horizon, action_dim), dtype=np.float32)
@@ -963,6 +978,7 @@ def cem_mpc_action(
             env_id,
             predict_next,
             observation_for_reward,
+            penalize_risk=penalize_risk,
         )
         best_idx = int(np.argmax(scores))
         if float(scores[best_idx]) > best_score:
@@ -983,6 +999,7 @@ def score_action_sequences(
     env_id: str,
     predict_next: Callable[[Any, np.ndarray], Any],
     observation_for_reward: Callable[[Any], np.ndarray],
+    penalize_risk: bool = True,
 ) -> np.ndarray:
     scores = np.zeros(action_sequences.shape[0], dtype=np.float64)
     for candidate_idx, sequence in enumerate(action_sequences):
@@ -992,8 +1009,89 @@ def score_action_sequences(
             state = predict_next(state, action)
             predicted_observation = observation_for_reward(state)
             total += mujoco_planning_reward_proxy(env_id, predicted_observation, action)
+            if penalize_risk:
+                total -= planner_state_risk(state)
         scores[candidate_idx] = total
     return scores
+
+
+def planner_state_risk(planner_state: Any) -> float:
+    return float(getattr(planner_state, "risk", 0.0))
+
+
+def build_planner_guard_stats(train_dataset) -> PlannerGuardStats:
+    return PlannerGuardStats(
+        state_mean=np.mean(train_dataset.states, axis=0).astype(np.float32),
+        state_std=np.maximum(np.std(train_dataset.states, axis=0), 1e-3).astype(
+            np.float32
+        ),
+        action_mean=np.mean(train_dataset.actions, axis=0).astype(np.float32),
+        action_std=np.maximum(np.std(train_dataset.actions, axis=0), 1e-3).astype(
+            np.float32
+        ),
+    )
+
+
+def continuous_planner_risk(
+    state: np.ndarray,
+    action: np.ndarray,
+    next_state: np.ndarray,
+    output: Any,
+    config: PlannerEvaluationConfig,
+    stats: PlannerGuardStats,
+) -> float:
+    risk = 0.0
+    if config.state_ood_weight > 0:
+        risk += config.state_ood_weight * _ood_risk(
+            next_state,
+            stats.state_mean,
+            stats.state_std,
+            config.ood_z_clip,
+        )
+    if config.action_ood_weight > 0:
+        risk += config.action_ood_weight * _ood_risk(
+            action,
+            stats.action_mean,
+            stats.action_std,
+            config.ood_z_clip,
+        )
+    if config.disagreement_weight > 0 and getattr(output, "symbolic_gate", None) is not None:
+        symbolic_delta = output.program_next_state - torch.as_tensor(
+            state,
+            dtype=torch.float32,
+            device=output.program_next_state.device,
+        )
+        neural_delta = output.residual
+        known_mask = 1.0 - output.unknown_mask
+        state_scale = torch.as_tensor(
+            stats.state_std,
+            dtype=torch.float32,
+            device=output.program_next_state.device,
+        )
+        disagreement = ((symbolic_delta - neural_delta) / state_scale).square()
+        disagreement = disagreement * known_mask
+        risk += config.disagreement_weight * float(disagreement.mean().cpu())
+    ensemble_variance = getattr(output, "ensemble_variance", None)
+    if config.ensemble_variance_weight > 0 and ensemble_variance is not None:
+        state_scale = torch.as_tensor(
+            stats.state_std,
+            dtype=torch.float32,
+            device=ensemble_variance.device,
+        )
+        normalized_variance = ensemble_variance / state_scale.square()
+        risk += config.ensemble_variance_weight * float(normalized_variance.mean().cpu())
+    return float(risk)
+
+
+def _ood_risk(
+    value: np.ndarray,
+    mean: np.ndarray,
+    std: np.ndarray,
+    z_clip: float,
+) -> float:
+    z = np.abs((np.asarray(value, dtype=np.float32).reshape(-1) - mean) / std)
+    excess = np.maximum(z - float(z_clip), 0.0)
+    return float(np.mean(np.square(excess)))
 
 
 def mujoco_planning_reward_proxy(
