@@ -178,10 +178,31 @@ Search niche: {config.niche or "general"}
 
 {task_context}
 
+What to infer:
+    Find a small set of coordinate-local transition laws that map the current
+    flat MuJoCo vectors (state, action) to selected next-state coordinates.
+    Use the per-dimension semantic table above to decide which numeric indices
+    are qpos, qvel, target, geometry, constraint, or ctrl coordinates.
+    If a coordinate is not semantically clear or not strongly supported by the
+    observed transitions, leave it for the neural residual.
+
 Return only Python code inside one ```python fenced block.
 Do not import anything. The execution namespace already contains:
     torch, nn, ContinuousLaw, LawPrediction,
     KinematicPositionLaw, LinearVelocityLaw, JointLimitVelocityLaw
+
+Executable-symbol contract:
+    The only MuJoCo inputs available in code are the flat tensors `state` and
+    `action`. Access coordinates only as `state[i]`, `state[i:j]`,
+    `action[k]`, or `action[k:l]` using integer indices from the semantic table.
+    There is no env object, simulator object, MuJoCo XML object, `qpos`, `qvel`,
+    `ctrl`, `data`, or `model` variable available at execution time.
+    Semantic labels such as qpos, qvel, cart_position, pole_angle,
+    shoulder_torque, target_x, or constraint_force_x are text labels only.
+    They are not Python variables, not classes, and not callable objects.
+    Never reference invented symbols such as QposCartPosition, QvelJointVelocity,
+    CtrlTorque, TargetX, MuJoCoState, or any other name that is not defined
+    inside your returned code block.
 
 The code must define:
 
@@ -206,6 +227,12 @@ Optional LawPrediction fields:
     std: torch.Tensor same shape as values; smaller std means sharper likelihood
     weight: torch.Tensor same shape as values; nonnegative product-of-experts weight
 
+Prediction-value contract:
+    `values` must contain predicted next-state values for `indices`, not raw
+    deltas. For a kinematic update, return state[pos_idx] + dt * state[vel_idx].
+    For identity/constant coordinates, return the current state coordinate.
+    If you want to model a delta, add it to the current coordinate yourself.
+
 Probabilistic symbolic interpretation:
     A law predicting coordinate i supplies p_l(delta_i | s,a) as local Gaussian
     evidence around its implied next-state value. When multiple laws predict the
@@ -220,8 +247,10 @@ Leader/follower/DAG design rule:
     nodes that follow one or more leaders, e.g. qpos follower from (qpos, qvel,
     dt), action-dynamics follower from (qvel, ctrl/torque), or conservative
     identity follower from (target/geometry). Each law should be a reusable DAG
-    node with a clear parent-concept set in its law_name or class name. Do not
-    create one monolithic law that hides all assumptions.
+    node with a clear parent-concept set in its `law_name` string only. Use
+    generic Python class names such as KinematicFollowerLaw or SparseActionLaw;
+    do not turn semantic concepts into class/object names. Do not create one
+    monolithic law that hides all assumptions.
 
 Prefer compact interpretable laws. Use the neural residual for dimensions you cannot
 explain confidently. Avoid predicting every dimension with weak made-up rules.

@@ -15,9 +15,11 @@ from onelife.program_residual import (
 class FakeSynthesizer:
     def __init__(self) -> None:
         self.calls = 0
+        self.prompts: list[str] = []
 
     def synthesize_from_batch(self, batch, config):
         self.calls += 1
+        self.prompts.append(config.extra_instructions)
         return LLMSynthesizedLaws(
             laws=(
                 KinematicPositionLaw(
@@ -62,3 +64,5 @@ def test_island_search_returns_best_valid_symbolic_bundle():
     assert result.bundle.laws
     assert result.summary["num_candidates"] >= 4
     assert "best_niche" in result.summary
+    assert all("law_name string only" in prompt for prompt in synthesizer.prompts)
+    assert all("state[i] and action[k] integer indexing only" in prompt for prompt in synthesizer.prompts)

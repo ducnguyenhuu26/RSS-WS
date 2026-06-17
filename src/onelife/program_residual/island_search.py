@@ -85,8 +85,9 @@ NICHES: tuple[NicheSpec, ...] = (
         instructions=(
             "Focus on high-precision kinematic laws, especially position or angle "
             "updates of the form q_next = q + dt * qdot. Use the semantic state "
-            "labels to find matching qpos/qvel concept leaders. Implement each "
-            "law as a follower code node attached to explicit concept parents. "
+            "labels only to choose concrete state[i] qpos/qvel indices. Implement each "
+            "law as a follower code node attached to explicit concept parents in "
+            "its law_name string. "
             "Avoid velocity/contact laws unless the transition samples strongly "
             "justify them."
         ),
@@ -98,9 +99,10 @@ NICHES: tuple[NicheSpec, ...] = (
         name="action_dynamics",
         instructions=(
             "Focus on action-conditioned velocity or angular-velocity changes. "
-            "Prefer sparse linear action effects and damping terms. Treat actions "
-            "as ctrl/torque concept leaders and implement only local qvel follower "
-            "laws. Do not predict position dimensions unless needed for a "
+            "Prefer sparse linear action effects and damping terms. Use action "
+            "labels only to choose concrete action[k] ctrl/torque indices and "
+            "implement only local state[i] qvel follower laws. Do not predict "
+            "position dimensions unless needed for a "
             "precondition."
         ),
         coverage_weight=0.04,
@@ -206,9 +208,13 @@ def _generate_initial_population(
                     f"{niche.instructions}\n"
                     f"Candidate id within this niche: {candidate_idx}. Prefer a "
                     "distinct law set from other candidates. Name each law with "
-                    "its leader/follower semantic parent concepts, for example "
+                    "its leader/follower semantic parent concepts in the law_name "
+                    "string only, for example "
                     "'follower__qpos_cart_position__qvel_cart_velocity' or "
-                    "'follower__qvel_joint_velocity__ctrl_joint_torque'."
+                    "'follower__qvel_joint_velocity__ctrl_joint_torque'. "
+                    "Do not use these semantic labels as Python variables, "
+                    "classes, helper functions, or constructor names; executable "
+                    "code must use state[i] and action[k] integer indexing only."
                 ),
             )
             try:

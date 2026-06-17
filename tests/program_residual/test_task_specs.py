@@ -50,3 +50,13 @@ def test_mujoco_prompt_contains_task_conditioned_semantics():
     assert "concept leaders" in prompt
     assert "qvel velocity coordinates" in prompt
     assert "ctrl torque/force inputs" in prompt
+    assert "What to infer:" in prompt
+    assert "flat MuJoCo vectors (state, action)" in prompt
+    assert "Access coordinates only as `state[i]`" in prompt
+    assert "Semantic labels such as qpos, qvel" in prompt
+    assert "They are not Python variables, not classes" in prompt
+    assert "Never reference invented symbols such as QposCartPosition" in prompt
+    assert "law_name` string only" in prompt
+    assert "There is no env object, simulator object" in prompt
+    assert "Prediction-value contract" in prompt
+    assert "predicted next-state values" in prompt
