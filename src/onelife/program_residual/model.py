@@ -19,6 +19,7 @@ class ProgramResidualWorldModel(nn.Module):
         program: SymbolicProgram,
         residual_model: nn.Module,
         gate_model: nn.Module | None = None,
+        variance_model: nn.Module | None = None,
         apply_unknown_mask: bool = False,
     ) -> None:
         super().__init__()
@@ -29,6 +30,7 @@ class ProgramResidualWorldModel(nn.Module):
         self.program = program
         self.residual_model = residual_model
         self.gate_model = gate_model
+        self.variance_model = variance_model
         self.apply_unknown_mask = bool(apply_unknown_mask)
 
     def forward(self, states: torch.Tensor, actions: torch.Tensor) -> ModelOutput:
@@ -102,6 +104,16 @@ class ProgramResidualWorldModel(nn.Module):
             unknown_mask = program_output.unknown_mask
             program_variance = program_output.variance
 
+        log_variance = None
+        if self.variance_model is not None:
+            log_variance = self.variance_model(
+                states_batched,
+                actions_batched,
+                prediction if not squeeze else prediction.unsqueeze(0),
+            )
+            if squeeze:
+                log_variance = log_variance.squeeze(0)
+
         return ModelOutput(
             prediction=prediction,
             program_next_state=program_next_state,
@@ -112,7 +124,11 @@ class ProgramResidualWorldModel(nn.Module):
             active_laws=program_output.active_laws,
             symbolic_gate=symbolic_gate,
             program_variance=program_variance,
+            log_variance=log_variance,
         )
+
+    def symbolic_weight_l1(self) -> torch.Tensor:
+        return self.program.symbolic_weight_l1()
 
     @torch.no_grad()
     def predict_next_state(

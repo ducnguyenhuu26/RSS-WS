@@ -33,7 +33,7 @@ from .mujoco import (
     transitions_to_batch,
 )
 from .program import SymbolicProgram
-from .residual import DeltaGateMLP, ResidualMLP, ResidualODE
+from .residual import DeltaGateMLP, DiagonalVarianceMLP, ResidualMLP, ResidualODE
 from .task_specs import (
     ActionSpec,
     DimensionSpec,
@@ -53,6 +53,7 @@ from .trainer import (
 __all__ = [
     "ContinuousLaw",
     "DeltaGateMLP",
+    "DiagonalVarianceMLP",
     "ActionSpec",
     "DimensionSpec",
     "JointLimitVelocityLaw",

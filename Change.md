@@ -9,7 +9,7 @@ Each environment should be shown with two columns:
 
 ```text
 Score   = one_step_delta_r2_uniform
-Reward  = CEM return / CEM-PEC return
+Reward  = CEM-MPC return / PEC-CEM-MPC return
 ```
 
 `Score` is R2 on one-step state deltas. It is computed per state dimension and
@@ -35,14 +35,14 @@ seeds. Planner evaluation uses one episode per seed.
 Two planners are included:
 
 ```text
-CEM
-CEM-PEC
+CEM-MPC
+PEC-CEM-MPC
 ```
 
-Both use the same learned model interface. CEM iteratively refits a Gaussian
-action-sequence distribution to elite candidates. CEM-PEC uses the same CEM
-planner but subtracts planning error/control penalties such as state/action OOD,
-symbolic-neural disagreement, and ensemble variance when those signals are
+Both use the same learned model interface. CEM-MPC iteratively refits a Gaussian
+action-sequence distribution to elite candidates. PEC-CEM-MPC uses the same CEM
+optimizer but subtracts planning error/control penalties such as state/action
+OOD, symbolic-neural disagreement, and ensemble variance when those signals are
 available.
 
 ## Compared Models
@@ -93,8 +93,14 @@ Pusher-v5
 - `llm_calls` and `llm_usage` are stored in each output JSON for LLM-call
   ablations. Non-LLM baselines record zero calls.
 - `answer` is the final proposed model: semantic LLM symbolic laws plus
-  leader/follower concept prompting, semantic island evolution, and an ODE
-  neural residual.
+  leader/follower concept prompting, semantic island evolution, weighted-product
+  symbolic effect composition, sparse learnable law weights, a probabilistic
+  covariance head, and an ODE neural residual.
+- `neural` is the architecture-matched ablation: the same neural ODE residual
+  and covariance head as `answer`, but with an empty symbolic program.
+- LLM-generated laws are soft probabilistic effects over state deltas rather
+  than trusted transitions. Their weighted likelihood contributions are trained
+  with an L1 penalty, allowing bad symbolic laws to be suppressed by data.
 - `dreamer_v3` is an external baseline. Import its outputs as JSON files with
   `model: "dreamer_v3"` and the same final `score` / `reward` schema.
 - `pets_ensemble` is a PETS-style bootstrap ensemble of neural dynamics models

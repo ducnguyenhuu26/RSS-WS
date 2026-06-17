@@ -53,11 +53,18 @@ class FixedGate(nn.Module):
 
 
 class FixedProbabilisticLaw(nn.Module):
-    def __init__(self, value: float, std: float, name: str) -> None:
+    def __init__(
+        self,
+        value: float,
+        std: float,
+        name: str,
+        value_kind: str = "next_state",
+    ) -> None:
         super().__init__()
         self.value = float(value)
         self.std = float(std)
         self._law_name = name
+        self.value_kind = value_kind
 
     @property
     def law_name(self) -> str:
@@ -73,6 +80,7 @@ class FixedProbabilisticLaw(nn.Module):
             confidence=torch.tensor([1.0], dtype=state.dtype),
             law_name=self.law_name,
             std=torch.tensor([self.std], dtype=state.dtype),
+            value_kind=self.value_kind,
         )
 
 
@@ -119,6 +127,32 @@ def test_symbolic_program_combines_probabilistic_laws_by_precision():
     assert output.variance is not None
     assert output.variance[0] < 0.01
     assert torch.allclose(output.unknown_mask, torch.tensor([0.0, 1.0]))
+
+
+def test_weighted_product_delta_law_weight_starts_as_soft_proposal():
+    program = SymbolicProgram(
+        state_dim=2,
+        laws=[
+            FixedProbabilisticLaw(
+                value=10.0,
+                std=1.0,
+                name="large_rate",
+                value_kind="rate",
+            )
+        ],
+        transition_dt=0.1,
+        composition_mode="weighted_product_delta",
+        learn_law_weights=True,
+        initial_law_logit=-8.0,
+        unknown_confidence_threshold=1e-3,
+        base_delta_precision=1.0,
+    )
+
+    output = program(torch.tensor([1.0, 3.0]), torch.tensor([0.0]))
+
+    assert torch.allclose(output.next_state, torch.tensor([1.0003, 3.0]), atol=1e-4)
+    assert torch.allclose(output.unknown_mask, torch.tensor([1.0, 1.0]))
+    assert program.symbolic_weight_l1() < 1e-3
 
 
 def test_program_residual_model_applies_residual_only_to_unknown_dimensions():

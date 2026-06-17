@@ -257,3 +257,48 @@ class DeltaGateMLP(nn.Module):
             unknown_mask=unknown_mask,
         )
         return torch.sigmoid(self.net(features))
+
+
+class DiagonalVarianceMLP(nn.Module):
+    """State-dependent diagonal log-variance head for probabilistic dynamics."""
+
+    def __init__(
+        self,
+        state_dim: int,
+        action_dim: int,
+        hidden_sizes: Sequence[int] = (128, 128),
+        activation: str = "silu",
+        min_log_variance: float = -8.0,
+        max_log_variance: float = 4.0,
+    ) -> None:
+        super().__init__()
+        if state_dim <= 0 or action_dim <= 0:
+            raise ValueError("state_dim and action_dim must be positive")
+        if min_log_variance >= max_log_variance:
+            raise ValueError("min_log_variance must be smaller than max_log_variance")
+        self.state_dim = int(state_dim)
+        self.action_dim = int(action_dim)
+        self.min_log_variance = float(min_log_variance)
+        self.max_log_variance = float(max_log_variance)
+
+        input_dim = state_dim + action_dim + state_dim
+        layers: list[nn.Module] = []
+        previous_dim = input_dim
+        for hidden_size in hidden_sizes:
+            layers.append(nn.Linear(previous_dim, int(hidden_size)))
+            layers.append(_activation_module(activation))
+            previous_dim = int(hidden_size)
+        output_layer = nn.Linear(previous_dim, state_dim)
+        nn.init.zeros_(output_layer.weight)
+        nn.init.constant_(output_layer.bias, -4.0)
+        layers.append(output_layer)
+        self.net = nn.Sequential(*layers)
+
+    def forward(
+        self,
+        states: torch.Tensor,
+        actions: torch.Tensor,
+        predictions: torch.Tensor,
+    ) -> torch.Tensor:
+        raw = self.net(torch.cat([states, actions, predictions], dim=-1))
+        return raw.clamp(self.min_log_variance, self.max_log_variance)

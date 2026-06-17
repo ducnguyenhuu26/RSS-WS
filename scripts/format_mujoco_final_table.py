@@ -28,6 +28,7 @@ MODEL_ORDER = [
 
 ABLATION_MODEL_ORDER = [
     "neural",
+    "neural_mlp",
     "program_only",
     "symbolic_neural",
 ]
@@ -37,9 +38,10 @@ MODEL_LABELS = {
     "onelife": "Adaptive OneLife",
     "pets_ensemble": "PETS-style neural ensemble + MPC",
     "dreamer_v3": "Dreamer V3",
-    "neural": "Neural only + MPC",
+    "neural": "Neural ODE only + MPC",
+    "neural_mlp": "Neural MLP only + MPC",
     "program_only": "Symbolic only (LLM laws)",
-    "symbolic_neural": "Symbolic library + neural",
+    "symbolic_neural": "Symbolic library + neural ODE",
 }
 
 SCORE_KEY = "score.one_step_delta_r2_uniform"
@@ -69,13 +71,13 @@ def main() -> None:
 
     for env in _ordered_envs(grouped):
         print(f"### {env}")
-        print("| Model | Score (R2) | Reward (CEM / CEM-PEC) |")
+        print("| Model | Score (R2) | Reward (CEM-MPC / PEC-CEM-MPC) |")
         print("|---|---:|---:|")
         _print_model_rows(env, grouped, MODEL_ORDER, args.precision, args.no_std)
         if any(grouped.get((env, model), []) for model in ABLATION_MODEL_ORDER):
             print()
             print("Ablation:")
-            print("| Model | Score (R2) | Reward (CEM / CEM-PEC) |")
+            print("| Model | Score (R2) | Reward (CEM-MPC / PEC-CEM-MPC) |")
             print("|---|---:|---:|")
             _print_model_rows(
                 env,

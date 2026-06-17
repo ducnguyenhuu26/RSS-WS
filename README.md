@@ -12,7 +12,7 @@ Each environment is reported with two columns:
 - **Score**: `one_step_delta_r2_uniform`, the mean per-state-dimension R2 for
   predicting the one-step state delta `s_next - s`.
 - **Reward**: planner return in the real environment using the learned world
-  model, reported as `CEM / CEM-PEC`.
+  model, reported as `CEM-MPC / PEC-CEM-MPC`.
 
 The primary score is delta R2 rather than next-state R2 because identity
 prediction can look strong on MuJoCo next states while failing to learn the
@@ -20,8 +20,9 @@ actual transition dynamics.
 
 The planner reward is actual environment reward accumulated after executing
 actions chosen by MPC. The model is only used inside the planner to score
-candidate action sequences. CEM is the plain cross-entropy planner. CEM-PEC uses
-the same planner but subtracts model-risk penalties during imagined rollouts.
+candidate action sequences. CEM-MPC is the plain cross-entropy MPC planner.
+PEC-CEM-MPC uses the same planner but subtracts model-risk penalties during
+imagined rollouts.
 Final runs average over three seeds. Planner evaluation uses one episode per
 seed to keep the full seven-environment sweep tractable.
 
@@ -60,9 +61,9 @@ dreamer_v3      Dreamer V3 external baseline
 The ablation table uses three models:
 
 ```text
-neural           Neural only; removes symbolic laws
+neural           Neural ODE only; removes symbolic laws
 program_only     Symbolic only; removes neural residual
-symbolic_neural  Symbolic library + neural; removes LLM-generated laws
+symbolic_neural  Symbolic library + neural ODE; removes LLM-generated laws
 ```
 
 ## Running
@@ -134,12 +135,18 @@ uv run --no-sync --env-file .env python scripts/aggregate_mujoco_results.py outp
 
 ## Notes
 
-- `answer` uses semantic LLM symbolic laws, leader/follower concept prompting,
-  semantic island evolution, and an ODE neural residual.
+- `answer` uses semantic LLM symbolic effect laws, leader/follower concept
+  prompting, semantic island evolution, weighted-product law composition,
+  learnable sparse law weights, a probabilistic covariance head, and an ODE
+  neural residual.
 - Adaptive OneLife uses binned MuJoCo states/actions and OneLife-style
   precondition-effect laws.
-- The neural residual is a full correction term, not masked to only unknown
-  symbolic dimensions.
+- `neural` is the architecture-matched ablation: the same ODE residual and
+  probabilistic head as `answer`, but with an empty symbolic program.
+- The symbolic laws are soft probabilistic effects over state deltas. Their
+  likelihood contributions are weighted by learned nonnegative law weights and
+  regularized with an L1 penalty, so unsupported LLM laws can be suppressed by
+  data instead of hard-wiring a bad prior into the transition model.
 - `pets_ensemble` is a PETS-style baseline: a bootstrap ensemble of neural
   dynamics models trained on the same transitions and evaluated with the same
   MPC planner.

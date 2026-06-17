@@ -35,6 +35,7 @@ from onelife.program_residual import (
     MuJoCoCollectionConfig,
     ProgramResidualTrainerConfig,
     ProgramResidualWorldModel,
+    DiagonalVarianceMLP,
     ResidualMLP,
     ResidualODE,
     SymbolicProgram,
@@ -155,12 +156,22 @@ def main(cfg: DictConfig) -> None:
             )
     else:
         residual = ZeroResidual()
+    variance_model = (
+        DiagonalVarianceMLP(
+            state_dim=train_dataset.state_dim,
+            action_dim=train_dataset.action_dim,
+            hidden_sizes=tuple(int(size) for size in cfg.hidden_sizes),
+        )
+        if model_uses_probabilistic_head(model_name)
+        else None
+    )
     uses_symbolic_gate = False
     model = ProgramResidualWorldModel(
         state_dim=train_dataset.state_dim,
         action_dim=train_dataset.action_dim,
         program=program,
         residual_model=residual,
+        variance_model=variance_model,
         gate_model=None,
         apply_unknown_mask=not trains_neural_residual,
     ).to(device)
@@ -174,13 +185,19 @@ def main(cfg: DictConfig) -> None:
             )
         )
     ]
-    if trains_neural_residual:
+    if model_has_trainable_parameters(model):
         history = fit_supervised(
             model=model,
             batches=batches,
             config=ProgramResidualTrainerConfig(
                 learning_rate=float(cfg.learning_rate),
                 residual_l2_weight=float(cfg.residual_l2_weight),
+                symbolic_l1_weight=float(
+                    cfg.get("symbolic", {}).get("l1_weight", 1e-3)
+                ),
+                use_nll_loss=bool(
+                    cfg.get("probabilistic", {}).get("use_nll_loss", True)
+                ),
             ),
             num_epochs=int(cfg.epochs),
         )
@@ -252,12 +269,12 @@ def symbolic_source_for_model(model_name: str) -> str:
             return "llm"
         case "symbolic_neural":
             return "standard"
-        case "neural":
+        case "neural" | "neural_mlp":
             return "empty"
         case _:
             raise ValueError(
                 "model must be one of: answer, onelife, pets_ensemble, "
-                "dreamer_v3, neural, program_only, symbolic_neural"
+                "dreamer_v3, neural, neural_mlp, program_only, symbolic_neural"
             )
 
 
@@ -265,6 +282,7 @@ def model_uses_neural_residual(model_name: str) -> bool:
     return model_name in {
         "answer",
         "neural",
+        "neural_mlp",
         "symbolic_neural",
     }
 
@@ -278,7 +296,15 @@ def model_uses_island_search(model_name: str) -> bool:
 
 
 def model_uses_ode_residual(model_name: str) -> bool:
-    return model_name == "answer"
+    return model_name in {"answer", "neural", "symbolic_neural"}
+
+
+def model_uses_probabilistic_head(model_name: str) -> bool:
+    return model_uses_ode_residual(model_name)
+
+
+def model_uses_trainable_symbolic(model_name: str) -> bool:
+    return model_name in {"answer", "program_only", "symbolic_neural"}
 
 
 def residual_backbone_name(model_name: str) -> str:
@@ -294,6 +320,10 @@ def normalize_model_name(model_name: str) -> str:
     lowered = raw.lower()
     aliases = {
         "answer": "answer",
+        "neural_ode": "neural",
+        "neural-ode": "neural",
+        "neural_mlp": "neural_mlp",
+        "neural-mlp": "neural_mlp",
         "dreamer": "dreamer_v3",
         "dreamerv3": "dreamer_v3",
         "dreamer-v3": "dreamer_v3",
@@ -335,7 +365,18 @@ def build_program_from_config(
 ) -> tuple[SymbolicProgram, str | None, dict[str, int], dict[str, object]]:
     if symbolic_source == "empty":
         return (
-            SymbolicProgram(state_dim=train_dataset.state_dim, laws=[]),
+            SymbolicProgram(
+                state_dim=train_dataset.state_dim,
+                laws=[],
+                transition_dt=resolve_mujoco_dt(problem, cfg.llm.dt),
+                composition_mode="weighted_product_delta",
+                unknown_confidence_threshold=float(
+                    cfg.get("symbolic", {}).get("unknown_confidence_threshold", 1e-3)
+                ),
+                base_delta_precision=float(
+                    cfg.get("symbolic", {}).get("base_delta_precision", 1.0)
+                ),
+            ),
             None,
             zero_llm_usage(),
             {},
@@ -344,6 +385,17 @@ def build_program_from_config(
         return build_standard_symbolic_program(
             state_dim=train_dataset.state_dim,
             dt=resolve_mujoco_dt(problem, cfg.llm.dt),
+            composition_mode="weighted_product_delta",
+            learn_law_weights=model_uses_trainable_symbolic(model_name),
+            initial_law_logit=float(
+                cfg.get("symbolic", {}).get("initial_law_logit", -8.0)
+            ),
+            unknown_confidence_threshold=float(
+                cfg.get("symbolic", {}).get("unknown_confidence_threshold", 1e-3)
+            ),
+            base_delta_precision=float(
+                cfg.get("symbolic", {}).get("base_delta_precision", 1.0)
+            ),
         ), None, zero_llm_usage(), {}
 
     if cfg.llm.provider == "openai":
@@ -384,21 +436,58 @@ def build_program_from_config(
             law_config,
         )
     return (
-        bundle.build_program(state_dim=train_dataset.state_dim),
+        bundle.build_program(
+            state_dim=train_dataset.state_dim,
+            transition_dt=resolve_mujoco_dt(problem, cfg.llm.dt),
+            composition_mode="weighted_product_delta",
+            learn_law_weights=model_uses_trainable_symbolic(model_name),
+            initial_law_logit=float(
+                cfg.get("symbolic", {}).get("initial_law_logit", -8.0)
+            ),
+            unknown_confidence_threshold=float(
+                cfg.get("symbolic", {}).get("unknown_confidence_threshold", 1e-3)
+            ),
+            base_delta_precision=float(
+                cfg.get("symbolic", {}).get("base_delta_precision", 1.0)
+            ),
+        ),
         bundle.code,
         llm_tracker.as_dict(),
         island_summary,
     )
 
 
-def build_standard_symbolic_program(state_dim: int, dt: float) -> SymbolicProgram:
+def build_standard_symbolic_program(
+    state_dim: int,
+    dt: float,
+    composition_mode: str = "poe_next_state",
+    learn_law_weights: bool = False,
+    initial_law_logit: float = -8.0,
+    unknown_confidence_threshold: float = 1e-6,
+    base_delta_precision: float = 1.0,
+) -> SymbolicProgram:
     num_positions = max(0, state_dim // 2)
     if num_positions == 0:
-        return SymbolicProgram(state_dim=state_dim, laws=[])
+        return SymbolicProgram(
+            state_dim=state_dim,
+            laws=[],
+            unknown_confidence_threshold=unknown_confidence_threshold,
+            transition_dt=dt,
+            composition_mode=composition_mode,
+            learn_law_weights=learn_law_weights,
+            initial_law_logit=initial_law_logit,
+            base_delta_precision=base_delta_precision,
+        )
     position_indices = tuple(range(num_positions))
     velocity_indices = tuple(range(num_positions, 2 * num_positions))
     return SymbolicProgram(
         state_dim=state_dim,
+        unknown_confidence_threshold=unknown_confidence_threshold,
+        transition_dt=dt,
+        composition_mode=composition_mode,
+        learn_law_weights=learn_law_weights,
+        initial_law_logit=initial_law_logit,
+        base_delta_precision=base_delta_precision,
         laws=[
             KinematicPositionLaw(
                 position_indices=position_indices,
@@ -409,6 +498,10 @@ def build_standard_symbolic_program(state_dim: int, dt: float) -> SymbolicProgra
             )
         ],
     )
+
+
+def model_has_trainable_parameters(model: torch.nn.Module) -> bool:
+    return any(parameter.requires_grad for parameter in model.parameters())
 
 
 def resolve_mujoco_dt(problem: str, raw_dt) -> float:

@@ -349,6 +349,10 @@ def evaluate_program_residual(
         metrics["mean_ensemble_variance"] = float(
             output.ensemble_variance.float().mean().cpu()
         )
+    if getattr(output, "log_variance", None) is not None:
+        metrics["mean_predicted_variance"] = float(
+            torch.exp(output.log_variance).float().mean().cpu()
+        )
     rollout_metrics = evaluate_open_loop_rollouts(
         model=model,
         env_id=env_id,
@@ -1079,6 +1083,16 @@ def continuous_planner_risk(
             device=ensemble_variance.device,
         )
         normalized_variance = ensemble_variance / state_scale.square()
+        risk += config.ensemble_variance_weight * float(normalized_variance.mean().cpu())
+    log_variance = getattr(output, "log_variance", None)
+    if config.ensemble_variance_weight > 0 and log_variance is not None:
+        state_scale = torch.as_tensor(
+            stats.state_std,
+            dtype=torch.float32,
+            device=log_variance.device,
+        )
+        predicted_variance = torch.exp(log_variance)
+        normalized_variance = predicted_variance / state_scale.square()
         risk += config.ensemble_variance_weight * float(normalized_variance.mean().cpu())
     return float(risk)
 

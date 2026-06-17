@@ -17,9 +17,9 @@ dreamer_v3
 Ablation table:
 
 ```text
-neural            # no symbolic component
+neural            # no symbolic component, same ODE backbone as ANSWER
 program_only      # symbolic only, no neural residual
-symbolic_neural   # symbolic library + neural, no LLM-generated laws
+symbolic_neural   # symbolic library + neural ODE, no LLM-generated laws
 ```
 
 `dreamer_v3` is an external baseline. Import its JSON results with
@@ -67,38 +67,62 @@ where \(I_\ell\) are state parent coordinates, \(J_\ell\) are action parent
 coordinates, \(T_\ell\) are predicted target coordinates, \(f_\ell\) is the law
 code, and \(w_\ell,\sigma_\ell\) describe law reliability.
 
-For target coordinate \(i\), a law predicts a next-state value
+For target coordinate \(i\), a law predicts a local probabilistic effect on the
+state change
 
 \[
-v_{\ell,i} = f_{\ell,i}(s^{I_\ell}, a^{J_\ell}; C_e).
+m_{\ell,i}(s,a) = \psi_\ell(s^{I_\ell}, a^{J_\ell}; \alpha_\ell).
 \]
 
-The symbolic program treats this as local Gaussian evidence:
+ANSWER does not trust this contribution by construction. Each law receives a
+nonnegative learned weight
 
 \[
-p_\ell(s'_{i} \mid s,a,C_e)
-= \mathcal{N}(s'_i; v_{\ell,i}, \sigma_{\ell,i}^2).
+\rho_\ell = \mathrm{softplus}(\beta_\ell),
 \]
 
-When multiple laws predict the same coordinate, ANSWER combines them by a
-diagonal product-of-experts:
+and contributes a weighted likelihood
 
 \[
-\pi_{\ell,i} = \frac{w_{\ell,i}}{\sigma_{\ell,i}^2},
+p_\ell(\Delta s_i\mid s,a)
+=\mathcal{N}(\Delta s_i;m_{\ell,i}(s,a),\sigma_{\ell,i}^2).
+\]
+
+Active laws are composed as a weighted product, following the OneLife-style
+law-mixture view:
+
+\[
+p_i(\Delta s_i\mid s,a,\mathcal{L}_i)
+\propto
+\prod_{\ell\in\mathcal{L}_i}
+p_\ell(\Delta s_i\mid s,a)^{\rho_\ell}.
+\]
+
+Equivalently,
+
+\[
+\log p_i
+=\mathrm{const}+
+\sum_{\ell\in\mathcal{L}_i}
+\rho_\ell\log p_\ell(\Delta s_i\mid s,a).
+\]
+
+For ODE rollout, the normalized Gaussian product yields a symbolic delta mean
+\(\mu_i^{sym}\). With a neutral zero-delta base prior, the implemented mean is:
+
+\[
+\mu_i^{sym}
+=
+\frac{\sum_{\ell\in\mathcal{L}_i}\rho_\ell\pi_{\ell,i}m_{\ell,i}}
+     {\pi_0+\sum_{\ell\in\mathcal{L}_i}\rho_\ell\pi_{\ell,i}},
 \qquad
-\hat{s}^{sym}_i
-= \frac{\sum_{\ell \in \mathcal{L}_i} \pi_{\ell,i} v_{\ell,i}}
-        {\sum_{\ell \in \mathcal{L}_i} \pi_{\ell,i}}.
+\pi_{\ell,i}=w_{\ell,i}/\sigma_{\ell,i}^2.
 \]
 
-The symbolic uncertainty is
-
-\[
-\mathrm{Var}^{sym}_i
-= \left(\sum_{\ell \in \mathcal{L}_i} \pi_{\ell,i}\right)^{-1}.
-\]
-
-Uncovered coordinates are left to identity dynamics and the neural residual.
+The law weights are initialized near zero and optimized from data with an L1
+penalty. This makes the LLM a generator of candidate structure, not an
+authority: unsupported laws can collapse back to zero, leaving the neural ODE
+to model the transition.
 
 ## Leader-Follower Concept Graph
 
@@ -168,7 +192,7 @@ The final `answer` model uses a neural ODE residual around the symbolic
 transition. Let
 
 \[
-v_{sym}(s,a) = \frac{\hat{s}^{sym} - s}{\Delta t}.
+v_{sym}(s,a) = \mu^{sym}(s,a;C_e)/\Delta t.
 \]
 
 ANSWER integrates:
@@ -179,10 +203,25 @@ ANSWER integrates:
 \qquad x(0)=s,
 \]
 
-where \(m\) is the symbolic unknown mask. The predicted next state is:
+where \(m\) is the symbolic unknown mask. The predicted next state and
+transition distribution are:
 
 \[
 \hat{s}' = x(\Delta t).
+\]
+
+\[
+p(\Delta s\mid s,a,C_e)
+=\mathcal{N}(\hat{s}'-s,\Sigma_\eta(s,a)).
+\]
+
+The training objective is:
+
+\[
+\min_{\theta,\eta,\alpha,\beta}
+-\log p(\Delta s\mid s,a,C_e)
++\lambda_\rho\sum_\ell \rho_\ell
++\lambda_r\|r_\theta\|^2.
 \]
 
 Implementation:
@@ -213,11 +252,11 @@ The reward column reports real environment return after planning with the
 learned model:
 
 ```text
-Reward = CEM / CEM-PEC
+Reward = CEM-MPC / PEC-CEM-MPC
 ```
 
-CEM is the plain cross-entropy MPC planner. CEM-PEC uses the same planner but
-subtracts model-risk penalties during imagined rollouts.
+CEM-MPC is the plain cross-entropy MPC planner. PEC-CEM-MPC uses the same
+planner but subtracts model-risk penalties during imagined rollouts.
 
 ## Recommended Environment Order
 

@@ -55,8 +55,26 @@ class LLMSynthesizedLaws:
     prompt: str
     raw_response: str
 
-    def build_program(self, state_dim: int) -> SymbolicProgram:
-        return SymbolicProgram(state_dim=state_dim, laws=self.laws)
+    def build_program(
+        self,
+        state_dim: int,
+        transition_dt: float = 1.0,
+        composition_mode: str = "poe_next_state",
+        learn_law_weights: bool = False,
+        initial_law_logit: float = -8.0,
+        unknown_confidence_threshold: float = 1e-6,
+        base_delta_precision: float = 1.0,
+    ) -> SymbolicProgram:
+        return SymbolicProgram(
+            state_dim=state_dim,
+            laws=self.laws,
+            unknown_confidence_threshold=unknown_confidence_threshold,
+            transition_dt=transition_dt,
+            composition_mode=composition_mode,
+            learn_law_weights=learn_law_weights,
+            initial_law_logit=initial_law_logit,
+            base_delta_precision=base_delta_precision,
+        )
 
 
 LLMClient = Callable[[LiteLlmRequest], Any]
@@ -162,13 +180,17 @@ def build_mujoco_law_synthesis_prompt(
     )
     task_context = format_task_spec_for_prompt(task_spec)
     return f"""
-We are building a hybrid MuJoCo world model:
-    s_next_hat = F_program(s, a) + R_theta(s, a, F_program(s, a))
+We are building a probabilistic hybrid MuJoCo world model:
+    p_l(Delta s_i | s,a) = Normal(Delta s_i; m_l(s,a), sigma_i^2)
+    p_i(Delta s_i | s,a,L_i) proportional to product_l p_l ** omega_l
+    dx/dtau = v_symbolic(x, a; C) + F_residual_theta(x, a, tau)
 
 Your task is to propose executable symbolic/code laws for F_program.
 The symbolic program is a sparse probabilistic transition theory: each law is a
-local piece of evidence for selected next-state coordinates, not a full world
-model by itself.
+local probabilistic effect for selected Delta-state coordinates, not a full
+world model by itself. The downstream trainer will fit trainable law parameters
+and learn nonnegative law weights omega_l from data; a bad law should be easy
+to suppress.
 
 Environment: {config.env_id}
 State dimension: {state_dim}
@@ -219,26 +241,36 @@ Important tensor shape contract:
 Do not use batched indexing such as state[:, i] or action[:, i].
 
 LawPrediction fields:
-    indices: torch.LongTensor containing next-state dimensions predicted by the law
-    values: torch.Tensor with predicted values for those dimensions
+    indices: torch.LongTensor containing state-delta dimensions predicted by the law
+    values: torch.Tensor with mean effects m_l(s,a) for those dimensions
     confidence: torch.Tensor same shape as values; use as prior law reliability
     law_name: str
 Optional LawPrediction fields:
     std: torch.Tensor same shape as values; smaller std means sharper likelihood
-    weight: torch.Tensor same shape as values; nonnegative product-of-experts weight
+    weight: torch.Tensor same shape as values; nonnegative likelihood precision scale
+    value_kind: str, one of "rate", "delta", or "next_state"
 
-Prediction-value contract:
-    `values` must contain predicted next-state values for `indices`, not raw
-    deltas. For a kinematic update, return state[pos_idx] + dt * state[vel_idx].
-    For identity/constant coordinates, return the current state coordinate.
-    If you want to model a delta, add it to the current coordinate yourself.
+Effect-value contract:
+    Prefer custom laws that return per-step Delta-state effects with
+    value_kind="delta". Always set value_kind explicitly in LawPrediction.
+    For a kinematic coordinate, return dt * state[vel_idx] as the delta of the
+    position coordinate. For an action-driven velocity
+    coordinate, return a trainable symbolic velocity delta. If it is easier to
+    express a continuous-time rate, return the rate and set value_kind="rate";
+    SymbolicProgram will multiply it by dt. If you use a provided legacy law
+    that returns next-state values, set or leave value_kind="next_state".
+    Never let an uncertain law predict every dimension.
 
 Probabilistic symbolic interpretation:
-    A law predicting coordinate i supplies p_l(delta_i | s,a) as local Gaussian
-    evidence around its implied next-state value. When multiple laws predict the
-    same coordinate, SymbolicProgram combines them by precision weighting. Use
-    confidence/std/weight to express uncertainty. Low-confidence narrow laws are
-    safer than broad fabricated laws.
+    A law predicting coordinate i supplies a local likelihood
+    p_l(Delta s_i | s,a) = Normal(Delta s_i; m_l(s,a), sigma_l^2).
+    SymbolicProgram composes active laws by a weighted product:
+    p_i(Delta s_i | s,a,L_i) proportional to product_l p_l ** omega_l.
+    Equivalently, log p_i = const + sum_l omega_l log p_l.
+    The learned omega_l values are nonnegative softplus parameters with L1
+    sparsity. There is also a neutral zero-delta base prior, so unsupported LLM
+    laws can receive near-zero weight and the ODE residual can fall back to the
+    neural-only model.
 
 Leader/follower/DAG design rule:
     Treat MuJoCo semantic groups as concept leaders: qpos/angle coordinates,
@@ -318,6 +350,7 @@ def compile_synthesized_laws(
                 _validate_law_against_batch(
                     law=law,
                     batch=validation_batch,
+                    dt=dt,
                     sample_count=validation_sample_count,
                     max_mse_ratio=max_validation_mse_ratio,
                     abs_tolerance=validation_abs_tolerance,
@@ -337,6 +370,7 @@ def compile_synthesized_laws(
 def _validate_law_against_batch(
     law: ContinuousLaw,
     batch: TransitionBatch,
+    dt: float,
     sample_count: int,
     max_mse_ratio: float,
     abs_tolerance: float,
@@ -356,7 +390,12 @@ def _validate_law_against_batch(
         prediction = law.predict(state, action)
         _validate_prediction_shape(prediction, state_dim=int(batch.states.shape[1]))
         indices = prediction.indices.to(dtype=torch.long, device=batch.states.device)
-        values = prediction.values.to(dtype=batch.states.dtype, device=batch.states.device)
+        values = _prediction_values_to_next_state(
+            prediction=prediction,
+            state=state,
+            indices=indices,
+            dt=dt,
+        ).to(dtype=batch.states.dtype, device=batch.states.device)
         target_values = batch.next_states[idx, indices]
         identity_values = batch.states[idx, indices]
         law_squared_errors.append((values - target_values).square())
@@ -375,6 +414,26 @@ def _validate_law_against_batch(
             f"identity_mse={float(identity_mse):.6g}, "
             f"allowed_mse={float(allowed_mse):.6g}"
         )
+
+
+def _prediction_values_to_next_state(
+    prediction: LawPrediction,
+    state: torch.Tensor,
+    indices: torch.Tensor,
+    dt: float,
+) -> torch.Tensor:
+    values = prediction.values.to(dtype=state.dtype, device=state.device)
+    value_kind = str(getattr(prediction, "value_kind", "delta")).lower()
+    if value_kind == "next_state":
+        return values
+    if value_kind == "delta":
+        return state[indices] + values
+    if value_kind == "rate":
+        return state[indices] + float(dt) * values
+    raise ValueError(
+        f"Unsupported LawPrediction.value_kind={value_kind!r}; "
+        "expected 'next_state', 'delta', or 'rate'"
+    )
 
 
 def extract_python_code(raw_response: str) -> str:
@@ -423,6 +482,11 @@ def _validate_prediction_shape(prediction: LawPrediction, state_dim: int) -> Non
         weight = torch.as_tensor(prediction.weight)
         if weight.shape != prediction.indices.shape:
             raise ValueError(f"{prediction.law_name} returned weight with wrong shape")
+    value_kind = str(getattr(prediction, "value_kind", "delta")).lower()
+    if value_kind not in {"next_state", "delta", "rate"}:
+        raise ValueError(
+            f"{prediction.law_name} returned unsupported value_kind={value_kind!r}"
+        )
     if prediction.values.dtype not in (torch.float16, torch.float32, torch.float64):
         raise ValueError(f"{prediction.law_name} returned non-floating values")
     if not torch.all(torch.isfinite(prediction.values)):

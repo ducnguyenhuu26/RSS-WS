@@ -24,7 +24,7 @@ class TransitionBatch:
 
 @dataclass(frozen=True)
 class LawPrediction:
-    """A continuous law prediction over selected next-state dimensions."""
+    """A continuous law prediction over selected state-delta dimensions."""
 
     indices: torch.Tensor
     values: torch.Tensor
@@ -32,6 +32,7 @@ class LawPrediction:
     law_name: str
     std: torch.Tensor | None = None
     weight: torch.Tensor | None = None
+    value_kind: str = "delta"
 
 
 @dataclass(frozen=True)
@@ -59,6 +60,7 @@ class ModelOutput:
     symbolic_gate: torch.Tensor | None = None
     ensemble_variance: torch.Tensor | None = None
     program_variance: torch.Tensor | None = None
+    log_variance: torch.Tensor | None = None
 
 
 class ContinuousLawProtocol(Protocol):

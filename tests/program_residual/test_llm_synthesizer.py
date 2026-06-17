@@ -32,6 +32,7 @@ class FirstActionDeltaLaw(ContinuousLaw):
             values=values,
             confidence=confidence,
             law_name=self.law_name,
+            value_kind="next_state",
         )
 
 def build_laws(state_dim, action_dim, dt, confidence):
@@ -122,14 +123,14 @@ class BadBatchedIndexLaw(ContinuousLaw):
         indices = torch.tensor([0], dtype=torch.long)
         values = state[:, 0]
         confidence = torch.ones_like(values)
-        return LawPrediction(indices, values, confidence, self.law_name)
+        return LawPrediction(indices, values, confidence, self.law_name, value_kind="next_state")
 
 class GoodLaw(ContinuousLaw):
     def predict(self, state, action):
         indices = torch.tensor([1], dtype=torch.long)
         values = state[1:2] + 0.0 * action[0:1]
         confidence = torch.ones_like(values)
-        return LawPrediction(indices, values, confidence, self.law_name)
+        return LawPrediction(indices, values, confidence, self.law_name, value_kind="next_state")
 
 def build_laws(state_dim, action_dim, dt, confidence):
     return [BadBatchedIndexLaw(), GoodLaw()]
@@ -153,14 +154,14 @@ class BadLaw(ContinuousLaw):
         indices = torch.tensor([0], dtype=torch.long)
         values = state[0:1] + 100.0
         confidence = torch.ones_like(values)
-        return LawPrediction(indices, values, confidence, self.law_name)
+        return LawPrediction(indices, values, confidence, self.law_name, value_kind="next_state")
 
 class GoodLaw(ContinuousLaw):
     def predict(self, state, action):
         indices = torch.tensor([0], dtype=torch.long)
         values = state[0:1] + action[0:1]
         confidence = torch.ones_like(values)
-        return LawPrediction(indices, values, confidence, self.law_name)
+        return LawPrediction(indices, values, confidence, self.law_name, value_kind="next_state")
 
 def build_laws(state_dim, action_dim, dt, confidence):
     return [BadLaw(), GoodLaw()]

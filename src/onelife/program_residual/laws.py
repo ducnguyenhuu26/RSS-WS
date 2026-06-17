@@ -60,6 +60,7 @@ class KinematicPositionLaw(ContinuousLaw):
             values=values,
             confidence=confidence,
             law_name=self.law_name,
+            value_kind="next_state",
         )
 
 
@@ -113,6 +114,7 @@ class LinearVelocityLaw(ContinuousLaw):
             values=values,
             confidence=confidence,
             law_name=self.law_name,
+            value_kind="next_state",
         )
 
 
@@ -177,4 +179,5 @@ class JointLimitVelocityLaw(ContinuousLaw):
             values=values,
             confidence=confidence,
             law_name=self.law_name,
+            value_kind="next_state",
         )

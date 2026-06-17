@@ -14,6 +14,15 @@ device: auto
 ode:
   steps: 4
 
+symbolic:
+  initial_law_logit: -8.0
+  l1_weight: 0.001
+  unknown_confidence_threshold: 0.001
+  base_delta_precision: 1.0
+
+probabilistic:
+  use_nll_loss: true
+
 llm:
   provider: openai
   model_slug: gpt-4o-mini
