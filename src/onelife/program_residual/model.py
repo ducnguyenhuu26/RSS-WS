@@ -70,6 +70,20 @@ class ProgramResidualWorldModel(nn.Module):
             prediction = program_output.next_state + applied_residual
         else:
             symbolic_delta = program_output.next_state - states_batched
+            symbolic_candidate_delta = symbolic_delta + residual
+
+            # Compute the same neural backbone with a neutral symbolic program.
+            # This makes gate=0 an exact fallback to the neural-only dynamics.
+            neutral_program_next = states_batched
+            neutral_unknown_mask = torch.ones_like(program_output.unknown_mask)
+            neural_residual = self.residual_model(
+                states_batched,
+                actions_batched,
+                neutral_program_next,
+                neutral_unknown_mask,
+            )
+            neural_delta = neural_residual
+
             raw_gate = self.gate_model(
                 states_batched,
                 actions_batched,
@@ -78,11 +92,12 @@ class ProgramResidualWorldModel(nn.Module):
                 program_output.unknown_mask,
             )
             symbolic_gate = raw_gate * (1.0 - program_output.unknown_mask)
-            neural_delta = residual
-            if getattr(self.residual_model, "residual_output_kind", "") == "correction":
-                neural_delta = symbolic_delta + residual
-            applied_residual = (1.0 - symbolic_gate) * neural_delta
-            prediction = states_batched + symbolic_gate * symbolic_delta + applied_residual
+            intervention_delta = symbolic_gate * (
+                symbolic_candidate_delta - neural_delta
+            )
+            applied_residual = neural_delta + intervention_delta
+            prediction = states_batched + applied_residual
+            residual = neural_delta
 
         if squeeze:
             prediction = prediction.squeeze(0)

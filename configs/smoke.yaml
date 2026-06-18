@@ -14,8 +14,12 @@ device: auto
 ode:
   steps: 2
 
+gate:
+  initial_logit: -3.0
+  temperature: 2.0
+
 symbolic:
-  initial_law_logit: -8.0
+  initial_law_logit: -4.0
   l1_weight: 0.001
   unknown_confidence_threshold: 0.001
   base_delta_precision: 1.0

@@ -14,6 +14,13 @@ device: auto
 ode:
   steps: 4
 
+gate:
+  # ANSWER starts close to the neural-only ODE and only opens symbolic
+  # interventions when they reduce the supervised dynamics loss. A temperature
+  # above 1 keeps the gate soft instead of turning it into early hard selection.
+  initial_logit: -3.0
+  temperature: 2.0
+
 symbolic:
   initial_law_logit: -4.0
   l1_weight: 0.0001

@@ -35,6 +35,7 @@ from onelife.program_residual import (
     MuJoCoCollectionConfig,
     ProgramResidualTrainerConfig,
     ProgramResidualWorldModel,
+    DeltaGateMLP,
     DiagonalVarianceMLP,
     ResidualMLP,
     ResidualODE,
@@ -165,14 +166,25 @@ def main(cfg: DictConfig) -> None:
         if model_uses_probabilistic_head(model_name)
         else None
     )
-    uses_symbolic_gate = False
+    uses_symbolic_gate = model_uses_symbolic_gate(model_name)
+    gate_model = (
+        DeltaGateMLP(
+            state_dim=train_dataset.state_dim,
+            action_dim=train_dataset.action_dim,
+            hidden_sizes=tuple(int(size) for size in cfg.hidden_sizes),
+            initial_logit=float(cfg.get("gate", {}).get("initial_logit", -3.0)),
+            temperature=float(cfg.get("gate", {}).get("temperature", 2.0)),
+        )
+        if uses_symbolic_gate
+        else None
+    )
     model = ProgramResidualWorldModel(
         state_dim=train_dataset.state_dim,
         action_dim=train_dataset.action_dim,
         program=program,
         residual_model=residual,
         variance_model=variance_model,
-        gate_model=None,
+        gate_model=gate_model,
         apply_unknown_mask=not trains_neural_residual,
     ).to(device)
     batches = [
@@ -288,7 +300,7 @@ def model_uses_neural_residual(model_name: str) -> bool:
 
 
 def model_uses_symbolic_gate(model_name: str) -> bool:
-    return False
+    return model_name == "answer"
 
 
 def model_uses_island_search(model_name: str) -> bool:

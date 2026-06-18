@@ -32,7 +32,7 @@ def test_model_options_map_to_expected_components():
     assert model_uses_neural_residual("neural_mlp")
     assert model_uses_neural_residual("symbolic_neural")
     assert not model_uses_neural_residual("program_only")
-    assert not model_uses_symbolic_gate("answer")
+    assert model_uses_symbolic_gate("answer")
     assert not model_uses_symbolic_gate("neural")
     assert model_uses_island_search("answer")
     assert not model_uses_island_search("program_only")

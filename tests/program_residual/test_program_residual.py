@@ -208,7 +208,7 @@ def test_program_residual_model_default_allows_residual_to_correct_known_dimensi
     assert torch.allclose(output.prediction, torch.tensor([11.3, 2.0]))
 
 
-def test_gated_model_uses_symbolic_only_for_known_dimensions():
+def test_gated_model_uses_symbolic_conditioned_candidate_for_known_dimensions():
     program = SymbolicProgram(
         state_dim=2,
         laws=[
@@ -231,7 +231,36 @@ def test_gated_model_uses_symbolic_only_for_known_dimensions():
     output = model(torch.tensor([1.0, 3.0]), torch.tensor([0.0]))
 
     assert torch.allclose(output.symbolic_gate, torch.tensor([1.0, 0.0]))
-    assert torch.allclose(output.prediction, torch.tensor([1.3, 2.0]))
+    assert torch.allclose(output.residual, torch.tensor([10.0, -1.0]))
+    assert torch.allclose(output.applied_residual, torch.tensor([10.3, -1.0]))
+    assert torch.allclose(output.prediction, torch.tensor([11.3, 2.0]))
+
+
+def test_gated_model_falls_back_to_neural_candidate_when_gate_is_closed():
+    program = SymbolicProgram(
+        state_dim=2,
+        laws=[
+            KinematicPositionLaw(
+                position_indices=[0],
+                velocity_indices=[1],
+                dt=0.1,
+                confidence=1.0,
+            )
+        ],
+    )
+    model = ProgramResidualWorldModel(
+        state_dim=2,
+        action_dim=1,
+        program=program,
+        residual_model=ConstantResidual(torch.tensor([10.0, -1.0])),
+        gate_model=FixedGate(torch.tensor([0.0, 0.0])),
+    )
+
+    output = model(torch.tensor([1.0, 3.0]), torch.tensor([0.0]))
+
+    assert torch.allclose(output.symbolic_gate, torch.tensor([0.0, 0.0]))
+    assert torch.allclose(output.applied_residual, torch.tensor([10.0, -1.0]))
+    assert torch.allclose(output.prediction, torch.tensor([11.0, 2.0]))
 
 
 def test_neural_ensemble_world_model_averages_member_predictions():
@@ -323,7 +352,7 @@ def test_residual_ode_zero_init_preserves_symbolic_transition():
     assert torch.allclose(output.prediction, output.program_next_state, atol=1e-6)
 
 
-def test_gated_residual_ode_blends_full_ode_delta_not_raw_correction():
+def test_gated_residual_ode_gate_zero_recovers_neural_only_ode():
     program = SymbolicProgram(
         state_dim=2,
         laws=[
@@ -351,7 +380,40 @@ def test_gated_residual_ode_blends_full_ode_delta_not_raw_correction():
 
     output = model(torch.tensor([1.0, 3.0]), torch.tensor([0.0]))
 
-    assert torch.allclose(output.prediction, output.program_next_state, atol=1e-6)
+    assert torch.allclose(output.prediction, torch.tensor([1.0, 3.0]), atol=1e-6)
+    assert torch.allclose(output.applied_residual, torch.zeros(2), atol=1e-6)
+
+
+def test_gated_residual_ode_gate_one_uses_symbolic_conditioned_ode_on_known_dims():
+    program = SymbolicProgram(
+        state_dim=2,
+        laws=[
+            KinematicPositionLaw(
+                position_indices=[0],
+                velocity_indices=[1],
+                dt=0.1,
+                confidence=1.0,
+            )
+        ],
+    )
+    model = ProgramResidualWorldModel(
+        state_dim=2,
+        action_dim=1,
+        program=program,
+        residual_model=ResidualODE(
+            state_dim=2,
+            action_dim=1,
+            hidden_sizes=(8,),
+            transition_dt=0.1,
+            ode_steps=4,
+        ),
+        gate_model=FixedGate(torch.tensor([1.0, 1.0])),
+    )
+
+    output = model(torch.tensor([1.0, 3.0]), torch.tensor([0.0]))
+
+    assert torch.allclose(output.symbolic_gate, torch.tensor([1.0, 0.0]))
+    assert torch.allclose(output.prediction, torch.tensor([1.3, 3.0]), atol=1e-6)
 
 
 def test_loss_penalizes_applied_residual():

@@ -207,12 +207,16 @@ class DeltaGateMLP(nn.Module):
         hidden_sizes: Sequence[int] = (128, 128),
         activation: str = "silu",
         initial_logit: float = -4.0,
+        temperature: float = 1.0,
     ) -> None:
         super().__init__()
         if state_dim <= 0 or action_dim <= 0:
             raise ValueError("state_dim and action_dim must be positive")
+        if temperature <= 0:
+            raise ValueError("temperature must be positive")
         self.state_dim = int(state_dim)
         self.action_dim = int(action_dim)
+        self.temperature = float(temperature)
 
         input_dim = state_dim + action_dim + state_dim + state_dim + state_dim
         layers: list[nn.Module] = []
@@ -256,7 +260,7 @@ class DeltaGateMLP(nn.Module):
             confidence=confidence,
             unknown_mask=unknown_mask,
         )
-        return torch.sigmoid(self.net(features))
+        return torch.sigmoid(self.net(features) / self.temperature)
 
 
 class DiagonalVarianceMLP(nn.Module):
