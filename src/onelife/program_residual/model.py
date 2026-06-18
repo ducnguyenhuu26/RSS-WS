@@ -91,7 +91,12 @@ class ProgramResidualWorldModel(nn.Module):
                 program_output.confidence,
                 program_output.unknown_mask,
             )
-            symbolic_gate = raw_gate * (1.0 - program_output.unknown_mask)
+            graph_budget = (
+                program_output.graph_budget
+                if program_output.graph_budget is not None
+                else 1.0 - program_output.unknown_mask
+            )
+            symbolic_gate = raw_gate * graph_budget * (1.0 - program_output.unknown_mask)
             intervention_delta = symbolic_gate * (
                 symbolic_candidate_delta - neural_delta
             )
@@ -113,11 +118,17 @@ class ProgramResidualWorldModel(nn.Module):
             )
             if symbolic_gate is not None:
                 symbolic_gate = symbolic_gate.squeeze(0)
+            graph_budget = (
+                program_output.graph_budget.squeeze(0)
+                if program_output.graph_budget is not None
+                else None
+            )
         else:
             program_next_state = program_output.next_state
             confidence = program_output.confidence
             unknown_mask = program_output.unknown_mask
             program_variance = program_output.variance
+            graph_budget = program_output.graph_budget
 
         log_variance = None
         if self.variance_model is not None:
@@ -138,6 +149,7 @@ class ProgramResidualWorldModel(nn.Module):
             unknown_mask=unknown_mask,
             active_laws=program_output.active_laws,
             symbolic_gate=symbolic_gate,
+            graph_budget=graph_budget,
             program_variance=program_variance,
             log_variance=log_variance,
         )

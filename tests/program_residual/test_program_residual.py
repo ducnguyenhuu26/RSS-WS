@@ -14,6 +14,7 @@ from onelife.program_residual import (
     ResidualODE,
     SymbolicProgram,
     TransitionBatch,
+    build_law_graph,
     collect_transitions_from_env,
     compute_program_residual_loss,
     make_optimizer,
@@ -261,6 +262,60 @@ def test_gated_model_falls_back_to_neural_candidate_when_gate_is_closed():
     assert torch.allclose(output.symbolic_gate, torch.tensor([0.0, 0.0]))
     assert torch.allclose(output.applied_residual, torch.tensor([10.0, -1.0]))
     assert torch.allclose(output.prediction, torch.tensor([11.0, 2.0]))
+
+
+def test_gated_model_respects_law_graph_dimension_budget():
+    program = SymbolicProgram(
+        state_dim=2,
+        laws=[
+            KinematicPositionLaw(
+                position_indices=[0],
+                velocity_indices=[1],
+                dt=0.1,
+                confidence=1.0,
+            )
+        ],
+    )
+    program.set_dimension_budget(torch.tensor([0.5, 1.0]))
+    model = ProgramResidualWorldModel(
+        state_dim=2,
+        action_dim=1,
+        program=program,
+        residual_model=ConstantResidual(torch.tensor([10.0, -1.0])),
+        gate_model=FixedGate(torch.tensor([1.0, 1.0])),
+    )
+
+    output = model(torch.tensor([1.0, 3.0]), torch.tensor([0.0]))
+
+    assert torch.allclose(output.symbolic_gate, torch.tensor([0.5, 0.0]))
+    assert torch.allclose(output.prediction, torch.tensor([11.15, 2.0]))
+
+
+def test_build_law_graph_records_concept_law_dimension_edges():
+    law = KinematicPositionLaw(
+        position_indices=[0],
+        velocity_indices=[1],
+        dt=0.1,
+        confidence=1.0,
+    )
+    batch = TransitionBatch(
+        states=torch.tensor([[1.0, 3.0], [2.0, 4.0]]),
+        actions=torch.tensor([[0.0], [0.0]]),
+        next_states=torch.tensor([[1.3, 3.0], [2.4, 4.0]]),
+    )
+
+    graph = build_law_graph(
+        laws=[law],
+        batch=batch,
+        env_id=None,
+        transition_dt=0.1,
+        validation_sample_count=2,
+    )
+
+    assert len(graph.laws) == 1
+    assert graph.laws[0].target_dims == (0,)
+    assert ("KinematicPositionLaw", 0) in graph.law_to_dim_edges
+    assert graph.dimension_budget[0] > 0.0
 
 
 def test_neural_ensemble_world_model_averages_member_predictions():

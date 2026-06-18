@@ -30,6 +30,7 @@ class SymbolicProgram(nn.Module):
         learn_law_weights: bool = False,
         initial_law_logit: float = -8.0,
         base_delta_precision: float = 1.0,
+        dimension_budget: Sequence[float] | None = None,
     ) -> None:
         super().__init__()
         if state_dim <= 0:
@@ -52,6 +53,17 @@ class SymbolicProgram(nn.Module):
         self.composition_mode = str(composition_mode)
         self.learn_law_weights = bool(learn_law_weights)
         self.base_delta_precision = float(base_delta_precision)
+        budget = (
+            torch.ones(self.state_dim, dtype=torch.float32)
+            if dimension_budget is None
+            else torch.as_tensor(dimension_budget, dtype=torch.float32)
+        )
+        if budget.shape != (self.state_dim,):
+            raise ValueError(
+                f"dimension_budget must have shape [{self.state_dim}], "
+                f"got {tuple(budget.shape)}"
+            )
+        self.register_buffer("dimension_budget", budget.clamp(0.0, 1.0))
 
         module_laws: list[nn.Module] = []
         for law in laws or []:
@@ -106,6 +118,15 @@ class SymbolicProgram(nn.Module):
             ],
             dim=0,
         )
+        graph_budget = torch.stack(
+            [
+                output.graph_budget
+                if output.graph_budget is not None
+                else torch.ones_like(output.confidence)
+                for output in outputs
+            ],
+            dim=0,
+        )
         active_laws = tuple(output.active_laws[0] for output in outputs)
 
         if squeeze:
@@ -113,6 +134,7 @@ class SymbolicProgram(nn.Module):
             confidence = confidence.squeeze(0)
             unknown_mask = unknown_mask.squeeze(0)
             variance = variance.squeeze(0)
+            graph_budget = graph_budget.squeeze(0)
 
         return ProgramOutput(
             next_state=next_state,
@@ -120,7 +142,21 @@ class SymbolicProgram(nn.Module):
             unknown_mask=unknown_mask,
             active_laws=active_laws,
             variance=variance,
+            graph_budget=graph_budget,
         )
+
+    def set_dimension_budget(self, dimension_budget: Sequence[float] | torch.Tensor) -> None:
+        budget = torch.as_tensor(
+            dimension_budget,
+            dtype=self.dimension_budget.dtype,
+            device=self.dimension_budget.device,
+        )
+        if budget.shape != (self.state_dim,):
+            raise ValueError(
+                f"dimension_budget must have shape [{self.state_dim}], "
+                f"got {tuple(budget.shape)}"
+            )
+        self.dimension_budget.copy_(budget.clamp(0.0, 1.0))
 
     def _predict_one(self, state: torch.Tensor, action: torch.Tensor) -> ProgramOutput:
         if self.composition_mode == "weighted_product_delta":
@@ -192,6 +228,11 @@ class SymbolicProgram(nn.Module):
             unknown_mask=unknown_mask,
             active_laws=(tuple(active_laws),),
             variance=variance,
+            graph_budget=torch.where(
+                known,
+                self.dimension_budget.to(dtype=state.dtype, device=state.device),
+                torch.zeros_like(state),
+            ),
         )
 
     def _predict_one_weighted_product_delta(
@@ -264,6 +305,11 @@ class SymbolicProgram(nn.Module):
             unknown_mask=unknown_mask,
             active_laws=(tuple(active_laws),),
             variance=variance,
+            graph_budget=torch.where(
+                known,
+                self.dimension_budget.to(dtype=state.dtype, device=state.device),
+                torch.zeros_like(state),
+            ),
         )
 
     def _law_weight(

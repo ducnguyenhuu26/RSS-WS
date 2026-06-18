@@ -23,6 +23,7 @@ from .island_search import (
     IslandSearchResult,
     synthesize_with_island_search,
 )
+from .law_graph import ConceptNode, LawGraph, LawNode, build_law_graph
 from .model import ProgramResidualWorldModel
 from .mujoco import (
     MuJoCoCollectionConfig,
@@ -58,7 +59,10 @@ __all__ = [
     "DimensionSpec",
     "JointLimitVelocityLaw",
     "KinematicPositionLaw",
+    "ConceptNode",
+    "LawGraph",
     "LawPrediction",
+    "LawNode",
     "LinearVelocityLaw",
     "LLMLawSynthesisConfig",
     "LLMSymbolicLawSynthesizer",
@@ -86,6 +90,7 @@ __all__ = [
     "compute_program_residual_loss",
     "extract_python_code",
     "fit_supervised",
+    "build_law_graph",
     "build_neural_ensemble_world_model",
     "fit_neural_ensemble",
     "format_task_spec_for_prompt",

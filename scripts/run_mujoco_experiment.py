@@ -46,6 +46,7 @@ from onelife.program_residual import (
 @dataclass(frozen=True)
 class PlannerEvaluationConfig:
     enabled: bool = False
+    planners: tuple[str, ...] = ("cem_pec_mpc",)
     num_episodes: int = 2
     max_episode_steps: int = 200
     horizon: int = 5
@@ -345,6 +346,8 @@ def evaluate_program_residual(
     }
     if output.symbolic_gate is not None:
         metrics["mean_symbolic_gate"] = float(output.symbolic_gate.float().mean().cpu())
+    if getattr(output, "graph_budget", None) is not None:
+        metrics["mean_graph_budget"] = float(output.graph_budget.float().mean().cpu())
     if output.ensemble_variance is not None:
         metrics["mean_ensemble_variance"] = float(
             output.ensemble_variance.float().mean().cpu()
@@ -933,32 +936,28 @@ def evaluate_planner_rewards(
     predict_next: Callable[[Any, np.ndarray], Any],
     observation_for_reward: Callable[[Any], np.ndarray],
 ) -> dict[str, float]:
-    cem_returns, cem_lengths = _run_planner_episodes(
-        planner_name="cem_mpc",
-        env_id=env_id,
-        seed=seed,
-        config=config,
-        initial_planner_state=initial_planner_state,
-        predict_next=predict_next,
-        observation_for_reward=observation_for_reward,
-    )
-    cem_pec_returns, cem_pec_lengths = _run_planner_episodes(
-        planner_name="cem_pec_mpc",
-        env_id=env_id,
-        seed=seed + 10_000,
-        config=config,
-        initial_planner_state=initial_planner_state,
-        predict_next=predict_next,
-        observation_for_reward=observation_for_reward,
-    )
-    return {
-        "cem_mpc_return_mean": _mean(cem_returns),
-        "cem_mpc_return_std": _std(cem_returns),
-        "cem_mpc_episode_length_mean": _mean(cem_lengths),
-        "cem_pec_mpc_return_mean": _mean(cem_pec_returns),
-        "cem_pec_mpc_return_std": _std(cem_pec_returns),
-        "cem_pec_mpc_episode_length_mean": _mean(cem_pec_lengths),
-    }
+    metrics: dict[str, float] = {}
+    planners = tuple(config.planners or ("cem_pec_mpc",))
+    for planner_name in planners:
+        if planner_name not in {"cem_mpc", "cem_pec_mpc"}:
+            raise ValueError(
+                "planning.planners must contain only 'cem_mpc' and/or "
+                f"'cem_pec_mpc', got {planner_name!r}"
+            )
+        seed_offset = 10_000 if planner_name == "cem_pec_mpc" else 0
+        returns, lengths = _run_planner_episodes(
+            planner_name=planner_name,
+            env_id=env_id,
+            seed=seed + seed_offset,
+            config=config,
+            initial_planner_state=initial_planner_state,
+            predict_next=predict_next,
+            observation_for_reward=observation_for_reward,
+        )
+        metrics[f"{planner_name}_return_mean"] = _mean(returns)
+        metrics[f"{planner_name}_return_std"] = _std(returns)
+        metrics[f"{planner_name}_episode_length_mean"] = _mean(lengths)
+    return metrics
 
 
 def _run_planner_episodes(

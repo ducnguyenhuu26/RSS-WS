@@ -44,6 +44,7 @@ class ProgramOutput:
     unknown_mask: torch.Tensor
     active_laws: tuple[tuple[str, ...], ...]
     variance: torch.Tensor | None = None
+    graph_budget: torch.Tensor | None = None
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,7 @@ class ModelOutput:
     unknown_mask: torch.Tensor
     active_laws: tuple[tuple[str, ...], ...]
     symbolic_gate: torch.Tensor | None = None
+    graph_budget: torch.Tensor | None = None
     ensemble_variance: torch.Tensor | None = None
     program_variance: torch.Tensor | None = None
     log_variance: torch.Tensor | None = None

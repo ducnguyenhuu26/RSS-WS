@@ -27,6 +27,10 @@ symbolic:
   unknown_confidence_threshold: 0.001
   base_delta_precision: 1.0
 
+law_graph:
+  validation_sample_count: 512
+  quality_floor: 0.05
+
 probabilistic:
   use_nll_loss: true
 
@@ -48,6 +52,7 @@ rollout:
 
 planning:
   enabled: true
+  planners: [cem_pec_mpc]
   num_episodes: 1
   max_episode_steps: 200
   horizon: 5

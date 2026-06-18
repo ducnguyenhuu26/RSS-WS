@@ -45,6 +45,7 @@ from onelife.program_residual import (
     collect_mujoco_dataset,
     fit_neural_ensemble,
     fit_supervised,
+    build_law_graph,
     synthesize_with_island_search,
 )
 from scripts.run_mujoco_experiment import (
@@ -137,6 +138,12 @@ def main(cfg: DictConfig) -> None:
         problem=problem,
         model_name=model_name,
         symbolic_source=symbolic_source,
+        train_dataset=train_dataset,
+    )
+    law_graph_summary = attach_law_graph_budget(
+        cfg=cfg,
+        problem=problem,
+        program=program,
         train_dataset=train_dataset,
     )
     trains_neural_residual = model_uses_neural_residual(model_name)
@@ -260,6 +267,7 @@ def main(cfg: DictConfig) -> None:
         "program_residual": continuous_metrics,
         "symbolic_baselines": symbolic_metrics,
         "island_search": island_search_summary,
+        "law_graph": law_graph_summary,
         "config": OmegaConf.to_container(cfg, resolve=True),
     }
 
@@ -467,6 +475,47 @@ def build_program_from_config(
         llm_tracker.as_dict(),
         island_summary,
     )
+
+
+def attach_law_graph_budget(
+    cfg: DictConfig,
+    problem: str,
+    program: SymbolicProgram,
+    train_dataset,
+) -> dict[str, object]:
+    if len(program.laws) == 0:
+        program.set_dimension_budget(torch.zeros(program.state_dim))
+        return {
+            "num_concepts": 0,
+            "num_laws": 0,
+            "num_concept_to_law_edges": 0,
+            "num_law_to_dim_edges": 0,
+            "dimension_budget": [0.0 for _ in range(program.state_dim)],
+            "laws": [],
+        }
+    states, actions, next_states = train_dataset.to_torch()
+    graph_cfg = cfg.get("law_graph", {})
+    validation_sample_count = int(
+        graph_cfg.get(
+            "validation_sample_count",
+            cfg.get("island_search", {}).get("validation_sample_count", 512),
+        )
+    )
+    quality_floor = float(graph_cfg.get("quality_floor", 0.05))
+    law_graph = build_law_graph(
+        laws=tuple(program.laws),
+        batch=TransitionBatch(
+            states=states,
+            actions=actions,
+            next_states=next_states,
+        ),
+        env_id=problem,
+        transition_dt=resolve_mujoco_dt(problem, cfg.llm.dt),
+        validation_sample_count=validation_sample_count,
+        quality_floor=quality_floor,
+    )
+    program.set_dimension_budget(law_graph.dimension_budget)
+    return law_graph.to_summary()
 
 
 def build_standard_symbolic_program(
@@ -806,6 +855,7 @@ def build_planner_config(cfg: DictConfig) -> PlannerEvaluationConfig:
     planning_cfg = cfg.get("planning", {})
     return PlannerEvaluationConfig(
         enabled=bool(planning_cfg.get("enabled", False)),
+        planners=parse_planner_names(planning_cfg.get("planners", ["cem_pec_mpc"])),
         num_episodes=int(planning_cfg.get("num_episodes", 2)),
         max_episode_steps=int(planning_cfg.get("max_episode_steps", 200)),
         horizon=int(planning_cfg.get("horizon", 5)),
@@ -820,6 +870,29 @@ def build_planner_config(cfg: DictConfig) -> PlannerEvaluationConfig:
         ),
         ood_z_clip=float(planning_cfg.get("ood_z_clip", 3.0)),
     )
+
+
+def parse_planner_names(raw_planners) -> tuple[str, ...]:
+    if raw_planners is None:
+        return ("cem_pec_mpc",)
+    if isinstance(raw_planners, str):
+        planners = tuple(
+            planner.strip()
+            for planner in raw_planners.split(",")
+            if planner.strip()
+        )
+    else:
+        planners = tuple(str(planner).strip() for planner in raw_planners)
+    if not planners:
+        return ("cem_pec_mpc",)
+    allowed = {"cem_mpc", "cem_pec_mpc"}
+    unknown = sorted(set(planners) - allowed)
+    if unknown:
+        raise ValueError(
+            "planning.planners must contain only 'cem_mpc' and/or "
+            f"'cem_pec_mpc', got {unknown}"
+        )
+    return planners
 
 
 def build_island_search_config(cfg: DictConfig, env_id: str | None = None) -> IslandSearchConfig:

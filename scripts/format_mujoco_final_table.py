@@ -72,13 +72,30 @@ def main() -> None:
 
     for env in _ordered_envs(grouped):
         print(f"### {env}")
-        print("| Model | R2@1 | R2@10 | Reward (CEM-MPC / PEC-CEM-MPC) |")
+        reward_header, reward_mode = _reward_header_and_mode(
+            env,
+            grouped,
+            MODEL_ORDER,
+        )
+        print(f"| Model | R2@1 | R2@10 | {reward_header} |")
         print("|---|---:|---:|---:|")
-        _print_model_rows(env, grouped, MODEL_ORDER, args.precision, args.no_std)
+        _print_model_rows(
+            env,
+            grouped,
+            MODEL_ORDER,
+            args.precision,
+            args.no_std,
+            reward_mode,
+        )
         if any(grouped.get((env, model), []) for model in ABLATION_MODEL_ORDER):
             print()
             print("Ablation:")
-            print("| Model | R2@1 | R2@10 | Reward (CEM-MPC / PEC-CEM-MPC) |")
+            reward_header, reward_mode = _reward_header_and_mode(
+                env,
+                grouped,
+                ABLATION_MODEL_ORDER,
+            )
+            print(f"| Model | R2@1 | R2@10 | {reward_header} |")
             print("|---|---:|---:|---:|")
             _print_model_rows(
                 env,
@@ -86,6 +103,7 @@ def main() -> None:
                 ABLATION_MODEL_ORDER,
                 args.precision,
                 args.no_std,
+                reward_mode,
             )
         print()
 
@@ -96,6 +114,7 @@ def _print_model_rows(
     model_order: list[str],
     precision: int,
     no_std: bool,
+    reward_mode: str,
 ) -> None:
     for model in model_order:
         rows = grouped.get((env, model), [])
@@ -111,8 +130,44 @@ def _print_model_rows(
         r2_at_10 = _format_metric(rows, R2_AT_10_KEY, precision, no_std)
         cem_reward = _format_metric(rows, CEM_REWARD_KEY, precision, no_std)
         cem_pec_reward = _format_metric(rows, CEM_PEC_REWARD_KEY, precision, no_std)
+        reward = _format_reward_cell(cem_reward, cem_pec_reward, reward_mode)
         label = MODEL_LABELS.get(model, model)
-        print(f"| {label} | {r2_at_1} | {r2_at_10} | {cem_reward} / {cem_pec_reward} |")
+        print(f"| {label} | {r2_at_1} | {r2_at_10} | {reward} |")
+
+
+def _reward_header_and_mode(
+    env: str,
+    grouped: dict[tuple[str, str], list[dict[str, Any]]],
+    model_order: list[str],
+) -> tuple[str, str]:
+    rows = [
+        row
+        for model in model_order
+        for row in grouped.get((env, model), [])
+    ]
+    has_cem = any(_has_nested(row, CEM_REWARD_KEY) for row in rows)
+    has_pec = any(_has_nested(row, CEM_PEC_REWARD_KEY) for row in rows)
+    if has_cem and has_pec:
+        return "Reward (CEM-MPC / PEC-CEM-MPC)", "both"
+    if has_cem:
+        return "Reward (CEM-MPC)", "cem"
+    if has_pec:
+        return "Reward (PEC-CEM-MPC)", "pec"
+    return "Reward", "none"
+
+
+def _format_reward_cell(
+    cem_reward: str,
+    cem_pec_reward: str,
+    reward_mode: str,
+) -> str:
+    if reward_mode == "both":
+        return f"{cem_reward} / {cem_pec_reward}"
+    if reward_mode == "cem":
+        return cem_reward
+    if reward_mode == "pec":
+        return cem_pec_reward
+    return "n/a"
 
 
 def _ordered_envs(grouped: dict[tuple[str, str], list[dict[str, Any]]]) -> list[str]:
