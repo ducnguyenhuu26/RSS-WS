@@ -89,7 +89,8 @@ The paper formatter also appends **Avg. Rank**. For each displayed environment,
 models are ranked separately by `R2@1`, `R2@10`, and `Reward`, with higher
 values better. Avg. Rank is the mean over these per-metric ranks, so lower is
 better. This avoids averaging raw Reward values across MuJoCo tasks with
-different scales.
+different scales. Table headers show this directly with `↑` for higher-is-better
+metrics and `↓` for Avg. Rank.
 
 The final config uses **PEC-CEM-MPC** as the common planner. If an output
 directory also contains plain CEM-MPC results, the formatter can show both as

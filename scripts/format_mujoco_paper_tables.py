@@ -3,10 +3,14 @@ from __future__ import annotations
 import argparse
 import glob
 import json
+import sys
 from collections import defaultdict
 from pathlib import Path
 from statistics import mean, stdev
 from typing import Any
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 
 ENV_ORDER = [
@@ -139,10 +143,10 @@ def _print_markdown_combined_table(
     aligns = ["---"]
     for env in envs:
         header_top.extend([_short_env(env), "", ""])
-        header_sub.extend(["R2@1", "R2@10", "Reward"])
+        header_sub.extend(["R2@1 ↑", "R2@10 ↑", "Reward ↑"])
         aligns.extend(["---:", "---:", "---:"])
     header_top.append("Avg. Rank")
-    header_sub.append("")
+    header_sub.append("↓")
     aligns.append("---:")
     print("| " + " | ".join(header_top) + " |")
     print("| " + " | ".join(header_sub) + " |")
@@ -165,7 +169,7 @@ def _print_markdown_combined_table(
         cells.append(_format_average_rank(avg_ranks, model, precision))
         print("| " + " | ".join(cells) + " |")
     print()
-    print(f"Reward metric: {reward_name}. Avg. Rank is lower-is-better.")
+    print(f"Reward metric: {reward_name}. Arrows indicate preferred direction.")
 
 
 def _print_latex_combined_table(
@@ -248,7 +252,7 @@ def _print_markdown_r2_table(
     aligns = ["---"]
     for env in envs:
         header_top.extend([_short_env(env), ""])
-        header_sub.extend(["R2@1", "R2@10"])
+        header_sub.extend(["R2@1 ↑", "R2@10 ↑"])
         aligns.extend(["---:", "---:"])
     print("| " + " | ".join(header_top) + " |")
     print("| " + " | ".join(header_sub) + " |")
@@ -309,7 +313,11 @@ def _print_latex_r2_table(
     print(r"\toprule")
     top = ["Model"] + [rf"\multicolumn{{2}}{{c}}{{{_latex(_short_env(env))}}}" for env in envs]
     print(" & ".join(top) + r" \\")
-    sub = [""] + [item for _env in envs for item in (r"$R^2@1$", r"$R^2@10$")]
+    sub = [""] + [
+        item
+        for _env in envs
+        for item in (r"$R^2@1\uparrow$", r"$R^2@10\uparrow$")
+    ]
     print(" & ".join(sub) + r" \\")
     print(r"\midrule")
     for model in models:

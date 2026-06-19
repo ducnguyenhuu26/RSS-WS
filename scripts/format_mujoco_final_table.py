@@ -3,10 +3,14 @@ from __future__ import annotations
 import argparse
 import glob
 import json
+import sys
 from collections import defaultdict
 from pathlib import Path
 from statistics import mean, stdev
 from typing import Any
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 
 ENV_ORDER = [
@@ -79,7 +83,7 @@ def main() -> None:
             grouped,
             MODEL_ORDER,
         )
-        print(f"| Model | R2@1 | R2@10 | {reward_header} |")
+        print(f"| Model | R2@1 ↑ | R2@10 ↑ | {reward_header} ↑ |")
         print("|---|---:|---:|---:|")
         _print_model_rows(
             env,
