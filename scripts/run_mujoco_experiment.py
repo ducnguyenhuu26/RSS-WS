@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -344,10 +345,66 @@ def evaluate_program_residual(
             ),
         ),
     }
+    if getattr(output, "log_variance", None) is not None:
+        metrics["one_step_delta_nll"] = _diagonal_delta_nll(
+            states=states,
+            next_states=next_states,
+            predictions=output.prediction,
+            log_variance=output.log_variance,
+        )
+    active_law_counts = [len(set(active_laws)) for active_laws in output.active_laws]
+    if active_law_counts:
+        metrics["active_law_count_mean"] = float(np.mean(active_law_counts))
+        metrics["active_law_count_unique"] = float(
+            len({law for active_laws in output.active_laws for law in active_laws})
+        )
     if output.symbolic_gate is not None:
-        metrics["mean_symbolic_gate"] = float(output.symbolic_gate.float().mean().cpu())
+        gate = output.symbolic_gate.float()
+        metrics["mean_symbolic_gate"] = float(gate.mean().cpu())
+        metrics["gate_active_fraction_0.001"] = float((gate > 0.001).float().mean().cpu())
+        metrics["gate_active_fraction_0.01"] = float((gate > 0.01).float().mean().cpu())
     if getattr(output, "graph_budget", None) is not None:
-        metrics["mean_graph_budget"] = float(output.graph_budget.float().mean().cpu())
+        budget = output.graph_budget.float()
+        metrics["mean_graph_budget"] = float(budget.mean().cpu())
+        metrics["graph_budget_active_fraction"] = float(
+            (budget > 0.001).float().mean().cpu()
+        )
+    if output.neural_prediction is not None:
+        neural_candidate_r2 = one_step_r2_metrics(
+            states=test_dataset.states,
+            predictions=output.neural_prediction.detach().cpu().numpy(),
+            next_states=test_dataset.next_states,
+        )
+        metrics["neural_candidate_delta_r2_uniform"] = neural_candidate_r2[
+            "one_step_delta_r2_uniform"
+        ]
+        metrics["neural_candidate_delta_r2_global"] = neural_candidate_r2[
+            "one_step_delta_r2_global"
+        ]
+    if output.symbolic_candidate_prediction is not None:
+        symbolic_candidate_r2 = one_step_r2_metrics(
+            states=test_dataset.states,
+            predictions=output.symbolic_candidate_prediction.detach().cpu().numpy(),
+            next_states=test_dataset.next_states,
+        )
+        metrics["symbolic_candidate_delta_r2_uniform"] = symbolic_candidate_r2[
+            "one_step_delta_r2_uniform"
+        ]
+        metrics["symbolic_candidate_delta_r2_global"] = symbolic_candidate_r2[
+            "one_step_delta_r2_global"
+        ]
+    if (
+        "symbolic_candidate_delta_r2_uniform" in metrics
+        and "neural_candidate_delta_r2_uniform" in metrics
+    ):
+        metrics["symbolic_gain_delta_r2_uniform"] = (
+            metrics["symbolic_candidate_delta_r2_uniform"]
+            - metrics["neural_candidate_delta_r2_uniform"]
+        )
+        metrics["symbolic_gain_delta_r2_global"] = (
+            metrics["symbolic_candidate_delta_r2_global"]
+            - metrics["neural_candidate_delta_r2_global"]
+        )
     if output.ensemble_variance is not None:
         metrics["mean_ensemble_variance"] = float(
             output.ensemble_variance.float().mean().cpu()
@@ -378,6 +435,23 @@ def evaluate_program_residual(
             )
         )
     return metrics
+
+
+def _diagonal_delta_nll(
+    states: torch.Tensor,
+    next_states: torch.Tensor,
+    predictions: torch.Tensor,
+    log_variance: torch.Tensor,
+) -> float:
+    target_delta = next_states - states
+    predicted_delta = predictions - states
+    squared_error = (target_delta - predicted_delta).square()
+    nll = 0.5 * (
+        squared_error * torch.exp(-log_variance)
+        + log_variance
+        + math.log(2.0 * math.pi)
+    )
+    return float(nll.mean().cpu())
 
 
 def evaluate_open_loop_rollouts(
@@ -824,6 +898,8 @@ def score_payload_from_metrics(metrics: dict[str, float]) -> dict[str, float]:
         payload["r2_at_10_delta_uniform"] = metrics["open_loop_delta_r2_uniform_h10"]
     if "open_loop_delta_r2_global_h10" in metrics:
         payload["r2_at_10_delta_global"] = metrics["open_loop_delta_r2_global_h10"]
+    if "one_step_delta_nll" in metrics:
+        payload["one_step_delta_nll"] = metrics["one_step_delta_nll"]
     return payload
 
 

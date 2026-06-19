@@ -1,38 +1,45 @@
-# MuJoCo-Adaptive OneLife World Modeling
+# ANSWER MuJoCo World Modeling
 
-This repository is based on One Life to Learn and adapts the symbolic OneLife
-world-modeling framework to MuJoCo continuous-control environments. The current
-experiments compare ANSWER against Adaptive OneLife, a PETS-style ensemble, and
-Dreamer V3.
+This repository implements **ANSWER**: an automated neuro-symbolic world model
+for MuJoCo continuous-control tasks. The code is derived from One Life to Learn,
+but the final MuJoCo protocol is intentionally narrow and reproducible: one
+proposed method, three external/main baselines, and architecture ablations in
+one shared table.
 
-## Final Evaluation
+## Method
 
-Each environment is reported with three metric columns:
+For an environment \(e\), the code first builds a semantic task context
+\(C_e=(q_e,\dot q_e,u_e,r_e)\) from environment-specific state and action
+descriptions. The LLM is prompted with this context and must emit executable
+symbolic laws over flat vectors `state[i]`, `action[j]`, and `delta[k]`.
 
-- **R2@1**: `r2_at_1_delta_uniform`, the mean per-state-dimension R2 for
-  predicting the one-step state delta `s_next - s`.
-- **R2@10**: ten-step open-loop delta R2, computed on `s_{t+10} - s_t`.
-- **Reward**: planner return in the real environment using the learned world
-  model, reported as `CEM-MPC / PEC-CEM-MPC`.
+ANSWER composes the accepted laws as a weighted product of local symbolic
+effects and then wraps the symbolic candidate with a neural ODE residual:
 
-The primary score is delta R2 rather than next-state R2 because identity
-prediction can look strong on MuJoCo next states while failing to learn the
-actual transition dynamics.
+```text
+symbolic candidate:   p_phi(delta | s, a, C_e) proportional to product_l p_l(delta | s, a) ^ alpha_l
+neural correction:    ds/dt = f_theta(s, a, symbolic_candidate)
+final prediction:     s_next = ODESolve(s, a, symbolic_candidate)
+```
 
-The planner reward is actual environment reward accumulated after executing
-actions chosen by MPC. The model is only used inside the planner to score
-candidate action sequences. CEM-MPC is the plain cross-entropy MPC planner.
-PEC-CEM-MPC uses the same planner but subtracts model-risk penalties during
-imagined rollouts.
-Final runs average over three seeds. Planner evaluation uses one episode per
-seed to keep the full seven-environment sweep tractable.
+The graph layer is explicit but lightweight. Semantic concepts such as position,
+velocity, angle, actuator, contact, and target-error act as leaders; executable
+laws are followers; and state dimensions are sinks. A law can be attached to
+multiple concepts, giving a small DAG:
+
+```text
+Concept -> Law -> StateDimension
+```
+
+This graph controls which laws are allowed to influence each dimension. A soft
+gate keeps the neural ODE safe: symbolic effects are useful only when the
+supervised dynamics loss supports them, instead of being forced into the model.
 
 ## Environments
 
-Use the MuJoCo v5 tasks up to HalfCheetah:
+Run the MuJoCo v5 tasks from small to large:
 
 ```text
-InvertedPendulum-v5
 Swimmer-v5
 InvertedDoublePendulum-v5
 Reacher-v5
@@ -41,60 +48,95 @@ Walker2d-v5
 HalfCheetah-v5
 ```
 
-Do not include:
+`InvertedPendulum-v5` is kept as the smoke/debug task but excluded from the main
+paper table because it is too easy and makes the wide table longer without
+adding much evidence. `Ant-v5` and `Pusher-v5` are also excluded from the main
+sweep; they need separate semantic task specs and are better treated as future
+stress tests.
+
+## Models
+
+The final table uses short row labels to save space and starts directly from
+the variant column. The experimental-design text should explain the full method
+behind each label. The formatter places baselines first, ablations second, and
+the proposed method last:
 
 ```text
-Ant-v5
-Pusher-v5
+onelife           OneLife     OneLife-MuJoCo binned LLM law mixture
+pets_ensemble     PETS        PETS-style bootstrap neural ensemble
+dreamer_v3        DreamerV3   External latent world-model baseline
+neural            ODE-only    ANSWER without symbolic laws
+program_only      LLM-only    ANSWER symbolic laws without neural ODE
+symbolic_neural   Lib+ODE     Symbolic library laws plus neural ODE, no LLM laws
+neural_mlp        MLP-only    Pure MLP dynamics appendix baseline
+answer            ANSWER      Proposed neuro-symbolic ODE world model
 ```
 
-## Model Set
+`dreamer_v3` is external in this repo. Import compatible JSON results with
+`model: "dreamer_v3"` and the same `score` / `reward` schema before formatting.
 
-The main table uses four models:
+## Evaluation
 
-```text
-answer          ANSWER
-onelife         Adaptive OneLife binned LLM law mixture
-pets_ensemble  PETS-style neural ensemble + MPC
-dreamer_v3      Dreamer V3 external baseline
-```
+Each environment reports:
 
-The ablation table uses three models:
+- **R2@1**: per-dimension delta R2 for one-step prediction,
+  `s_next - s`.
+- **R2@10**: ten-step open-loop delta R2,
+  `s_{t+10} - s_t`.
+- **Reward**: real environment return after planning with the learned model.
 
-```text
-neural           Neural ODE only; removes symbolic laws
-program_only     Symbolic only; removes neural residual
-symbolic_neural  Symbolic library + neural ODE; removes LLM-generated laws
-```
+The paper formatter also appends **Avg. Rank**. For each displayed environment,
+models are ranked separately by `R2@1`, `R2@10`, and `Reward`, with higher
+values better. Avg. Rank is the mean over these per-metric ranks, so lower is
+better. This avoids averaging raw Reward values across MuJoCo tasks with
+different scales.
 
-## Running
+The final config uses **PEC-CEM-MPC** as the common planner. If an output
+directory also contains plain CEM-MPC results, the formatter can show both as
+`CEM-MPC / PEC-CEM-MPC`.
 
-See `ANSWER_FRAMEWORK.md` for the short mathematical framework summary and the
-recommended environment order.
+The OneLife comparison is fair as an adapted in-repo baseline: it uses the same
+MuJoCo train/test transitions, seed, LLM model, sample count, discretizer fitted
+on the training set, R2 metrics, and planner evaluation protocol. The caveat is
+conceptual rather than procedural: OneLife-MuJoCo remains a binned symbolic law
+mixture, while ANSWER is continuous and neural-residual based. That should be
+stated clearly in the paper.
 
-Default Hydra config is in `configs/config.yaml`. The smoke config is
-`configs/smoke.yaml`. `device: auto` uses CUDA when PyTorch can see a GPU and
-falls back to CPU otherwise.
-Use `uv` with `pyproject.toml` and `uv.lock` for setup; stale pip requirements
-files are not part of the final MuJoCo run path.
+## Setup
 
-Recommended Windows GPU setup:
+Use `uv` with Python 3.12:
 
 ```powershell
 uv sync --python 3.12
+```
+
+For Windows RTX 3050/3060 machines, this CUDA wheel has worked:
+
+```powershell
 uv pip uninstall torch torchvision torchaudio
 uv pip install torch==2.5.1+cu121 --index-url https://download.pytorch.org/whl/cu121
 ```
 
-After installing the CUDA wheel, use `uv run --no-sync ...` for experiment
-commands. Running without `--no-sync` may let `uv` restore a CPU-only torch from
-the lockfile.
+For rented RTX 50-series machines, use the current official PyTorch CUDA wheel,
+for example:
 
-Check the GPU environment before the sweep:
+```powershell
+uv pip uninstall torch torchvision torchaudio
+uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+```
+
+After installing the CUDA wheel, run experiments with `--no-sync`; otherwise
+`uv` may restore a CPU-only torch from the lockfile.
+
+Check GPU visibility:
 
 ```powershell
 uv run --no-sync python -c "import torch; print(torch.cuda.is_available(), torch.version.cuda); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'cpu')"
 ```
+
+Put API keys in `.env` on the machine that runs LLM-based models.
+
+## Run
 
 Smoke test:
 
@@ -102,62 +144,48 @@ Smoke test:
 uv run --no-sync --env-file .env python main.py --config-name smoke
 ```
 
-Example full sweep command:
+Full in-repo sweep, three seeds:
 
 ```powershell
-uv run --no-sync --env-file .env python main.py -m problem=InvertedPendulum-v5,Swimmer-v5,InvertedDoublePendulum-v5,Reacher-v5,Hopper-v5,Walker2d-v5,HalfCheetah-v5 model=answer,onelife,pets_ensemble,neural,program_only,symbolic_neural seed=0,1,2 device=cuda skip_existing=true output_dir=outputs_final_answer_3seed
+uv run --no-sync --env-file .env python main.py -m problem=Swimmer-v5,InvertedDoublePendulum-v5,Reacher-v5,Hopper-v5,Walker2d-v5,HalfCheetah-v5 model=answer,onelife,pets_ensemble,neural,program_only,symbolic_neural,neural_mlp seed=0,1,2 device=cuda skip_existing=true output_dir=outputs_final_answer_3seed
 ```
 
-Dreamer V3 is treated as an external baseline. Add its result JSON files with
-`model: "dreamer_v3"` and the same `score` / `reward` schema before formatting
-the final table.
+Expected in-repo JSON count:
 
-Format the final markdown tables from JSON outputs. The table reports `R2@1`,
-`R2@10`, and real planner reward:
+```text
+6 environments * 7 runnable models * 3 seeds = 126 JSON files
+```
+
+Format the paper table:
 
 ```powershell
 $files = Get-ChildItem outputs_final_answer_3seed -Filter *.json | Select-Object -ExpandProperty FullName
-uv run --no-sync --env-file .env python scripts/format_mujoco_final_table.py $files --no-std
+uv run --no-sync --env-file .env python scripts/format_mujoco_paper_tables.py $files --no-std
 ```
 
-Aggregate one metric across seeds:
+Export LaTeX:
 
 ```powershell
-uv run --no-sync --env-file .env python scripts/aggregate_mujoco_results.py outputs_final_answer_3seed/*.json `
-  --metric score.one_step_delta_r2_uniform --show-std
+$files = Get-ChildItem outputs_final_answer_3seed -Filter *.json | Select-Object -ExpandProperty FullName
+uv run --no-sync --env-file .env python scripts/format_mujoco_paper_tables.py $files --no-std --format latex | Tee-Object mujoco_main_table.tex
 ```
 
-LLM call counts are saved in every output JSON as top-level `llm_calls` and a
-larger `llm_usage` object. Aggregate them with:
+Aggregate LLM calls:
 
 ```powershell
-uv run --no-sync --env-file .env python scripts/aggregate_mujoco_results.py outputs_final_answer_3seed/*.json `
-  --metric llm_calls --show-std
+uv run --no-sync --env-file .env python scripts/aggregate_mujoco_results.py outputs_final_answer_3seed/*.json --metric llm_calls --show-std
 ```
 
-## Notes
+Useful diagnostics are saved under `program_residual`:
 
-- `answer` uses semantic LLM symbolic effect laws, leader/follower concept
-  prompting, semantic island evolution, weighted-product law composition,
-  learnable sparse law weights, a probabilistic covariance head, and an ODE
-  neural residual.
-- Adaptive OneLife uses binned MuJoCo states/actions and OneLife-style
-  precondition-effect laws.
-- `neural` is the architecture-matched ablation: the same ODE residual and
-  probabilistic head as `answer`, but with an empty symbolic program.
-- The symbolic laws are soft probabilistic effects over state deltas. Their
-  likelihood contributions are weighted by learned nonnegative law weights and
-  regularized with an L1 penalty, so unsupported LLM laws can be suppressed by
-  data instead of hard-wiring a bad prior into the transition model.
-- `pets_ensemble` is a PETS-style baseline: a bootstrap ensemble of neural
-  dynamics models trained on the same transitions and evaluated with the same
-  MPC planner.
-- MPC uses a conservative guard for continuous models, penalizing OOD predicted
-  states/actions, symbolic-neural disagreement, and ensemble variance during
-  candidate action sequence scoring.
-- The final config disables open-loop and symbolic diagnostic metrics by
-  default to keep the full 7 environment sweep practical.
-- Planner scoring uses a task proxy inside MPC; reported Reward is real
-  environment return after executing the selected actions.
-- Each LLM-based run records logical synthesis calls and available token usage
-  for ablations.
+```text
+one_step_delta_nll
+mean_symbolic_gate
+gate_active_fraction_0.01
+mean_graph_budget
+symbolic_gain_delta_r2_uniform
+active_law_count_unique
+```
+
+These diagnostics show whether the symbolic component is active and whether it
+improves the symbolic-conditioned candidate before the final gate.

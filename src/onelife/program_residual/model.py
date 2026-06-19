@@ -54,6 +54,8 @@ class ProgramResidualWorldModel(nn.Module):
             )
 
         program_output = self.program(states_batched, actions_batched)
+        neural_prediction = None
+        symbolic_candidate_prediction = None
         residual = self.residual_model(
             states_batched,
             actions_batched,
@@ -97,6 +99,8 @@ class ProgramResidualWorldModel(nn.Module):
                 else 1.0 - program_output.unknown_mask
             )
             symbolic_gate = raw_gate * graph_budget * (1.0 - program_output.unknown_mask)
+            neural_prediction = states_batched + neural_delta
+            symbolic_candidate_prediction = states_batched + symbolic_candidate_delta
             intervention_delta = symbolic_gate * (
                 symbolic_candidate_delta - neural_delta
             )
@@ -121,6 +125,16 @@ class ProgramResidualWorldModel(nn.Module):
             graph_budget = (
                 program_output.graph_budget.squeeze(0)
                 if program_output.graph_budget is not None
+                else None
+            )
+            neural_prediction = (
+                neural_prediction.squeeze(0)
+                if neural_prediction is not None
+                else None
+            )
+            symbolic_candidate_prediction = (
+                symbolic_candidate_prediction.squeeze(0)
+                if symbolic_candidate_prediction is not None
                 else None
             )
         else:
@@ -150,6 +164,8 @@ class ProgramResidualWorldModel(nn.Module):
             active_laws=program_output.active_laws,
             symbolic_gate=symbolic_gate,
             graph_budget=graph_budget,
+            neural_prediction=neural_prediction,
+            symbolic_candidate_prediction=symbolic_candidate_prediction,
             program_variance=program_variance,
             log_variance=log_variance,
         )

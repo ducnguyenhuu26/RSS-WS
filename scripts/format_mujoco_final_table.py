@@ -10,38 +10,40 @@ from typing import Any
 
 
 ENV_ORDER = [
-    "InvertedPendulum-v5",
+    "Swimmer-v5",
     "InvertedDoublePendulum-v5",
     "Reacher-v5",
-    "Swimmer-v5",
     "Hopper-v5",
     "Walker2d-v5",
     "HalfCheetah-v5",
 ]
 
+EXCLUDED_ENVS = {
+    "InvertedPendulum-v5",
+    "Ant-v5",
+    "Pusher-v5",
+}
+
 MODEL_ORDER = [
-    "answer",
     "onelife",
     "pets_ensemble",
     "dreamer_v3",
-]
-
-ABLATION_MODEL_ORDER = [
     "neural",
-    "neural_mlp",
     "program_only",
     "symbolic_neural",
+    "neural_mlp",
+    "answer",
 ]
 
 MODEL_LABELS = {
     "answer": "ANSWER",
-    "onelife": "Adaptive OneLife",
-    "pets_ensemble": "PETS-style neural ensemble + MPC",
-    "dreamer_v3": "Dreamer V3",
-    "neural": "Neural ODE only + MPC",
-    "neural_mlp": "Neural MLP only + MPC",
-    "program_only": "Symbolic only (LLM laws)",
-    "symbolic_neural": "Symbolic library + neural ODE",
+    "onelife": "OneLife",
+    "pets_ensemble": "PETS",
+    "dreamer_v3": "DreamerV3",
+    "neural": "ODE-only",
+    "neural_mlp": "MLP-only",
+    "program_only": "LLM-only",
+    "symbolic_neural": "Lib+ODE",
 }
 
 R2_AT_1_KEY = "score.r2_at_1_delta_uniform"
@@ -61,12 +63,12 @@ def main() -> None:
 
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for path in expand_input_paths(args.files):
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
         env = payload.get("problem") or payload.get("env_id")
         model = payload.get("model")
         if env is None or model is None:
             continue
-        if env in {"Ant-v5", "Pusher-v5"}:
+        if env in EXCLUDED_ENVS:
             continue
         grouped[(str(env), str(model))].append(payload)
 
@@ -87,24 +89,6 @@ def main() -> None:
             args.no_std,
             reward_mode,
         )
-        if any(grouped.get((env, model), []) for model in ABLATION_MODEL_ORDER):
-            print()
-            print("Ablation:")
-            reward_header, reward_mode = _reward_header_and_mode(
-                env,
-                grouped,
-                ABLATION_MODEL_ORDER,
-            )
-            print(f"| Model | R2@1 | R2@10 | {reward_header} |")
-            print("|---|---:|---:|---:|")
-            _print_model_rows(
-                env,
-                grouped,
-                ABLATION_MODEL_ORDER,
-                args.precision,
-                args.no_std,
-                reward_mode,
-            )
         print()
 
 
