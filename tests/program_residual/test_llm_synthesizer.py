@@ -116,6 +116,47 @@ def test_compile_synthesized_laws_rejects_imports():
         )
 
 
+def test_compile_synthesized_laws_skips_bundle_when_build_laws_raises():
+    code = """
+def build_laws(state_dim, action_dim, dt, confidence):
+    return [KinematicPositionLaw()]
+"""
+
+    with pytest.warns(RuntimeWarning, match="build_laws"):
+        laws = compile_synthesized_laws(
+            code=code,
+            state_dim=2,
+            action_dim=1,
+            dt=0.05,
+        )
+
+    assert laws == []
+
+
+def test_compile_synthesized_laws_skips_non_law_objects():
+    code = """
+class GoodLaw(ContinuousLaw):
+    def predict(self, state, action):
+        indices = torch.tensor([1], dtype=torch.long)
+        values = state[1:2]
+        confidence = torch.ones_like(values)
+        return LawPrediction(indices, values, confidence, self.law_name, value_kind="next_state")
+
+def build_laws(state_dim, action_dim, dt, confidence):
+    return [object(), GoodLaw()]
+"""
+
+    with pytest.warns(RuntimeWarning, match="not a ContinuousLaw"):
+        laws = compile_synthesized_laws(
+            code=code,
+            state_dim=2,
+            action_dim=1,
+            dt=0.05,
+        )
+
+    assert [law.law_name for law in laws] == ["GoodLaw"]
+
+
 def test_compile_synthesized_laws_skips_invalid_llm_laws():
     code = """
 class BadBatchedIndexLaw(ContinuousLaw):

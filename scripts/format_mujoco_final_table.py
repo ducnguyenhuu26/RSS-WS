@@ -36,11 +36,13 @@ MODEL_ORDER = [
     "program_only",
     "symbolic_neural",
     "neural_mlp",
+    "answer_mlp",
     "answer",
 ]
 
 MODEL_LABELS = {
     "answer": "ANSWER",
+    "answer_mlp": "ANS-MLP",
     "onelife": "OneLife",
     "pets_ensemble": "PETS",
     "dreamer_v3": "DreamerV3",

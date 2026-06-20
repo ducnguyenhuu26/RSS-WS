@@ -285,7 +285,7 @@ def main(cfg: DictConfig) -> None:
 
 def symbolic_source_for_model(model_name: str) -> str:
     match model_name:
-        case "answer" | "program_only":
+        case "answer" | "answer_mlp" | "program_only":
             return "llm"
         case "symbolic_neural":
             return "standard"
@@ -294,13 +294,15 @@ def symbolic_source_for_model(model_name: str) -> str:
         case _:
             raise ValueError(
                 "model must be one of: answer, onelife, pets_ensemble, "
-                "dreamer_v3, neural, neural_mlp, program_only, symbolic_neural"
+                "dreamer_v3, neural, neural_mlp, program_only, "
+                "symbolic_neural, answer_mlp"
             )
 
 
 def model_uses_neural_residual(model_name: str) -> bool:
     return model_name in {
         "answer",
+        "answer_mlp",
         "neural",
         "neural_mlp",
         "symbolic_neural",
@@ -308,11 +310,11 @@ def model_uses_neural_residual(model_name: str) -> bool:
 
 
 def model_uses_symbolic_gate(model_name: str) -> bool:
-    return model_name == "answer"
+    return model_name in {"answer", "answer_mlp"}
 
 
 def model_uses_island_search(model_name: str) -> bool:
-    return model_name == "answer"
+    return model_name in {"answer", "answer_mlp"}
 
 
 def model_uses_ode_residual(model_name: str) -> bool:
@@ -324,7 +326,7 @@ def model_uses_probabilistic_head(model_name: str) -> bool:
 
 
 def model_uses_trainable_symbolic(model_name: str) -> bool:
-    return model_name in {"answer", "program_only", "symbolic_neural"}
+    return model_name in {"answer", "answer_mlp", "program_only", "symbolic_neural"}
 
 
 def residual_backbone_name(model_name: str) -> str:
@@ -340,6 +342,10 @@ def normalize_model_name(model_name: str) -> str:
     lowered = raw.lower()
     aliases = {
         "answer": "answer",
+        "answer_mlp": "answer_mlp",
+        "answer-mlp": "answer_mlp",
+        "ans_mlp": "answer_mlp",
+        "ans-mlp": "answer_mlp",
         "neural_ode": "neural",
         "neural-ode": "neural",
         "neural_mlp": "neural_mlp",

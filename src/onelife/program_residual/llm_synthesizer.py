@@ -15,7 +15,7 @@ from onelife.litellm_utils import (
     LiteLlmParamsBase,
     LiteLlmRequest,
 )
-from onelife.local_code_execution import ExecWithLimitedNamespace
+from onelife.local_code_execution import ExecWithLimitedNamespace, SecurityException
 from onelife.mujoco_dataset import MuJoCoTransitions
 
 from .core import LawPrediction, TransitionBatch
@@ -324,26 +324,61 @@ def compile_synthesized_laws(
             "JointLimitVelocityLaw": JointLimitVelocityLaw,
         },
     )
-    executor(code)
+    try:
+        executor(code)
+    except SecurityException:
+        raise
+    except Exception as exc:
+        warnings.warn(
+            "Skipping invalid LLM-generated law bundle during execution: "
+            f"{type(exc).__name__}: {exc}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return []
     build_laws = executor.namespace.get("build_laws")
     if not callable(build_laws):
-        raise ValueError("LLM code must define callable build_laws(...)")
+        warnings.warn(
+            "Skipping invalid LLM-generated law bundle: missing callable "
+            "build_laws(...)",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return []
 
-    raw_laws = build_laws(
-        int(state_dim),
-        int(action_dim),
-        float(dt),
-        float(default_confidence),
-    )
+    try:
+        raw_laws = build_laws(
+            int(state_dim),
+            int(action_dim),
+            float(dt),
+            float(default_confidence),
+        )
+    except Exception as exc:
+        warnings.warn(
+            "Skipping invalid LLM-generated law bundle from build_laws(...): "
+            f"{type(exc).__name__}: {exc}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return []
     if not isinstance(raw_laws, list):
-        raise TypeError("build_laws(...) must return list[ContinuousLaw]")
+        warnings.warn(
+            "Skipping invalid LLM-generated law bundle: build_laws(...) must "
+            "return list[ContinuousLaw]",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return []
     laws: list[ContinuousLaw] = []
     for law in raw_laws:
         if not isinstance(law, ContinuousLaw):
-            raise TypeError(
+            warnings.warn(
                 "build_laws(...) returned an object that is not a ContinuousLaw: "
-                f"{type(law).__name__}"
+                f"{type(law).__name__}",
+                RuntimeWarning,
+                stacklevel=2,
             )
+            continue
         try:
             _smoke_test_law(law, state_dim, action_dim)
             if validation_batch is not None:

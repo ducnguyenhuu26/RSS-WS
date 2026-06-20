@@ -3,8 +3,8 @@
 This repository implements **ANSWER**: an automated neuro-symbolic world model
 for MuJoCo continuous-control tasks. The code is derived from One Life to Learn,
 but the final MuJoCo protocol is intentionally narrow and reproducible: one
-proposed method, three external/main baselines, and architecture ablations in
-one shared table.
+proposed method, external/main baselines, and architecture ablations in one
+shared table.
 
 ## Method
 
@@ -69,6 +69,7 @@ neural            ODE-only    ANSWER without symbolic laws
 program_only      LLM-only    ANSWER symbolic laws without neural ODE
 symbolic_neural   Lib+ODE     Symbolic library laws plus neural ODE, no LLM laws
 neural_mlp        MLP-only    Pure MLP dynamics appendix baseline
+answer_mlp        ANS-MLP     ANSWER symbolic graph/gate with the MLP backbone
 answer            ANSWER      Proposed neuro-symbolic ODE world model
 ```
 
@@ -148,13 +149,20 @@ uv run --no-sync --env-file .env python main.py --config-name smoke
 Full in-repo sweep, three seeds:
 
 ```powershell
-uv run --no-sync --env-file .env python main.py -m problem=Swimmer-v5,InvertedDoublePendulum-v5,Reacher-v5,Hopper-v5,Walker2d-v5,HalfCheetah-v5 model=answer,onelife,pets_ensemble,neural,program_only,symbolic_neural,neural_mlp seed=0,1,2 device=cuda skip_existing=true output_dir=outputs_final_answer_3seed
+uv run --no-sync --env-file .env python main.py -m problem=Swimmer-v5,InvertedDoublePendulum-v5,Reacher-v5,Hopper-v5,Walker2d-v5,HalfCheetah-v5 model=answer,onelife,pets_ensemble,neural,program_only,symbolic_neural,neural_mlp,answer_mlp seed=0,1,2 device=cuda skip_existing=true output_dir=outputs_final_answer_3seed
 ```
 
 Expected in-repo JSON count:
 
 ```text
-6 environments * 7 runnable models * 3 seeds = 126 JSON files
+6 environments * 8 runnable models * 3 seeds = 144 JSON files
+```
+
+If the original seven-model sweep already exists, add only the fair MLP-backbone
+ANSWER variant:
+
+```powershell
+uv run --no-sync --env-file .env python main.py -m problem=Swimmer-v5,InvertedDoublePendulum-v5,Reacher-v5,Hopper-v5,Walker2d-v5,HalfCheetah-v5 model=answer_mlp seed=0,1,2 device=cuda skip_existing=true output_dir=outputs_final_answer_3seed
 ```
 
 Format the paper table:
