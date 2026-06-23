@@ -16,10 +16,10 @@ class DUCLossConfig:
     orth_weight: float = 0.0
     sparse_weight: float = 0.0
     unknown_weight: float = 0.0
-    trust_region_weight: float = 1.0
+    trust_region_weight: float = 0.2
     trust_region_delta_min: float = 0.15
     trust_region_delta_range: float = 0.75
-    prior_beta_weight: float = 1e-4
+    prior_beta_weight: float = 5e-4
 
 
 @dataclass

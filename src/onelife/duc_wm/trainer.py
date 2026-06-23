@@ -40,11 +40,11 @@ class DUCTrainerConfig:
     prior_beta_weight: float = 5e-4
     residual_warmup_fraction: float = 0.25
     prior_validation: bool = True
-    prior_validation_min_gate: float = 0.02
-    prior_validation_temperature: float = 0.15
+    prior_validation_min_gate: float = 0.08
+    prior_validation_temperature: float = 0.08
     prior_validation_max_samples: int = 4096
     prior_validation_beta_min: float = 0.05
-    prior_validation_beta_max: float = 5.0
+    prior_validation_beta_max: float = 8.0
     teacher_force_context: bool = True
     seed: int = 0
     precision: str = "fp32"
@@ -349,6 +349,8 @@ def _validate_single_prior(
     score = raw_score / (raw_score + temp)
     score_value = float(score.detach().cpu())
     min_gate = float(max(0.0, min(1.0, min_gate)))
+    if score_value <= 1e-6:
+        return 0.0, 0.0, 1.0, 0.0
     gate = min_gate + (1.0 - min_gate) * score_value
     beta = float(scale.abs().clamp(min=float(beta_min), max=float(beta_max)).detach().cpu())
     return gate, score_value, beta, float(raw_score.detach().cpu())

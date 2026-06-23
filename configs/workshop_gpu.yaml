@@ -26,7 +26,7 @@ duc:
   hidden_size: 256
   hidden_layers: 2
   beta_kl: 0.001
-  context_weight: 0.05
+  context_weight: 0.08
   residual_weight: 0.00005
   control_weight: 0.05
   rollout_weight: 0.1
@@ -41,11 +41,11 @@ duc:
   prior_beta_weight: 0.0005
   residual_warmup_fraction: 0.25
   prior_validation: true
-  prior_validation_min_gate: 0.02
-  prior_validation_temperature: 0.15
+  prior_validation_min_gate: 0.08
+  prior_validation_temperature: 0.08
   prior_validation_max_samples: 4096
   prior_validation_beta_min: 0.05
-  prior_validation_beta_max: 5.0
+  prior_validation_beta_max: 8.0
   teacher_force_context: false
   llm_prior:
     enabled: true
