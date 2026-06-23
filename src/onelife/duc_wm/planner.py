@@ -18,7 +18,7 @@ class CEMPlannerConfig:
     elites: int = 128
     iterations: int = 4
     context_samples: int = 4
-    uncertainty_weight: float = 0.05
+    uncertainty_weight: float = 0.0
 
 
 @torch.no_grad()

@@ -75,6 +75,10 @@ reward:
   epochs: 30
   batch_size: 1024
   learning_rate: 0.001
+  # Keep the planning reward surrogate identical across methods. Without this
+  # reseed, each model's dynamics training consumes a different amount of RNG
+  # before reward-model initialization.
+  seed_offset: 50000
 
 planning:
   enabled: true
@@ -84,7 +88,9 @@ planning:
   candidates: 512
   elites: 64
   iterations: 4
-  uncertainty_weight: 0.05
+  # Primary fair protocol: do not penalize PETS for ensemble variance while
+  # single-model baselines expose a non-equivalent uncertainty estimate.
+  uncertainty_weight: 0.0
 
 runtime:
   precision: bf16

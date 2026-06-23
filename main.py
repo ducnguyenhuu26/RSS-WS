@@ -296,7 +296,12 @@ def main(cfg: DictConfig) -> None:
         )
 
     reward_history: list[dict[str, float]] = []
+    reward_seed_used: int | None = None
     if bool(config_get(cfg, "planning.enabled", False)):
+        reward_seed_used = seed + int(config_get(cfg, "reward.seed_offset", 50_000))
+        torch.manual_seed(reward_seed_used)
+        if device.type == "cuda":
+            torch.cuda.manual_seed_all(reward_seed_used)
         reward_model = RewardModel(
             RewardModelConfig(
                 state_dim=train_dataset.state_dim,
@@ -308,7 +313,7 @@ def main(cfg: DictConfig) -> None:
         reward_history = fit_reward_model(
             model=reward_model,
             transitions=train_dataset,
-            config=reward_trainer_config(cfg, seed),
+            config=reward_trainer_config(cfg, reward_seed_used),
             device=device,
         )
         metrics.update(
@@ -363,6 +368,7 @@ def main(cfg: DictConfig) -> None:
         ],
         "training": history,
         "reward_training": reward_history,
+        "reward_seed": reward_seed_used,
         "score": metrics,
         "config": OmegaConf.to_container(cfg, resolve=True),
     }

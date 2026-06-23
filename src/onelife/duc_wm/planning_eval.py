@@ -28,7 +28,7 @@ class PlanningEvalConfig:
     candidates: int = 256
     elites: int = 32
     iterations: int = 3
-    uncertainty_weight: float = 0.05
+    uncertainty_weight: float = 0.0
 
 
 @torch.no_grad()
