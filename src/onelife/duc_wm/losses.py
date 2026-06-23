@@ -16,6 +16,10 @@ class DUCLossConfig:
     orth_weight: float = 0.0
     sparse_weight: float = 0.0
     unknown_weight: float = 0.0
+    trust_region_weight: float = 0.0
+    trust_region_delta_min: float = 0.25
+    trust_region_delta_range: float = 1.25
+    prior_beta_weight: float = 0.0
 
 
 @dataclass
@@ -29,6 +33,8 @@ class DUCLossOutput:
     orth: torch.Tensor
     sparse: torch.Tensor
     unknown: torch.Tensor
+    trust_region: torch.Tensor
+    prior_beta: torch.Tensor
 
 
 def kl_normal_diag(
@@ -79,6 +85,28 @@ def residual_penalty(model: DUCWorldModel, output: DUCForwardOutput) -> torch.Te
     return (per_mechanism * (0.25 + confidences).unsqueeze(0)).mean()
 
 
+def trust_region_penalty(
+    model: DUCWorldModel,
+    output: DUCForwardOutput,
+    delta_min: float,
+    delta_range: float,
+) -> torch.Tensor:
+    confidences = model.prior_confidence.to(output.residual_effects.device)
+    prior_norm = output.prior_effects.pow(2).mean(dim=-1).add(1e-8).sqrt()
+    residual_norm = output.residual_effects.pow(2).mean(dim=-1).add(1e-8).sqrt()
+    delta = float(delta_min) + (1.0 - confidences) * float(delta_range)
+    violation = torch.relu(residual_norm - delta.unsqueeze(0) * prior_norm)
+    # Unknown mechanisms have confidence zero and should not be forced to stay
+    # near a nonexistent law prior.
+    weights = confidences.unsqueeze(0)
+    return (weights * violation.pow(2)).mean()
+
+
+def prior_beta_penalty(model: DUCWorldModel) -> torch.Tensor:
+    # Keep law calibration near 1 unless data strongly needs a different scale.
+    return model.prior_log_beta.pow(2).mean()
+
+
 def unknown_activation_penalty(model: DUCWorldModel, output: DUCForwardOutput) -> torch.Tensor:
     if not model.unknown_indices:
         return output.alpha.new_zeros(())
@@ -110,6 +138,13 @@ def compute_duc_loss(
     orth = orthogonality_penalty(output, control_weights)
     sparse = output.alpha.abs().mean()
     unknown = unknown_activation_penalty(model, output)
+    trust_region = trust_region_penalty(
+        model,
+        output,
+        delta_min=config.trust_region_delta_min,
+        delta_range=config.trust_region_delta_range,
+    )
+    prior_beta = prior_beta_penalty(model)
     total = (
         nll
         + config.beta_kl * kl
@@ -119,6 +154,8 @@ def compute_duc_loss(
         + config.orth_weight * orth
         + config.sparse_weight * sparse
         + config.unknown_weight * unknown
+        + config.trust_region_weight * trust_region
+        + config.prior_beta_weight * prior_beta
     )
     return DUCLossOutput(
         total=total,
@@ -130,4 +167,6 @@ def compute_duc_loss(
         orth=orth.detach(),
         sparse=sparse.detach(),
         unknown=unknown.detach(),
+        trust_region=trust_region.detach(),
+        prior_beta=prior_beta.detach(),
     )

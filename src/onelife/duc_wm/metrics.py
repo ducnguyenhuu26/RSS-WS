@@ -223,6 +223,7 @@ def evaluate_duc_model(
     prior_norms: list[float] = []
     residual_norms: list[float] = []
     mechanism_norms: list[float] = []
+    trust_violations: list[float] = []
     for batch in iter_duc_batches(
         transitions,
         batch_size=batch_size,
@@ -242,6 +243,7 @@ def evaluate_duc_model(
         prior_norms.append(float(output.prior_delta.norm(dim=-1).mean().cpu()))
         residual_norms.append(float(output.residual_delta.norm(dim=-1).mean().cpu()))
         mechanism_norms.append(float(output.mechanism_delta.norm(dim=-1).mean().cpu()))
+        trust_violations.append(float(trust_region_violation(model, output).cpu()))
         if batch.contexts is not None:
             context_errors.append(
                 float((output.alpha_mean - batch.contexts).pow(2).mean().cpu())
@@ -256,6 +258,12 @@ def evaluate_duc_model(
         metrics["mechanism_delta_norm"] = mechanism_norm
         metrics["prior_to_total_delta_ratio"] = prior_norm / max(1e-8, mechanism_norm)
         metrics["residual_to_total_delta_ratio"] = residual_norm / max(1e-8, mechanism_norm)
+        metrics["trust_region_violation"] = float(sum(trust_violations) / len(trust_violations))
+        beta = model.prior_beta.detach().cpu().numpy()
+        metrics["prior_beta_mean"] = float(np.mean(beta))
+        metrics["prior_beta_min"] = float(np.min(beta))
+        metrics["prior_beta_max"] = float(np.max(beta))
+        metrics["residual_scale"] = float(model._residual_scale.detach().cpu())
     if context_errors:
         metrics["context_mse"] = float(sum(context_errors) / len(context_errors))
     if transitions.contexts is not None:
@@ -271,6 +279,18 @@ def evaluate_duc_model(
     if model.unknown_indices:
         metrics["unknown_alpha_abs"] = float(np.mean(np.abs(alpha[:, model.unknown_indices])))
     return metrics
+
+
+def trust_region_violation(model: DUCWorldModel, output) -> torch.Tensor:
+    confidences = model.prior_confidence.to(output.residual_effects.device)
+    prior_norm = output.prior_effects.pow(2).mean(dim=-1).add(1e-8).sqrt()
+    residual_norm = output.residual_effects.pow(2).mean(dim=-1).add(1e-8).sqrt()
+    delta = (
+        float(model.config.trust_region_delta_min)
+        + (1.0 - confidences) * float(model.config.trust_region_delta_range)
+    )
+    violation = torch.relu(residual_norm - delta.unsqueeze(0) * prior_norm)
+    return (confidences.unsqueeze(0) * violation).mean()
 
 
 @torch.no_grad()

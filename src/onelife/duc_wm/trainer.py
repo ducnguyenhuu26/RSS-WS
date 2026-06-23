@@ -33,6 +33,11 @@ class DUCTrainerConfig:
     orth_weight: float = 0.0
     sparse_weight: float = 0.0
     unknown_weight: float = 0.0
+    trust_region_weight: float = 0.0
+    trust_region_delta_min: float = 0.25
+    trust_region_delta_range: float = 1.25
+    prior_beta_weight: float = 0.0
+    residual_warmup_fraction: float = 0.0
     teacher_force_context: bool = True
     seed: int = 0
     precision: str = "fp32"
@@ -61,6 +66,10 @@ def fit_duc_world_model(
         orth_weight=config.orth_weight,
         sparse_weight=config.sparse_weight,
         unknown_weight=config.unknown_weight,
+        trust_region_weight=config.trust_region_weight,
+        trust_region_delta_min=config.trust_region_delta_min,
+        trust_region_delta_range=config.trust_region_delta_range,
+        prior_beta_weight=config.prior_beta_weight,
     )
     control_weights_np = default_control_weights(transitions.state_dim, model.config.templates)
     control_weights = torch.tensor(control_weights_np, dtype=torch.float32, device=device)
@@ -71,11 +80,15 @@ def fit_duc_world_model(
     )
     history: list[dict[str, float]] = []
     for epoch in range(config.epochs):
+        residual_scale = residual_scale_for_epoch(epoch, config.epochs, config.residual_warmup_fraction)
+        model.set_residual_scale(residual_scale)
         totals: list[float] = []
         nlls: list[float] = []
         kls: list[float] = []
         ctxs: list[float] = []
         residuals: list[float] = []
+        trusts: list[float] = []
+        betas: list[float] = []
         rolls: list[float] = []
         unknowns: list[float] = []
         batches = (
@@ -144,6 +157,8 @@ def fit_duc_world_model(
             kls.append(float(loss.kl.cpu()))
             ctxs.append(float(loss.context.cpu()))
             residuals.append(float(loss.residual.cpu()))
+            trusts.append(float(loss.trust_region.cpu()))
+            betas.append(float(loss.prior_beta.cpu()))
             rolls.append(float(rollout.detach().cpu()))
             unknowns.append(float(loss.unknown.cpu()))
         history.append(
@@ -154,11 +169,22 @@ def fit_duc_world_model(
                 "kl": sum(kls) / max(1, len(kls)),
                 "context": sum(ctxs) / max(1, len(ctxs)),
                 "residual": sum(residuals) / max(1, len(residuals)),
+                "trust_region": sum(trusts) / max(1, len(trusts)),
+                "prior_beta": sum(betas) / max(1, len(betas)),
+                "residual_scale": residual_scale,
                 "rollout": sum(rolls) / max(1, len(rolls)),
                 "unknown": sum(unknowns) / max(1, len(unknowns)),
             }
         )
+    model.set_residual_scale(1.0)
     return history
+
+
+def residual_scale_for_epoch(epoch: int, epochs: int, warmup_fraction: float) -> float:
+    if warmup_fraction <= 0.0 or epochs <= 1:
+        return 1.0
+    warmup_epochs = max(1, int(round(float(epochs) * float(warmup_fraction))))
+    return min(1.0, max(0.0, float(epoch + 1) / float(warmup_epochs)))
 
 
 def _rollout_loss_for_batch(

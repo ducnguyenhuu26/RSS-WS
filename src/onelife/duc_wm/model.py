@@ -19,6 +19,8 @@ class DUCWorldModelConfig:
     history_length: int = 4
     min_logvar: float = -8.0
     max_logvar: float = 2.0
+    trust_region_delta_min: float = 0.25
+    trust_region_delta_range: float = 1.25
 
 
 @dataclass
@@ -28,6 +30,8 @@ class DUCForwardOutput:
     effects: torch.Tensor
     prior_effects: torch.Tensor
     residual_effects: torch.Tensor
+    raw_prior_effects: torch.Tensor
+    raw_residual_effects: torch.Tensor
     alpha: torch.Tensor
     alpha_mean: torch.Tensor
     posterior_mean: torch.Tensor
@@ -36,6 +40,8 @@ class DUCForwardOutput:
     prior_delta: torch.Tensor
     residual_delta: torch.Tensor
     mechanism_delta: torch.Tensor
+    prior_beta: torch.Tensor
+    residual_scale: torch.Tensor
 
 
 def _mlp(input_dim: int, output_dim: int, hidden_size: int, hidden_layers: int) -> nn.Sequential:
@@ -211,6 +217,8 @@ class DUCWorldModel(nn.Module):
         self.register_buffer("prior_std", prior_std)
         self.register_buffer("context_scales", scales)
         self.register_buffer("prior_confidence", confidences)
+        self.prior_log_beta = nn.Parameter(torch.zeros(len(config.templates)))
+        self.register_buffer("_residual_scale", torch.tensor(1.0, dtype=torch.float32))
         self.unknown_indices = tuple(
             index
             for index, template in enumerate(config.templates)
@@ -220,6 +228,14 @@ class DUCWorldModel(nn.Module):
     @property
     def context_dim(self) -> int:
         return len(self.config.templates)
+
+    @property
+    def prior_beta(self) -> torch.Tensor:
+        return torch.exp(self.prior_log_beta).clamp(min=0.1, max=10.0)
+
+    def set_residual_scale(self, value: float) -> None:
+        value = float(max(0.0, min(1.0, value)))
+        self._residual_scale.fill_(value)
 
     def alpha_from_raw(self, raw_context: torch.Tensor) -> torch.Tensor:
         return self.context_scales.to(raw_context.device) * torch.tanh(raw_context)
@@ -257,13 +273,17 @@ class DUCWorldModel(nn.Module):
 
         base_input = torch.cat([states, actions], dim=-1)
         base_delta = self.base_dynamics(base_input).to(states.dtype)
-        prior_effects = self.law_priors(
+        raw_prior_effects = self.law_priors(
             states,
             actions,
             history_states=history_states,
             history_actions=history_actions,
         )
-        residual_effects = self.mechanisms(states, actions)
+        beta = self.prior_beta.to(raw_prior_effects.device, raw_prior_effects.dtype)
+        prior_effects = raw_prior_effects * beta.view(1, -1, 1)
+        raw_residual_effects = self.mechanisms(states, actions)
+        residual_scale = self._residual_scale.to(raw_residual_effects.device, raw_residual_effects.dtype)
+        residual_effects = residual_scale * raw_residual_effects
         effects = prior_effects + residual_effects
         prior_delta = torch.einsum("bk,bkd->bd", alpha, prior_effects).to(states.dtype)
         residual_delta = torch.einsum("bk,bkd->bd", alpha, residual_effects).to(states.dtype)
@@ -280,6 +300,8 @@ class DUCWorldModel(nn.Module):
             effects=effects,
             prior_effects=prior_effects,
             residual_effects=residual_effects,
+            raw_prior_effects=raw_prior_effects,
+            raw_residual_effects=raw_residual_effects,
             alpha=alpha,
             alpha_mean=alpha_mean,
             posterior_mean=posterior_mean,
@@ -288,6 +310,8 @@ class DUCWorldModel(nn.Module):
             prior_delta=prior_delta,
             residual_delta=residual_delta,
             mechanism_delta=mechanism_delta,
+            prior_beta=beta,
+            residual_scale=residual_scale,
         )
 
     def nll(self, output: DUCForwardOutput, targets: torch.Tensor) -> torch.Tensor:

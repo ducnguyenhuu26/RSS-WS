@@ -71,15 +71,19 @@ x_t+B_\theta(x_t,a_t)
 \sum_{j=1}^{K}
 \alpha_{j,t}
 \left[
-P_j^{LLM}(x_t,a_t,h_t)+R_{\theta,j}(x_t[P_j^x],a_t[P_j^a])
+\beta_j P_j^{LLM}(x_t,a_t,h_t)
++
+g_t R_{\theta,j}(x_t[P_j^x],a_t[P_j^a])
 \right].
 $$
 
 The base trunk \(B_\theta\) learns ordinary MuJoCo dynamics shared across contexts.
 The compiled law prior \(P_j^{LLM}\) is selected from a safe DSL emitted by the
-LLM or fallback template bank. The residual bank \(R_{\theta,j}\) learns reusable
-corrections caused by hidden mechanisms such as wind, friction, mass, damping,
-delay, sticky transitions, impulse, and gravity.
+LLM or fallback template bank. The learned scalar \(\beta_j\) calibrates law
+strength from data, while \(g_t \in [0,1]\) opens the neural residual gradually
+during training. The residual bank \(R_{\theta,j}\) learns reusable corrections
+caused by hidden mechanisms such as wind, friction, mass, damping, delay,
+sticky transitions, impulse, and gravity.
 
 The components are:
 
@@ -87,6 +91,8 @@ The components are:
 |---|---|
 | \(B_\theta\) | shared base dynamics trunk |
 | \(P_j^{LLM}\) | compiled safe law prior for mechanism \(j\) |
+| \(\beta_j\) | learned positive calibration of the law prior |
+| \(g_t\) | residual warmup gate during training |
 | \(R_{\theta,j}\) | mechanism-specific neural residual |
 | \(\alpha_{j,t}\) | bounded inferred strength of mechanism \(j\) |
 | unknown slot | dense fallback mechanism for missing or wrong priors |
@@ -96,6 +102,25 @@ template specifies mechanism names, masks, `law_type`, `law_gain`, scales,
 confidence, timescale, and reward relevance. Code then compiles each DSL law into
 a tensor prior effect; trainable residual networks learn only the missing or
 wrong part.
+
+DUC-WM applies a confidence-weighted trust region around each law prior:
+
+$$
+\mathcal L_{TR}
+=
+\sum_j \rho_j
+\left[
+\|g_t R_{\theta,j}\|_2
+-
+\delta_j \|\beta_j P_j^{LLM}\|_2
+\right]_+^2,
+\qquad
+\delta_j=\delta_{min}+(1-\rho_j)\delta_{range}.
+$$
+
+High-confidence priors permit only small neural corrections, while
+low-confidence priors leave more room for data-driven repair. This prevents
+DUC-WM from collapsing back into an MLP-style residual model.
 
 ## Mechanism Templates
 
@@ -628,7 +653,9 @@ uv run python scripts/aggregate_duc_results.py \
   outputs/duc_wm_workshop/*.json \
   --group-by model,problem,test_variant \
   --metrics score.r2_at_1,score.r2_at_10,score.duc_r2_at_10,score.nll,\
-score.planner_return_mean,score.attribution_recall_at_2,score.strength_spearman \
+score.planner_return_mean,score.attribution_recall_at_2,score.strength_spearman,\
+score.prior_to_total_delta_ratio,score.residual_to_total_delta_ratio,\
+score.trust_region_violation,score.prior_beta_mean \
   --rank-metric score.duc_r2_at_10
 ```
 
@@ -639,6 +666,8 @@ Implemented:
 - LLM/fallback safe mechanism law-DSL templates;
 - slow/event/unknown template metadata;
 - compiled tensor law priors plus mechanism-specific residual shifts;
+- learned prior calibration \(\beta_j\);
+- residual warmup gate and confidence-weighted trust-region loss;
 - invariant base dynamics trunk plus mechanism-specific shifts;
 - split context encoder for slow and event mechanisms;
 - bounded mechanism strengths;

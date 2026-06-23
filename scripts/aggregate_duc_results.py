@@ -20,6 +20,10 @@ DEFAULT_METRICS = (
     "score.strength_spearman",
     "score.prior_to_total_delta_ratio",
     "score.residual_to_total_delta_ratio",
+    "score.trust_region_violation",
+    "score.prior_beta_mean",
+    "score.prior_beta_min",
+    "score.prior_beta_max",
 )
 
 
