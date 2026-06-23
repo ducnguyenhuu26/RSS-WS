@@ -526,6 +526,20 @@ uv run python main.py --config-name workshop_big -m \
 `parallel_workers=0` uses all logical CPU cores for MuJoCo collection. On a
 shared machine, set it to a fixed value such as `16` or `32`.
 
+Balanced CPU/GPU pilot on one rented GPU:
+
+```bash
+uv run python scripts/run_balanced_gpu_jobs.py \
+  --config-name pilot_swimmer_gpu \
+  --models mlp,pets,cadm,duc_wm \
+  --max-parallel 2
+```
+
+This launcher starts one process per method. Keep `--max-parallel=2` on a
+single GPU unless monitoring shows plenty of free VRAM and low utilization.
+Each process uses CPU workers for MuJoCo collection/env stepping and CUDA for
+training, rollout evaluation, and CEM candidate scoring.
+
 Compositional OOD sweep:
 
 ```bash
