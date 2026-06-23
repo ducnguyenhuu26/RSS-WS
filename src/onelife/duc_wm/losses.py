@@ -20,6 +20,7 @@ class DUCLossConfig:
     trust_region_delta_min: float = 0.15
     trust_region_delta_range: float = 0.75
     prior_beta_weight: float = 5e-4
+    reward_weight: float = 0.0
 
 
 @dataclass
@@ -35,6 +36,7 @@ class DUCLossOutput:
     unknown: torch.Tensor
     trust_region: torch.Tensor
     prior_beta: torch.Tensor
+    reward: torch.Tensor
 
 
 def kl_normal_diag(
@@ -119,6 +121,7 @@ def compute_duc_loss(
     output: DUCForwardOutput,
     targets: torch.Tensor,
     context_targets: torch.Tensor | None,
+    reward_targets: torch.Tensor | None,
     config: DUCLossConfig,
     control_weights: torch.Tensor | None = None,
 ) -> DUCLossOutput:
@@ -145,6 +148,10 @@ def compute_duc_loss(
         delta_range=config.trust_region_delta_range,
     )
     prior_beta = prior_beta_penalty(model)
+    if reward_targets is None:
+        reward = targets.new_zeros(())
+    else:
+        reward = (output.reward_pred - reward_targets).pow(2).mean()
     total = (
         nll
         + config.beta_kl * kl
@@ -156,6 +163,7 @@ def compute_duc_loss(
         + config.unknown_weight * unknown
         + config.trust_region_weight * trust_region
         + config.prior_beta_weight * prior_beta
+        + config.reward_weight * reward
     )
     return DUCLossOutput(
         total=total,
@@ -169,4 +177,5 @@ def compute_duc_loss(
         unknown=unknown.detach(),
         trust_region=trust_region.detach(),
         prior_beta=prior_beta.detach(),
+        reward=reward.detach(),
     )

@@ -49,6 +49,7 @@ class DUCForwardOutput:
     residual_scale: torch.Tensor
     prior_gate: torch.Tensor
     data_confidence: torch.Tensor
+    reward_pred: torch.Tensor
 
 
 def _mlp(input_dim: int, output_dim: int, hidden_size: int, hidden_layers: int) -> nn.Sequential:
@@ -225,6 +226,12 @@ class DUCWorldModel(nn.Module):
             hidden_size=config.hidden_size,
             hidden_layers=max(1, config.hidden_layers - 1),
         )
+        self.reward_head = _mlp(
+            input_dim=2 * config.state_dim + config.action_dim + len(config.templates),
+            output_dim=1,
+            hidden_size=config.hidden_size,
+            hidden_layers=max(1, config.hidden_layers - 1),
+        )
         prior_mean, prior_std, scales, confidences = prior_tensors(config.templates)
         self.register_buffer("prior_mean", prior_mean)
         self.register_buffer("prior_std", prior_std)
@@ -365,6 +372,8 @@ class DUCWorldModel(nn.Module):
             min=self.config.min_logvar,
             max=self.config.max_logvar,
         )
+        reward_input = torch.cat([states, actions, mean, alpha], dim=-1)
+        reward_pred = self.reward_head(reward_input).squeeze(-1).to(states.dtype)
         return DUCForwardOutput(
             mean=mean,
             logvar=logvar,
@@ -388,6 +397,7 @@ class DUCWorldModel(nn.Module):
             residual_scale=residual_scale,
             prior_gate=gate,
             data_confidence=self.data_confidence.to(raw_prior_effects.device, raw_prior_effects.dtype),
+            reward_pred=reward_pred,
         )
 
     def nll(self, output: DUCForwardOutput, targets: torch.Tensor) -> torch.Tensor:

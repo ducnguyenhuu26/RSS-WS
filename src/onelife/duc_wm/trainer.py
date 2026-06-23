@@ -47,6 +47,14 @@ class DUCTrainerConfig:
     prior_validation_beta_max: float = 8.0
     reward_sensitivity_scale: float = 4.0
     reward_sensitivity_max: float = 6.0
+    reward_weight: float = 0.0
+    wake_replay_weight: float = 0.0
+    wake_replay_top_quantile: float = 0.7
+    action_rank_weight: float = 0.0
+    action_rank_margin: float = 0.05
+    symbolic_validation_interval: int = 0
+    symbolic_validation_reward_weight: float = 1.0
+    symbolic_validation_after_training: bool = True
     teacher_force_context: bool = True
     seed: int = 0
     precision: str = "fp32"
@@ -93,6 +101,7 @@ def fit_duc_world_model(
         trust_region_delta_min=config.trust_region_delta_min,
         trust_region_delta_range=config.trust_region_delta_range,
         prior_beta_weight=config.prior_beta_weight,
+        reward_weight=config.reward_weight,
     )
     control_weights_np = default_control_weights(transitions.state_dim, model.config.templates)
     control_weights = torch.tensor(control_weights_np, dtype=torch.float32, device=device)
@@ -115,6 +124,9 @@ def fit_duc_world_model(
         betas: list[float] = []
         rolls: list[float] = []
         unknowns: list[float] = []
+        rewards: list[float] = []
+        wakes: list[float] = []
+        ranks: list[float] = []
         batches = (
             iter_prepared_duc_batches(
                 prepared,
@@ -154,6 +166,7 @@ def fit_duc_world_model(
                     output=output,
                     targets=batch.next_states,
                     context_targets=batch.contexts,
+                    reward_targets=batch.rewards,
                     config=loss_config,
                     control_weights=batch_weights,
                 )
@@ -166,7 +179,26 @@ def fit_duc_world_model(
                     teacher_force_context=config.teacher_force_context,
                     device=device,
                 )
-                total = loss.total + config.rollout_weight * rollout
+                wake = wake_replay_loss(
+                    output=output,
+                    batch=batch,
+                    control_weights=batch_weights,
+                    top_quantile=config.wake_replay_top_quantile,
+                )
+                rank = action_rank_loss(
+                    model=model,
+                    batch=batch,
+                    output=output,
+                    margin=config.action_rank_margin,
+                    top_quantile=config.wake_replay_top_quantile,
+                    teacher_force_context=config.teacher_force_context,
+                )
+                total = (
+                    loss.total
+                    + config.rollout_weight * rollout
+                    + config.wake_replay_weight * wake
+                    + config.action_rank_weight * rank
+                )
             if scaler.is_enabled():
                 scaler.scale(total).backward()
                 scaler.unscale_(optimizer)
@@ -186,21 +218,47 @@ def fit_duc_world_model(
             betas.append(float(loss.prior_beta.cpu()))
             rolls.append(float(rollout.detach().cpu()))
             unknowns.append(float(loss.unknown.cpu()))
-        history.append(
-            {
-                "epoch": float(epoch + 1),
-                "loss": sum(totals) / max(1, len(totals)),
-                "nll": sum(nlls) / max(1, len(nlls)),
-                "kl": sum(kls) / max(1, len(kls)),
-                "context": sum(ctxs) / max(1, len(ctxs)),
-                "residual": sum(residuals) / max(1, len(residuals)),
-                "trust_region": sum(trusts) / max(1, len(trusts)),
-                "prior_beta": sum(betas) / max(1, len(betas)),
-                "residual_scale": residual_scale,
-                "rollout": sum(rolls) / max(1, len(rolls)),
-                "unknown": sum(unknowns) / max(1, len(unknowns)),
-            }
+            rewards.append(float(loss.reward.cpu()))
+            wakes.append(float(wake.detach().cpu()))
+            ranks.append(float(rank.detach().cpu()))
+        epoch_record = {
+            "epoch": float(epoch + 1),
+            "loss": sum(totals) / max(1, len(totals)),
+            "nll": sum(nlls) / max(1, len(nlls)),
+            "kl": sum(kls) / max(1, len(kls)),
+            "context": sum(ctxs) / max(1, len(ctxs)),
+            "residual": sum(residuals) / max(1, len(residuals)),
+            "trust_region": sum(trusts) / max(1, len(trusts)),
+            "prior_beta": sum(betas) / max(1, len(betas)),
+            "residual_scale": residual_scale,
+            "rollout": sum(rolls) / max(1, len(rolls)),
+            "unknown": sum(unknowns) / max(1, len(unknowns)),
+            "reward": sum(rewards) / max(1, len(rewards)),
+            "wake_replay": sum(wakes) / max(1, len(wakes)),
+            "action_rank": sum(ranks) / max(1, len(ranks)),
+        }
+        if config.symbolic_validation_interval > 0 and (epoch + 1) % config.symbolic_validation_interval == 0:
+            epoch_record.update(
+                {
+                    f"learned_{key}": value
+                    for key, value in calibrate_learned_symbolic_validation(
+                        model=model,
+                        transitions=transitions,
+                        config=config,
+                        device=device,
+                    ).items()
+                }
+            )
+        history.append(epoch_record)
+    if config.symbolic_validation_after_training:
+        stats = calibrate_learned_symbolic_validation(
+            model=model,
+            transitions=transitions,
+            config=config,
+            device=device,
         )
+        if history:
+            history[-1].update({f"final_{key}": value for key, value in stats.items()})
     model.set_residual_scale(1.0)
     return history
 
@@ -308,6 +366,114 @@ def calibrate_prior_validation(
     }
 
 
+@torch.no_grad()
+def calibrate_learned_symbolic_validation(
+    model: DUCWorldModel,
+    transitions: MuJoCoTransitions,
+    config: DUCTrainerConfig,
+    device: torch.device | str,
+) -> dict[str, float]:
+    """Validate LLM priors after the neural model has learned from data.
+
+    The pre-training validator only asks whether a raw DSL prior points in the
+    same direction as observed deltas. This pass is closer to the intended DUC
+    loop: project each LLM prior through the learned context alpha, compare it
+    against the reward-sensitive mechanism residual that remains after base and
+    context dynamics, then update symbolic gates/betas for subsequent training
+    or deployment.
+    """
+
+    num_templates = len(model.config.templates)
+    if transitions.num_steps <= 0 or num_templates == 0:
+        return {}
+
+    sample_count = int(max(1, min(config.prior_validation_max_samples, transitions.num_steps)))
+    rng = np.random.default_rng(config.seed + 31_337)
+    if sample_count < transitions.num_steps:
+        indices = np.sort(rng.choice(transitions.num_steps, size=sample_count, replace=False))
+    else:
+        indices = np.arange(transitions.num_steps)
+
+    states = torch.tensor(transitions.states[indices], dtype=torch.float32, device=device)
+    actions = torch.tensor(transitions.actions[indices], dtype=torch.float32, device=device)
+    next_states = torch.tensor(transitions.next_states[indices], dtype=torch.float32, device=device)
+    history_states = torch.tensor(
+        _history_for_indices(
+            transitions.states,
+            indices,
+            config.history_length,
+            dones=transitions.dones,
+        ),
+        dtype=torch.float32,
+        device=device,
+    )
+    history_actions = torch.tensor(
+        _history_for_indices(
+            transitions.actions,
+            indices,
+            config.history_length,
+            dones=transitions.dones,
+        ),
+        dtype=torch.float32,
+        device=device,
+    )
+    sample_weights = None
+    if transitions.rewards is not None:
+        rewards = torch.tensor(transitions.rewards[indices], dtype=torch.float32, device=device)
+        reward_advantage = (rewards - rewards.mean()) / rewards.std().clamp_min(1e-6)
+        sample_weights = 1.0 + float(config.symbolic_validation_reward_weight) * reward_advantage.relu()
+
+    was_training = model.training
+    model.eval()
+    output = model(
+        states,
+        actions,
+        history_states,
+        history_actions,
+        context=None,
+        sample_context=False,
+    )
+    target_delta = (next_states - states - output.base_delta - output.context_delta).float()
+
+    gates: list[float] = []
+    confidences: list[float] = []
+    betas: list[float] = []
+    scores: list[float] = []
+    for mechanism_index, template in enumerate(model.config.templates):
+        projected_prior = output.raw_prior_effects[:, mechanism_index].float()
+        projected_prior = projected_prior * output.alpha_mean[:, mechanism_index].float().unsqueeze(-1)
+        gate, confidence, beta, score = _validate_single_prior(
+            raw_prior=projected_prior,
+            target_delta=target_delta,
+            context=None,
+            output_indices=template.output_indices,
+            law_type=template.law_type,
+            state_weights=model.reward_sensitivity.to(projected_prior.device),
+            min_gate=config.prior_validation_min_gate,
+            temperature=config.prior_validation_temperature,
+            beta_min=config.prior_validation_beta_min,
+            beta_max=config.prior_validation_beta_max,
+            sample_weights=sample_weights,
+        )
+        gates.append(gate)
+        confidences.append(confidence)
+        betas.append(beta)
+        scores.append(score)
+
+    model.set_prior_validation(
+        gate=torch.tensor(gates, dtype=torch.float32, device=device),
+        data_confidence=torch.tensor(confidences, dtype=torch.float32, device=device),
+        beta=torch.tensor(betas, dtype=torch.float32, device=device),
+    )
+    if was_training:
+        model.train()
+    return {
+        "prior_gate_mean": float(np.mean(gates)),
+        "data_confidence_mean": float(np.mean(confidences)),
+        "prior_validation_score_mean": float(np.mean(scores)),
+    }
+
+
 def _validate_single_prior(
     raw_prior: torch.Tensor,
     target_delta: torch.Tensor,
@@ -319,6 +485,7 @@ def _validate_single_prior(
     temperature: float,
     beta_min: float,
     beta_max: float,
+    sample_weights: torch.Tensor | None = None,
 ) -> tuple[float, float, float, float]:
     if law_type == "learned_residual" or not output_indices:
         return 0.0, 0.0, 1.0, 0.0
@@ -334,6 +501,8 @@ def _validate_single_prior(
         context = context.float()
         weights = context.abs()
         signed_prior = prior * context.unsqueeze(-1)
+    if sample_weights is not None:
+        weights = weights * sample_weights.to(device=weights.device, dtype=weights.dtype).clamp_min(0.0)
 
     if float(weights.max().detach().cpu()) <= 1e-8:
         return 0.0, 0.0, 1.0, 0.0
@@ -373,6 +542,61 @@ def _validate_single_prior(
 def _weighted_mean(values: torch.Tensor, weights: torch.Tensor) -> torch.Tensor:
     normalizer = weights.sum().clamp_min(1e-8)
     return (values * weights.unsqueeze(-1)).sum(dim=0, keepdim=True) / normalizer
+
+
+def wake_replay_loss(
+    output,
+    batch: DUCBatch,
+    control_weights: torch.Tensor,
+    top_quantile: float,
+) -> torch.Tensor:
+    if batch.rewards is None:
+        return batch.states.new_zeros(())
+    weights = high_reward_weights(batch.rewards, top_quantile)
+    if float(weights.sum().detach().cpu()) <= 1e-8:
+        return batch.states.new_zeros(())
+    state_error = (output.mean - batch.next_states).pow(2) * control_weights
+    state_error = state_error.mean(dim=-1)
+    reward_error = (output.reward_pred - batch.rewards).pow(2)
+    return (weights * (state_error + reward_error)).sum() / weights.sum().clamp_min(1e-8)
+
+
+def action_rank_loss(
+    model: DUCWorldModel,
+    batch: DUCBatch,
+    output,
+    margin: float,
+    top_quantile: float,
+    teacher_force_context: bool,
+) -> torch.Tensor:
+    if batch.rewards is None or batch.actions.shape[0] < 2:
+        return batch.states.new_zeros(())
+    weights = high_reward_weights(batch.rewards, top_quantile)
+    if float(weights.sum().detach().cpu()) <= 1e-8:
+        return batch.states.new_zeros(())
+    negative_actions = batch.actions.roll(shifts=1, dims=0)
+    context = batch.contexts if teacher_force_context else None
+    negative_output = model(
+        batch.states,
+        negative_actions,
+        batch.history_states,
+        batch.history_actions,
+        context=context,
+        sample_context=False,
+    )
+    rank_error = torch.relu(float(margin) - output.reward_pred + negative_output.reward_pred)
+    return (weights * rank_error).sum() / weights.sum().clamp_min(1e-8)
+
+
+def high_reward_weights(rewards: torch.Tensor, top_quantile: float) -> torch.Tensor:
+    if rewards.numel() == 0:
+        return rewards.new_zeros(rewards.shape)
+    quantile = float(max(0.0, min(0.99, top_quantile)))
+    threshold = torch.quantile(rewards.detach().float(), quantile)
+    weights = (rewards.detach().float() - threshold).relu()
+    if float(weights.sum().cpu()) <= 1e-8:
+        weights = (rewards.detach().float() >= threshold).float()
+    return weights / weights.mean().clamp_min(1e-6)
 
 
 def estimate_reward_sensitivity(

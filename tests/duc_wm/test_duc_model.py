@@ -39,6 +39,7 @@ def test_duc_world_model_forward_shapes():
     assert output.alpha.shape == (4, len(templates))
     assert output.base_delta.shape == (4, 8)
     assert output.mechanism_delta.shape == (4, 8)
+    assert output.reward_pred.shape == (4,)
 
 
 def test_duc_training_smoke_on_synthetic_contexts():
@@ -72,3 +73,53 @@ def test_duc_training_smoke_on_synthetic_contexts():
     assert history
     assert "r2_at_1" in metrics
     assert "duc_r2_at_1" in metrics
+
+
+def test_duc_reward_wake_replay_training_smoke():
+    transitions = MuJoCoTransitions(
+        states=np.array(
+            [[0.0, 0.0], [1.0, 0.5], [2.0, 1.0], [3.0, 1.5], [4.0, 2.0]],
+            dtype=np.float32,
+        ),
+        actions=np.array([[0.0], [0.5], [1.0], [1.0], [0.0]], dtype=np.float32),
+        next_states=np.array(
+            [[0.5, 0.1], [1.5, 0.9], [3.0, 1.6], [4.0, 2.1], [4.2, 2.0]],
+            dtype=np.float32,
+        ),
+        rewards=np.array([0.0, 0.5, 2.0, 2.5, 0.1], dtype=np.float32),
+        contexts=np.array([[0.1], [0.2], [0.3], [0.3], [0.1]], dtype=np.float32),
+        context_names=("actuation",),
+    )
+    templates = default_mujoco_templates("TinyEnv", state_dim=2, action_dim=1)[:1]
+    model = DUCWorldModel(
+        DUCWorldModelConfig(
+            state_dim=2,
+            action_dim=1,
+            templates=templates,
+            hidden_size=16,
+            hidden_layers=1,
+            history_length=2,
+        )
+    )
+
+    history = fit_duc_world_model(
+        model,
+        transitions,
+        DUCTrainerConfig(
+            epochs=1,
+            batch_size=2,
+            history_length=2,
+            reward_weight=0.1,
+            wake_replay_weight=0.1,
+            action_rank_weight=0.1,
+            symbolic_validation_interval=1,
+            symbolic_validation_after_training=True,
+        ),
+        device="cpu",
+    )
+
+    assert history
+    assert history[-1]["reward"] >= 0.0
+    assert history[-1]["wake_replay"] >= 0.0
+    assert history[-1]["action_rank"] >= 0.0
+    assert "final_prior_gate_mean" in history[-1]

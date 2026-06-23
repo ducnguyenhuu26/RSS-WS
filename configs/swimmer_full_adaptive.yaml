@@ -51,6 +51,18 @@ duc:
   prior_validation_beta_max: 8.0
   reward_sensitivity_scale: 4.0
   reward_sensitivity_max: 6.0
+  # Reward-aware wake replay: DUC learns not only transition R2, but also which
+  # observed action/state transitions are useful for high reward.
+  reward_weight: 0.05
+  wake_replay_weight: 0.05
+  wake_replay_top_quantile: 0.70
+  action_rank_weight: 0.02
+  action_rank_margin: 0.05
+  # Symbolic validation runs after the neural projection has learned; it gates
+  # LLM priors using learned alpha/effects and reward-weighted evidence.
+  symbolic_validation_interval: 10
+  symbolic_validation_reward_weight: 1.0
+  symbolic_validation_after_training: true
   # Keep false for benchmark runs: DUC learns to infer alpha from history,
   # while context supervision still trains the inferred alpha.
   teacher_force_context: false
