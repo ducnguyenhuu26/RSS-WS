@@ -54,7 +54,7 @@ class DUCTrainerConfig:
     action_rank_margin: float = 0.05
     symbolic_validation_interval: int = 0
     symbolic_validation_reward_weight: float = 1.0
-    symbolic_validation_after_training: bool = True
+    symbolic_validation_after_training: bool = False
     teacher_force_context: bool = True
     seed: int = 0
     precision: str = "fp32"

@@ -51,18 +51,19 @@ duc:
   prior_validation_beta_max: 8.0
   reward_sensitivity_scale: 4.0
   reward_sensitivity_max: 6.0
-  # Reward-aware wake replay: DUC learns not only transition R2, but also which
-  # observed action/state transitions are useful for high reward.
-  reward_weight: 0.05
-  wake_replay_weight: 0.05
+  # Main protocol uses DUC-core: mechanistic prior projection, context
+  # inference, residual repair, trust-region regularization, and fair MPC.
+  # Reward-wake replay remains available as an ablation but is disabled here
+  # because it hurt Swimmer control in the current implementation.
+  reward_weight: 0.0
+  wake_replay_weight: 0.0
   wake_replay_top_quantile: 0.70
-  action_rank_weight: 0.02
+  action_rank_weight: 0.0
   action_rank_margin: 0.05
-  # Symbolic validation runs after the neural projection has learned; it gates
-  # LLM priors using learned alpha/effects and reward-weighted evidence.
-  symbolic_validation_interval: 10
+  # Learned symbolic revalidation is optional ablation, not the main protocol.
+  symbolic_validation_interval: 0
   symbolic_validation_reward_weight: 1.0
-  symbolic_validation_after_training: true
+  symbolic_validation_after_training: false
   # Keep false for benchmark runs: DUC learns to infer alpha from history,
   # while context supervision still trains the inferred alpha.
   teacher_force_context: false
