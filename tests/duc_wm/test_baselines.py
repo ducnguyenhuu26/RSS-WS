@@ -31,6 +31,25 @@ def _tiny_transitions() -> MuJoCoTransitions:
     )
 
 
+def _tiny_context_transitions() -> MuJoCoTransitions:
+    transitions = _tiny_transitions()
+    return MuJoCoTransitions(
+        states=transitions.states,
+        actions=transitions.actions,
+        next_states=transitions.next_states,
+        contexts=np.array(
+            [
+                [0.1, 0.0],
+                [0.2, 0.1],
+                [0.3, 0.0],
+                [0.4, 0.1],
+            ],
+            dtype=np.float32,
+        ),
+        context_names=("wind", "friction"),
+    )
+
+
 def test_pets_baseline_training_and_eval_smoke():
     transitions = _tiny_transitions()
     templates = default_mujoco_templates("TinyEnv", state_dim=2, action_dim=1)
@@ -134,3 +153,115 @@ def test_cadm_baseline_training_and_eval_smoke():
     assert history
     assert "r2_at_1" in metrics
     assert "r2_at_2" in metrics
+
+
+def test_context_conditioned_mlp_baseline_smoke():
+    transitions = _tiny_context_transitions()
+    templates = default_mujoco_templates("TinyEnv", state_dim=2, action_dim=1)
+    model = MLPWorldModel(
+        MLPWorldModelConfig(
+            state_dim=2,
+            action_dim=1,
+            context_dim=len(templates),
+            hidden_size=16,
+            hidden_layers=1,
+        )
+    )
+
+    history = fit_baseline_world_model(
+        model=model,
+        transitions=transitions,
+        config=BaselineTrainerConfig(epochs=1, batch_size=2, history_length=2),
+        device="cpu",
+        control_templates=templates,
+        use_oracle_context=True,
+    )
+    metrics = evaluate_baseline_world_model(
+        model=model,
+        transitions=transitions,
+        device="cpu",
+        control_templates=templates,
+        batch_size=2,
+        history_length=2,
+        rollout_horizon=2,
+        use_oracle_context=True,
+    )
+
+    assert history
+    assert "r2_at_1" in metrics
+    assert "r2_at_2" in metrics
+
+
+def test_context_conditioned_pets_baseline_smoke():
+    transitions = _tiny_context_transitions()
+    templates = default_mujoco_templates("TinyEnv", state_dim=2, action_dim=1)
+    model = PETSWorldModel(
+        PETSWorldModelConfig(
+            state_dim=2,
+            action_dim=1,
+            context_dim=len(templates),
+            hidden_size=16,
+            hidden_layers=1,
+            ensemble_size=2,
+        )
+    )
+
+    history = fit_baseline_world_model(
+        model=model,
+        transitions=transitions,
+        config=BaselineTrainerConfig(epochs=1, batch_size=2, history_length=2),
+        device="cpu",
+        control_templates=templates,
+        use_oracle_context=True,
+    )
+    metrics = evaluate_baseline_world_model(
+        model=model,
+        transitions=transitions,
+        device="cpu",
+        control_templates=templates,
+        batch_size=2,
+        history_length=2,
+        rollout_horizon=2,
+        use_oracle_context=True,
+    )
+
+    assert history
+    assert "r2_at_1" in metrics
+    assert "r2_at_2" in metrics
+
+
+def test_cadm_supervised_context_smoke():
+    transitions = _tiny_context_transitions()
+    templates = default_mujoco_templates("TinyEnv", state_dim=2, action_dim=1)
+    model = CaDMWorldModel(
+        CaDMWorldModelConfig(
+            state_dim=2,
+            action_dim=1,
+            history_length=2,
+            context_dim=len(templates),
+            hidden_size=16,
+            hidden_layers=1,
+        )
+    )
+
+    history = fit_baseline_world_model(
+        model=model,
+        transitions=transitions,
+        config=BaselineTrainerConfig(epochs=1, batch_size=2, history_length=2),
+        device="cpu",
+        control_templates=templates,
+        context_supervision_weight=0.1,
+    )
+    metrics = evaluate_baseline_world_model(
+        model=model,
+        transitions=transitions,
+        device="cpu",
+        control_templates=templates,
+        batch_size=2,
+        history_length=2,
+        rollout_horizon=2,
+    )
+
+    assert history
+    assert history[0]["context"] >= 0.0
+    assert "r2_at_1" in metrics

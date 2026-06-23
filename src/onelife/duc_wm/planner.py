@@ -32,6 +32,7 @@ def plan_cem_action(
     device: torch.device | str,
     history_states: np.ndarray | None = None,
     history_actions: np.ndarray | None = None,
+    model_context: np.ndarray | torch.Tensor | None = None,
 ) -> np.ndarray:
     """Return the first MPC action from a compact CEM planner."""
 
@@ -55,6 +56,13 @@ def plan_cem_action(
             dtype=torch.float32,
             device=device,
         ).unsqueeze(0)
+    context_tensor = None
+    if model_context is not None:
+        context_tensor = torch.as_tensor(
+            model_context,
+            dtype=torch.float32,
+            device=device,
+        ).unsqueeze(0)
     for _ in range(config.iterations):
         samples = mean + std * torch.randn(config.candidates, config.horizon, action_dim, device=device)
         samples = torch.max(torch.min(samples, high), low)
@@ -66,6 +74,7 @@ def plan_cem_action(
             config,
             history_states=history_state_tensor,
             history_actions=history_action_tensor,
+            model_context=context_tensor,
         )
         elite_indices = returns.topk(k=min(config.elites, config.candidates)).indices
         elites = samples.index_select(dim=0, index=elite_indices)
@@ -82,6 +91,7 @@ def rollout_action_sequences(
     config: CEMPlannerConfig,
     history_states: torch.Tensor | None = None,
     history_actions: torch.Tensor | None = None,
+    model_context: torch.Tensor | None = None,
 ) -> torch.Tensor:
     candidates, horizon, _ = action_sequences.shape
     state = initial_state.expand(candidates, -1)
@@ -89,6 +99,8 @@ def rollout_action_sequences(
         history_states = history_states.expand(candidates, -1, -1).clone()
     if history_actions is not None:
         history_actions = history_actions.expand(candidates, -1, -1).clone()
+    if model_context is not None:
+        model_context = model_context.expand(candidates, -1)
     total = torch.zeros(candidates, device=action_sequences.device)
     for step in range(horizon):
         action = action_sequences[:, step, :]
@@ -97,7 +109,7 @@ def rollout_action_sequences(
             action,
             history_states,
             history_actions,
-            context=None,
+            context=model_context,
             sample_context=False,
         )
         reward = reward_fn(state, action, output.mean)

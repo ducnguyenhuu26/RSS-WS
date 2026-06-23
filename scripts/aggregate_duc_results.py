@@ -42,7 +42,7 @@ def main() -> None:
         default=",".join(DEFAULT_METRICS),
         help="comma-separated dotted metric keys",
     )
-    parser.add_argument("--rank-metric", default="score.duc_r2_at_10")
+    parser.add_argument("--rank-metric", default="score.r2_at_10")
     parser.add_argument("--rank-lower-is-better", action="store_true")
     parser.add_argument("--precision", type=int, default=4)
     args = parser.parse_args()

@@ -142,6 +142,7 @@ def evaluate_world_model(
     batch_size: int = 512,
     history_length: int = 4,
     rollout_horizon: int = 5,
+    use_oracle_context: bool = False,
 ) -> dict[str, float]:
     model.eval()
     predictions: list[np.ndarray] = []
@@ -154,12 +155,13 @@ def evaluate_world_model(
         shuffle=False,
         device=device,
     ):
+        context = batch.contexts if use_oracle_context else None
         output = model(
             batch.states,
             batch.actions,
             batch.history_states,
             batch.history_actions,
-            context=None,
+            context=context,
             sample_context=False,
         )
         predictions.append(output.mean.cpu().numpy())
@@ -183,6 +185,7 @@ def evaluate_world_model(
         batch_size=batch_size,
         history_length=history_length,
         horizon=rollout_horizon,
+        use_oracle_context=use_oracle_context,
     )
     if rollout is not None:
         rollout_pred, rollout_target = rollout
@@ -328,6 +331,7 @@ def rollout_predictions(
     batch_size: int,
     history_length: int,
     horizon: int,
+    use_oracle_context: bool = False,
 ) -> tuple[np.ndarray, np.ndarray] | None:
     if horizon <= 1 or transitions.num_steps < horizon:
         return None
@@ -380,12 +384,19 @@ def rollout_predictions(
                 dtype=torch.float32,
                 device=device,
             )
+            context = None
+            if use_oracle_context and transitions.contexts is not None:
+                context = torch.tensor(
+                    transitions.contexts[step_indices],
+                    dtype=torch.float32,
+                    device=device,
+                )
             output = model(
                 current,
                 actions,
                 history_states,
                 history_actions,
-                context=None,
+                context=context,
                 sample_context=False,
             )
             current = output.mean

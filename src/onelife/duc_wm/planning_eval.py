@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 
 from .mujoco_ext import (
+    CONTEXT_NAMES,
     apply_action_context,
     apply_parameter_context,
     apply_transition_context,
@@ -15,6 +16,7 @@ from .mujoco_ext import (
 )
 from .planner import CEMPlannerConfig, plan_cem_action
 from .reward_model import RewardModel
+from .templates import MechanismTemplate
 
 
 @dataclass(frozen=True)
@@ -40,6 +42,8 @@ def evaluate_cem_mpc(
     history_length: int,
     config: PlanningEvalConfig,
     device: torch.device | str,
+    use_oracle_context: bool = False,
+    context_templates: tuple[MechanismTemplate, ...] = (),
 ) -> dict[str, float]:
     if not config.enabled:
         return {}
@@ -68,6 +72,8 @@ def evaluate_cem_mpc(
             history_length=history_length,
             config=config,
             device=device,
+            use_oracle_context=use_oracle_context,
+            context_templates=context_templates,
         )
         returns.append(episode_return)
         lengths.append(episode_length)
@@ -88,6 +94,8 @@ def _run_planned_episode(
     history_length: int,
     config: PlanningEvalConfig,
     device: torch.device | str,
+    use_oracle_context: bool = False,
+    context_templates: tuple[MechanismTemplate, ...] = (),
 ) -> tuple[float, int]:
     env = gym.make(env_id)
     try:
@@ -108,6 +116,11 @@ def _run_planned_episode(
             uncertainty_weight=config.uncertainty_weight,
         )
         rng = np.random.default_rng(seed + 1)
+        model_context = (
+            align_raw_context_to_templates(context, context_templates)
+            if use_oracle_context
+            else None
+        )
         for step in range(config.max_steps):
             action = plan_cem_action(
                 model=dynamics_model,
@@ -123,6 +136,7 @@ def _run_planned_episode(
                 device=device,
                 history_states=history_states,
                 history_actions=history_actions,
+                model_context=model_context,
             )
             action = np.clip(action.astype(np.float32), action_low, action_high)
             effective_action = apply_action_context(action, previous_action, context, rng)
@@ -144,3 +158,19 @@ def _run_planned_episode(
         return total_return, config.max_steps
     finally:
         env.close()
+
+
+def align_raw_context_to_templates(
+    context: np.ndarray,
+    templates: tuple[MechanismTemplate, ...],
+) -> np.ndarray:
+    if not templates:
+        return context.astype(np.float32)
+    name_to_index = {name: index for index, name in enumerate(CONTEXT_NAMES)}
+    aligned = np.zeros(len(templates), dtype=np.float32)
+    for column, template in enumerate(templates):
+        if template.name in name_to_index:
+            aligned[column] = float(context[name_to_index[template.name]])
+        elif template.name == "actuation":
+            aligned[column] = 1.0
+    return aligned

@@ -59,6 +59,7 @@ def main(cfg: DictConfig) -> None:
 
     problem = str(cfg.problem)
     method = str(cfg.get("model", "duc_wm"))
+    uses_oracle_context = False
     output_path = build_output_path(cfg, problem)
     if bool(cfg.get("skip_existing", False)) and output_path.exists():
         print(f"skipping existing output {output_path}")
@@ -185,11 +186,14 @@ def main(cfg: DictConfig) -> None:
             history_length=int(cfg.duc.history_length),
             rollout_horizon=int(cfg.duc.rollout_horizon),
         )
-    elif method == "mlp":
+    elif method in {"mlp", "mlp_context"}:
+        use_oracle_context = method == "mlp_context"
+        uses_oracle_context = use_oracle_context
         model = MLPWorldModel(
             MLPWorldModelConfig(
                 state_dim=train_dataset.state_dim,
                 action_dim=train_dataset.action_dim,
+                context_dim=len(templates) if use_oracle_context else 0,
                 hidden_size=int(config_get(cfg, "baseline.hidden_size", cfg.duc.hidden_size)),
                 hidden_layers=int(config_get(cfg, "baseline.hidden_layers", cfg.duc.hidden_layers)),
             )
@@ -201,6 +205,7 @@ def main(cfg: DictConfig) -> None:
             config=baseline_trainer_config(cfg, seed),
             device=device,
             control_templates=templates,
+            use_oracle_context=use_oracle_context,
         )
         metrics = evaluate_baseline_world_model(
             model=model,
@@ -210,12 +215,16 @@ def main(cfg: DictConfig) -> None:
             batch_size=int(cfg.eval_batch_size),
             history_length=int(cfg.duc.history_length),
             rollout_horizon=int(cfg.duc.rollout_horizon),
+            use_oracle_context=use_oracle_context,
         )
-    elif method == "pets":
+    elif method in {"pets", "pets_context"}:
+        use_oracle_context = method == "pets_context"
+        uses_oracle_context = use_oracle_context
         model = PETSWorldModel(
             PETSWorldModelConfig(
                 state_dim=train_dataset.state_dim,
                 action_dim=train_dataset.action_dim,
+                context_dim=len(templates) if use_oracle_context else 0,
                 hidden_size=int(config_get(cfg, "baseline.hidden_size", cfg.duc.hidden_size)),
                 hidden_layers=int(config_get(cfg, "baseline.hidden_layers", cfg.duc.hidden_layers)),
                 ensemble_size=int(config_get(cfg, "baseline.ensemble_size", 5)),
@@ -228,6 +237,7 @@ def main(cfg: DictConfig) -> None:
             config=baseline_trainer_config(cfg, seed),
             device=device,
             control_templates=templates,
+            use_oracle_context=use_oracle_context,
         )
         metrics = evaluate_baseline_world_model(
             model=model,
@@ -237,14 +247,25 @@ def main(cfg: DictConfig) -> None:
             batch_size=int(cfg.eval_batch_size),
             history_length=int(cfg.duc.history_length),
             rollout_horizon=int(cfg.duc.rollout_horizon),
+            use_oracle_context=use_oracle_context,
         )
-    elif method == "cadm":
+    elif method in {"cadm", "cadm_supervised", "cadm_context"}:
+        use_oracle_context = method == "cadm_context"
+        uses_oracle_context = use_oracle_context
+        context_supervision_weight = (
+            baseline_context_weight(cfg) if method == "cadm_supervised" else 0.0
+        )
+        context_dim = (
+            len(templates)
+            if use_oracle_context or context_supervision_weight > 0.0
+            else int(config_get(cfg, "baseline.context_dim", len(templates)))
+        )
         model = CaDMWorldModel(
             CaDMWorldModelConfig(
                 state_dim=train_dataset.state_dim,
                 action_dim=train_dataset.action_dim,
                 history_length=int(cfg.duc.history_length),
-                context_dim=int(config_get(cfg, "baseline.context_dim", len(templates))),
+                context_dim=context_dim,
                 hidden_size=int(config_get(cfg, "baseline.hidden_size", cfg.duc.hidden_size)),
                 hidden_layers=int(config_get(cfg, "baseline.hidden_layers", cfg.duc.hidden_layers)),
             )
@@ -256,6 +277,8 @@ def main(cfg: DictConfig) -> None:
             config=baseline_trainer_config(cfg, seed),
             device=device,
             control_templates=templates,
+            use_oracle_context=use_oracle_context,
+            context_supervision_weight=context_supervision_weight,
         )
         metrics = evaluate_baseline_world_model(
             model=model,
@@ -265,6 +288,7 @@ def main(cfg: DictConfig) -> None:
             batch_size=int(cfg.eval_batch_size),
             history_length=int(cfg.duc.history_length),
             rollout_horizon=int(cfg.duc.rollout_horizon),
+            use_oracle_context=use_oracle_context,
         )
     else:
         raise ValueError(
@@ -298,6 +322,8 @@ def main(cfg: DictConfig) -> None:
                 history_length=int(cfg.duc.history_length),
                 config=planning_eval_config(cfg),
                 device=device,
+                use_oracle_context=uses_oracle_context,
+                context_templates=templates,
             )
         )
 
@@ -313,6 +339,7 @@ def main(cfg: DictConfig) -> None:
         "test_variant": variant_label(test_variants),
         "train_variants": train_variants,
         "test_variants": test_variants,
+        "uses_oracle_context": uses_oracle_context,
         "context_names": list(train_dataset.context_names),
         "llm_prior_prompt": prompt_payload(prior_prompt),
         "llm_prior_status": llm_prior_status,
@@ -428,8 +455,20 @@ DUC_METHODS = {
     "duc_no_rollout",
 }
 
-BASELINE_METHODS = {"mlp", "pets", "cadm"}
+BASELINE_METHODS = {
+    "mlp",
+    "pets",
+    "cadm",
+    "mlp_context",
+    "pets_context",
+    "cadm_context",
+    "cadm_supervised",
+}
 ALL_METHODS = DUC_METHODS | BASELINE_METHODS
+
+
+def baseline_context_weight(cfg: DictConfig) -> float:
+    return float(config_get(cfg, "baseline.context_weight", cfg.duc.context_weight))
 
 
 def duc_trainer_config(cfg: DictConfig, seed: int, method: str) -> DUCTrainerConfig:

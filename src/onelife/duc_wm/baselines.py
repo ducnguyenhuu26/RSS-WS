@@ -7,7 +7,13 @@ import torch.nn as nn
 
 from onelife.mujoco_dataset import MuJoCoTransitions
 
-from .data import DUCBatch, iter_duc_batches, iter_prepared_duc_batches, prepare_duc_data
+from .data import (
+    DUCBatch,
+    align_contexts_to_templates,
+    iter_duc_batches,
+    iter_prepared_duc_batches,
+    prepare_duc_data,
+)
 from .losses import weighted_mse
 from .metrics import _history_for_indices, default_control_weights, evaluate_world_model
 from .model import _mlp
@@ -32,6 +38,7 @@ class BaselineTrainerConfig:
 class PETSWorldModelConfig:
     state_dim: int
     action_dim: int
+    context_dim: int = 0
     hidden_size: int = 256
     hidden_layers: int = 2
     ensemble_size: int = 5
@@ -43,6 +50,7 @@ class PETSWorldModelConfig:
 class MLPWorldModelConfig:
     state_dim: int
     action_dim: int
+    context_dim: int = 0
     hidden_size: int = 256
     hidden_layers: int = 2
     min_logvar: float = -8.0
@@ -81,7 +89,7 @@ class MLPWorldModel(nn.Module):
         super().__init__()
         self.config = config
         self.network = _mlp(
-            input_dim=config.state_dim + config.action_dim,
+            input_dim=config.state_dim + config.action_dim + config.context_dim,
             output_dim=2 * config.state_dim,
             hidden_size=config.hidden_size,
             hidden_layers=config.hidden_layers,
@@ -96,8 +104,8 @@ class MLPWorldModel(nn.Module):
         context: torch.Tensor | None = None,
         sample_context: bool = False,
     ) -> BaselineForwardOutput:
-        del history_states, history_actions, context, sample_context
-        inputs = torch.cat([states, actions], dim=-1)
+        del history_states, history_actions, sample_context
+        inputs = _context_inputs(states, actions, context, self.config.context_dim)
         delta, logvar = self.network(inputs).chunk(2, dim=-1)
         return BaselineForwardOutput(
             mean=states + delta,
@@ -126,7 +134,7 @@ class PETSWorldModel(nn.Module):
         self.members = nn.ModuleList(
             [
                 _mlp(
-                    input_dim=config.state_dim + config.action_dim,
+                    input_dim=config.state_dim + config.action_dim + config.context_dim,
                     output_dim=output_dim,
                     hidden_size=config.hidden_size,
                     hidden_layers=config.hidden_layers,
@@ -144,8 +152,8 @@ class PETSWorldModel(nn.Module):
         context: torch.Tensor | None = None,
         sample_context: bool = False,
     ) -> BaselineForwardOutput:
-        del history_states, history_actions, context, sample_context
-        inputs = torch.cat([states, actions], dim=-1)
+        del history_states, history_actions, sample_context
+        inputs = _context_inputs(states, actions, context, self.config.context_dim)
         means: list[torch.Tensor] = []
         logvars: list[torch.Tensor] = []
         for member in self.members:
@@ -261,8 +269,12 @@ def fit_baseline_world_model(
     config: BaselineTrainerConfig,
     device: torch.device | str,
     control_templates: tuple[MechanismTemplate, ...],
+    use_oracle_context: bool = False,
+    context_supervision_weight: float = 0.0,
 ) -> list[dict[str, float]]:
     model.to(device)
+    if use_oracle_context or context_supervision_weight > 0.0:
+        transitions = align_contexts_to_templates(transitions, control_templates)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
     autocast_enabled, autocast_dtype = _autocast_settings(config.precision, torch.device(device))
     scaler = torch.amp.GradScaler(
@@ -282,6 +294,7 @@ def fit_baseline_world_model(
         nlls: list[float] = []
         controls: list[float] = []
         rolls: list[float] = []
+        ctxs: list[float] = []
         batches = (
             iter_prepared_duc_batches(
                 prepared,
@@ -306,15 +319,18 @@ def fit_baseline_world_model(
                 dtype=autocast_dtype,
                 enabled=autocast_enabled,
             ):
+                context = batch.contexts if use_oracle_context else None
                 output = model(
                     batch.states,
                     batch.actions,
                     batch.history_states,
                     batch.history_actions,
+                    context=context,
                 )
                 nll = model.nll(output, batch.next_states)
                 batch_weights = control_weights.unsqueeze(0).expand_as(batch.states)
                 control = weighted_mse(output.mean, batch.next_states, batch_weights)
+                context_loss = _context_supervision_loss(output, batch)
                 rollout = _rollout_loss_for_batch(
                     model=model,
                     transitions=transitions,
@@ -322,11 +338,13 @@ def fit_baseline_world_model(
                     horizon=config.rollout_horizon,
                     control_weights=control_weights,
                     device=device,
+                    use_oracle_context=use_oracle_context,
                 )
                 total = (
                     nll
                     + config.control_weight * control
                     + config.rollout_weight * rollout
+                    + float(context_supervision_weight) * context_loss
                 )
             if scaler.is_enabled():
                 scaler.scale(total).backward()
@@ -342,6 +360,7 @@ def fit_baseline_world_model(
             nlls.append(float(nll.detach().cpu()))
             controls.append(float(control.detach().cpu()))
             rolls.append(float(rollout.detach().cpu()))
+            ctxs.append(float(context_loss.detach().cpu()))
         history.append(
             {
                 "epoch": float(epoch + 1),
@@ -349,6 +368,7 @@ def fit_baseline_world_model(
                 "nll": sum(nlls) / max(1, len(nlls)),
                 "control": sum(controls) / max(1, len(controls)),
                 "rollout": sum(rolls) / max(1, len(rolls)),
+                "context": sum(ctxs) / max(1, len(ctxs)),
             }
         )
     return history
@@ -362,7 +382,10 @@ def evaluate_baseline_world_model(
     batch_size: int = 512,
     history_length: int = 4,
     rollout_horizon: int = 5,
+    use_oracle_context: bool = False,
 ) -> dict[str, float]:
+    if use_oracle_context:
+        transitions = align_contexts_to_templates(transitions, control_templates)
     return evaluate_world_model(
         model=model,
         transitions=transitions,
@@ -371,6 +394,7 @@ def evaluate_baseline_world_model(
         batch_size=batch_size,
         history_length=history_length,
         rollout_horizon=rollout_horizon,
+        use_oracle_context=use_oracle_context,
     )
 
 
@@ -381,6 +405,7 @@ def _rollout_loss_for_batch(
     horizon: int,
     control_weights: torch.Tensor,
     device: torch.device | str,
+    use_oracle_context: bool = False,
 ) -> torch.Tensor:
     if horizon <= 1:
         return batch.states.new_zeros(())
@@ -424,13 +449,47 @@ def _rollout_loss_for_batch(
         step_indices = index_np + offset
         actions = torch.tensor(transitions.actions[step_indices], dtype=torch.float32, device=device)
         targets = torch.tensor(transitions.next_states[step_indices], dtype=torch.float32, device=device)
-        output = model(current, actions, history_states, history_actions)
+        context = None
+        if use_oracle_context and transitions.contexts is not None:
+            context = torch.tensor(transitions.contexts[step_indices], dtype=torch.float32, device=device)
+        output = model(current, actions, history_states, history_actions, context=context)
         weights = control_weights.unsqueeze(0).expand_as(targets)
         total = total + weighted_mse(output.mean, targets, weights)
         current = output.mean
         history_states = torch.cat([history_states[:, 1:], current.unsqueeze(1)], dim=1)
         history_actions = torch.cat([history_actions[:, 1:], actions.unsqueeze(1)], dim=1)
     return total / float(horizon)
+
+
+def _context_inputs(
+    states: torch.Tensor,
+    actions: torch.Tensor,
+    context: torch.Tensor | None,
+    context_dim: int,
+) -> torch.Tensor:
+    if context_dim <= 0:
+        return torch.cat([states, actions], dim=-1)
+    if context is None:
+        context = states.new_zeros(states.shape[0], context_dim)
+    if context.shape[-1] != context_dim:
+        raise ValueError(
+            f"context has dim {context.shape[-1]}, expected {context_dim}"
+        )
+    return torch.cat([states, actions, context], dim=-1)
+
+
+def _context_supervision_loss(
+    output: BaselineForwardOutput,
+    batch: DUCBatch,
+) -> torch.Tensor:
+    if output.latent is None or batch.contexts is None:
+        return batch.states.new_zeros(())
+    if output.latent.shape[-1] != batch.contexts.shape[-1]:
+        raise ValueError(
+            "latent context dim must match supervised context dim: "
+            f"{output.latent.shape[-1]} != {batch.contexts.shape[-1]}"
+        )
+    return (output.latent - batch.contexts).pow(2).mean()
 
 
 def _autocast_settings(precision: str, device: torch.device) -> tuple[bool, torch.dtype]:
