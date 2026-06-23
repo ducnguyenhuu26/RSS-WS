@@ -47,7 +47,7 @@ def test_duc_training_smoke_on_synthetic_contexts():
         contexts=np.array([[0.2], [0.2], [0.2], [0.2]], dtype=np.float32),
         context_names=("actuation",),
     )
-    templates = default_mujoco_templates("Tiny-v0", state_dim=2, action_dim=1)[:1]
+    templates = default_mujoco_templates("TinyEnv", state_dim=2, action_dim=1)[:1]
     model = DUCWorldModel(
         DUCWorldModelConfig(
             state_dim=2,

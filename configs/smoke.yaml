@@ -24,11 +24,18 @@ duc:
   hidden_layers: 1
   beta_kl: 0.001
   context_weight: 1.0
-  control_weight: 0.0
+  control_weight: 0.01
+  rollout_weight: 0.01
+  rollout_horizon: 2
   orth_weight: 0.0
   sparse_weight: 0.0
   teacher_force_context: true
   llm_prior:
+    enabled: false
+    provider: openai
+    model_slug: gpt-4.1-mini
+    api_key_env: OPENAI_API_KEY
+    max_tokens: 1000
     json_path: null
 
 output_dir: outputs/duc_wm_smoke

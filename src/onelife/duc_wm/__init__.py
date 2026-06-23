@@ -1,10 +1,12 @@
 from .data import DUCBatch, iter_duc_batches
 from .losses import DUCLossConfig, DUCLossOutput, compute_duc_loss
 from .llm_prior import (
+    DUCLLMPriorConfig,
     DUCPriorPrompt,
     build_duc_mujoco_prior_prompt,
     load_templates_from_json_file,
     prompt_payload,
+    synthesize_templates_with_llm,
     templates_from_llm_json,
 )
 from .metrics import evaluate_duc_model
@@ -18,6 +20,7 @@ __all__ = [
     "DUCForwardOutput",
     "DUCLossConfig",
     "DUCLossOutput",
+    "DUCLLMPriorConfig",
     "DUCPriorPrompt",
     "DUCTrainerConfig",
     "DUCWorldModel",
@@ -32,6 +35,7 @@ __all__ = [
     "fit_duc_world_model",
     "load_templates_from_json_file",
     "prompt_payload",
+    "synthesize_templates_with_llm",
     "templates_from_llm_json",
     "iter_duc_batches",
 ]

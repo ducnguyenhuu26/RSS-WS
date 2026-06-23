@@ -12,6 +12,7 @@ from .templates import MechanismTemplate
 
 @dataclass
 class DUCBatch:
+    indices: torch.Tensor
     states: torch.Tensor
     actions: torch.Tensor
     next_states: torch.Tensor
@@ -98,6 +99,7 @@ def iter_duc_batches(
                 device=device,
             )
         yield DUCBatch(
+            indices=torch.tensor(batch_indices, dtype=torch.long, device=device),
             states=torch.tensor(transitions.states[batch_indices], dtype=torch.float32, device=device),
             actions=torch.tensor(transitions.actions[batch_indices], dtype=torch.float32, device=device),
             next_states=torch.tensor(transitions.next_states[batch_indices], dtype=torch.float32, device=device),

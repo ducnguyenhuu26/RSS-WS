@@ -11,6 +11,7 @@ from hydra.utils import get_original_cwd
 from omegaconf import DictConfig, OmegaConf
 
 from onelife.duc_wm import (
+    DUCLLMPriorConfig,
     DUCTrainerConfig,
     DUCWorldModel,
     DUCWorldModelConfig,
@@ -22,6 +23,7 @@ from onelife.duc_wm import (
     fit_duc_world_model,
     load_templates_from_json_file,
     prompt_payload,
+    synthesize_templates_with_llm,
 )
 
 
@@ -69,12 +71,39 @@ def main(cfg: DictConfig) -> None:
         action_dim=train_dataset.action_dim,
     )
     prior_path = cfg.duc.llm_prior.get("json_path")
+    llm_prior_status: dict[str, Any] = {
+        "source": "fallback",
+        "error": None,
+        "raw_response": None,
+    }
     if prior_path:
         templates = load_templates_from_json_file(
             Path(str(prior_path)),
             state_dim=train_dataset.state_dim,
             action_dim=train_dataset.action_dim,
         )
+        llm_prior_status["source"] = f"json_path:{prior_path}"
+    elif bool(cfg.duc.llm_prior.get("enabled", False)):
+        try:
+            templates, raw_response = synthesize_templates_with_llm(
+                prior_prompt=prior_prompt,
+                state_dim=train_dataset.state_dim,
+                action_dim=train_dataset.action_dim,
+                config=DUCLLMPriorConfig(
+                    provider=str(cfg.duc.llm_prior.provider),
+                    model_slug=str(cfg.duc.llm_prior.model_slug),
+                    api_key_env=str(cfg.duc.llm_prior.api_key_env),
+                    max_tokens=int(cfg.duc.llm_prior.max_tokens),
+                ),
+            )
+            llm_prior_status["source"] = (
+                f"llm:{cfg.duc.llm_prior.provider}/{cfg.duc.llm_prior.model_slug}"
+            )
+            llm_prior_status["raw_response"] = raw_response
+        except Exception as exc:
+            templates = prior_prompt.fallback_templates
+            llm_prior_status["source"] = "fallback_after_llm_error"
+            llm_prior_status["error"] = str(exc)
     else:
         templates = prior_prompt.fallback_templates
     model = DUCWorldModel(
@@ -98,6 +127,8 @@ def main(cfg: DictConfig) -> None:
             beta_kl=float(cfg.duc.beta_kl),
             context_weight=float(cfg.duc.context_weight),
             control_weight=float(cfg.duc.control_weight),
+            rollout_weight=float(cfg.duc.rollout_weight),
+            rollout_horizon=int(cfg.duc.rollout_horizon),
             orth_weight=float(cfg.duc.orth_weight),
             sparse_weight=float(cfg.duc.sparse_weight),
             teacher_force_context=bool(cfg.duc.teacher_force_context),
@@ -124,6 +155,7 @@ def main(cfg: DictConfig) -> None:
         "test_variant": str(cfg.mujoco_extension.test_variant),
         "context_names": list(train_dataset.context_names),
         "llm_prior_prompt": prompt_payload(prior_prompt),
+        "llm_prior_status": llm_prior_status,
         "mechanisms": [
             {
                 "name": template.name,

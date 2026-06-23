@@ -156,6 +156,7 @@ $$
 | \(\Omega_j\) | plausible range for \(\alpha_j\) |
 | \(s_j\) | maximum bounded scale |
 | \(\rho_j\) | prior confidence |
+| reward relevance | short explanation of why the mechanism matters for planning |
 
 The prior is:
 
@@ -172,13 +173,21 @@ $$
 The implementation includes an environment-specific prompt builder in
 `onelife.duc_wm.llm_prior`. Prompts differ across Ant, Walker2d, Hopper,
 Reacher, Pusher, Swimmer, HalfCheetah, InvertedPendulum, and
-InvertedDoublePendulum profiles. The prompt is stored in each output JSON under
+InvertedDoublePendulum profiles. Each prompt tells the LLM the task objective,
+reward-critical errors, state/action index contract, allowed mechanism
+families, and strict JSON schema. The prompt is stored in each output JSON under
 `llm_prior_prompt` for traceability.
 
-By default, deterministic MuJoCo templates are used as the safe fallback prior.
-If `duc.llm_prior.json_path` is set, the runner loads LLM-generated JSON
-templates instead of the fallback templates without changing the model
-architecture.
+There are three prior modes:
+
+| Mode | Config | Use |
+|---|---|---|
+| deterministic fallback | `duc.llm_prior.enabled=false` and `json_path=null` | reproducible baseline |
+| direct LLM generation | `duc.llm_prior.enabled=true` | generate a candidate prior |
+| saved LLM prior | `duc.llm_prior.json_path=path/to/prior.json` | paper/benchmark run |
+
+For fair comparison, generate a prior once, save the JSON, then run all seeds
+with the same `json_path`.
 
 ## Model
 
@@ -293,19 +302,29 @@ The context labels make the first implementation stable and debuggable.
 
 ## Training Objective
 
-The default implementation is intentionally small. It does not activate every
-regularizer at once.
-
-The base loss is:
+The runnable implementation trains the full DUC-WM objective with conservative
+default weights. The goal is not to stack many losses blindly; each term maps to
+one part of the framework.
 
 $$
-\mathcal L_{\mathrm{v0}}
+\mathcal L_{\mathrm{DUC}}
 =
 \mathcal L_{\mathrm{nll}}
 +
 \beta\mathcal L_{\mathrm{KL}}
 +
 \lambda_{\mathrm{ctx}}\mathcal L_{\mathrm{ctx}}
++
+\lambda_{\mathrm{ctrl}}\mathcal L_{\mathrm{ctrl}}
+$$
+
+$$
++
+\lambda_{\mathrm{roll}}\mathcal L_{\mathrm{roll}}
++
+\lambda_{\mathrm{orth}}\mathcal L_{\mathrm{orth}}
++
+\lambda_{\mathrm{sparse}}\mathcal L_{\mathrm{sparse}}
 $$
 
 where:
@@ -341,27 +360,58 @@ $$
 \|\mu_\phi(h)-c^\star\|_2^2
 $$
 
-The full research objective can include optional terms:
+The control-aware one-step term is:
 
 $$
-\mathcal L_{\mathrm{full}}
+\mathcal L_{\mathrm{ctrl}}
 =
-\mathcal L_{\mathrm{v0}}
-+
-\lambda_{\mathrm{roll}}\mathcal L_{\mathrm{roll}}
-+
-\lambda_{\mathrm{ctrl}}\mathcal L_{\mathrm{ctrl}}
+\|W_{\mathrm{ctrl}}^{1/2}(\hat x'-x')\|_2^2
+$$
+
+The rollout term unrolls the learned model for \(H\) steps under observed
+actions:
+
+$$
+\hat x_{t+k+1}
+=
+F_\theta(\hat x_{t+k},a_{t+k},c_{t+k})
 $$
 
 $$
-+
-\lambda_{\mathrm{orth}}\mathcal L_{\mathrm{orth}}
-+
-\lambda_{\mathrm{sparse}}\mathcal L_{\mathrm{sparse}}
+\mathcal L_{\mathrm{roll}}
+=
+\frac{1}{H}
+\sum_{k=0}^{H-1}
+\|W_{\mathrm{ctrl}}^{1/2}(\hat x_{t+k+1}-x_{t+k+1})\|_2^2
 $$
 
-These are not all enabled by default. Rollout/control/orth/sparse losses should
-be introduced only after the base model is stable.
+The orthogonal and sparse terms keep mechanisms separated and avoid using every
+mechanism for every transition:
+
+$$
+\mathcal L_{\mathrm{orth}}
+=
+\sum_{i\ne j}
+\langle W_{\mathrm{ctrl}}^{1/2}M_i,
+W_{\mathrm{ctrl}}^{1/2}M_j\rangle^2
+$$
+
+$$
+\mathcal L_{\mathrm{sparse}}
+=
+\|\alpha\|_1
+$$
+
+Default values are deliberately mild:
+
+| Term | Default |
+|---|---:|
+| \(\lambda_{\mathrm{ctx}}\) | 1.0 |
+| \(\lambda_{\mathrm{ctrl}}\) | 0.05 |
+| \(\lambda_{\mathrm{roll}}\) | 0.1 |
+| \(H\) | 5 |
+| \(\lambda_{\mathrm{orth}}\) | 0.0001 |
+| \(\lambda_{\mathrm{sparse}}\) | 0.00001 |
 
 ## Control-Relevant Metric
 
@@ -394,8 +444,9 @@ $$
 \|v\|_{W_t}^2=v^\top W_t v
 $$
 
-In the current implementation, \(W_t\) is approximated from mechanism output
-masks. A future version can use reward or value gradients:
+In the current implementation, \(W_t\) is the stable default constructed from
+mechanism output masks. If a learned reward/value model is added for a specific
+benchmark, the same interface also supports gradient-derived weights:
 
 $$
 W_t=
@@ -648,9 +699,9 @@ The implementation is intentionally H100-friendly:
 | MLP layers | 2 |
 | hidden size | 256 |
 | context encoder | small MLP over history |
-| context samples | 1 for training path, optional MC later |
+| context samples | posterior mean or one sampled context in training |
 | LLM use | offline only |
-| planner | optional CEM |
+| planner | CEM/MPC module over the learned world model |
 
 The LLM is not in the gradient loop.
 
@@ -666,6 +717,24 @@ Default DUC-WM run:
 
 ```bash
 uv run --no-sync python main.py problem=Hopper-v5 device=cuda
+```
+
+Generate a fresh LLM prior during a run:
+
+```bash
+uv run --no-sync python main.py \
+  problem=Hopper-v5 \
+  device=cuda \
+  duc.llm_prior.enabled=true
+```
+
+Run from a saved LLM prior JSON:
+
+```bash
+uv run --no-sync python main.py \
+  problem=Hopper-v5 \
+  device=cuda \
+  duc.llm_prior.json_path=priors/hopper_duc_prior.json
 ```
 
 Example sweep:

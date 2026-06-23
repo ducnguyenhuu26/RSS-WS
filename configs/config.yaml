@@ -24,14 +24,22 @@ duc:
   hidden_layers: 2
   beta_kl: 0.001
   context_weight: 1.0
-  control_weight: 0.0
-  orth_weight: 0.0
-  sparse_weight: 0.0
+  control_weight: 0.05
+  rollout_weight: 0.1
+  rollout_horizon: 5
+  orth_weight: 0.0001
+  sparse_weight: 0.00001
   teacher_force_context: true
   llm_prior:
     # The prompt is built per environment and stored in the output JSON for
-    # traceability. If json_path is set, templates are loaded from that JSON
-    # instead of using deterministic fallback templates.
+    # traceability. For reproducible runs, either keep enabled=false and use
+    # deterministic fallback templates, or set json_path to a saved LLM JSON.
+    # For prior generation runs, set enabled=true.
+    enabled: false
+    provider: openai
+    model_slug: gpt-4.1-mini
+    api_key_env: OPENAI_API_KEY
+    max_tokens: 3000
     json_path: null
 
 output_dir: outputs/duc_wm

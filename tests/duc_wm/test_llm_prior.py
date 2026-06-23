@@ -12,12 +12,14 @@ def test_duc_prior_prompts_are_environment_specific():
     assert ant.prompt != reacher.prompt
     assert "quadruped" in ant.prompt.lower()
     assert "reaching arm" in reacher.prompt.lower()
+    assert "reward-critical" in ant.prompt.lower()
+    assert "confidence" in ant.prompt
     assert "Return JSON only" in ant.prompt
 
 
 def test_templates_from_llm_json_validates_indices():
     payload = {
-        "env_id": "Fake-v0",
+        "env_id": "FakeEnv",
         "templates": [
             {
                 "name": "wind",
@@ -26,12 +28,17 @@ def test_templates_from_llm_json_validates_indices():
                 "output_indices": [1],
                 "scale": 0.5,
                 "prior_std": 0.2,
+                "confidence": 0.7,
                 "description": "external drift",
             }
         ],
     }
 
-    templates = templates_from_llm_json(json.dumps(payload), state_dim=2, action_dim=1)
+    templates = templates_from_llm_json(
+        "```json\n" + json.dumps(payload) + "\n```",
+        state_dim=2,
+        action_dim=1,
+    )
 
     assert len(templates) == 1
     assert templates[0].name == "wind"

@@ -47,7 +47,7 @@ def default_mujoco_templates(
     """Return a compact DUC-WM mechanism prior for MuJoCo-style vectors.
 
     These templates are the deterministic fallback for the offline LLM prior.
-    A real LLM prior file can refine the same fields later; the model code only
+    A real LLM prior file can refine the same fields; the model code only
     depends on masks, scales, and prior ranges.
     """
 
