@@ -109,7 +109,7 @@ def collect_mujoco_extension_dataset(config: MuJoCoExtensionConfig) -> MuJoCoTra
 
 
 def sample_context(variant: str, rng: np.random.Generator) -> np.ndarray:
-    enabled = set(CONTEXT_NAMES if variant == "all" else variant.split("+"))
+    enabled = enabled_context_names(variant)
     context = np.zeros(len(CONTEXT_NAMES), dtype=np.float32)
     ranges = {
         "wind": (-0.5, 0.5),
@@ -126,6 +126,21 @@ def sample_context(variant: str, rng: np.random.Generator) -> np.ndarray:
             low, high = ranges[name]
             context[index] = float(rng.uniform(low, high))
     return context
+
+
+def enabled_context_names(variant: str) -> set[str]:
+    raw = variant.strip()
+    if raw == "all":
+        return set(CONTEXT_NAMES)
+    if raw in {"", "none"}:
+        return set()
+    enabled = {name.strip() for name in raw.split("+") if name.strip()}
+    unknown = enabled.difference(CONTEXT_NAMES)
+    if unknown:
+        known = ", ".join(CONTEXT_NAMES)
+        bad = ", ".join(sorted(unknown))
+        raise ValueError(f"unknown MuJoCo extension context(s): {bad}; known contexts: {known}")
+    return enabled
 
 
 def context_value(context: np.ndarray, name: str) -> float:
