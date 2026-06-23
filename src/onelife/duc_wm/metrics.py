@@ -263,6 +263,16 @@ def evaluate_duc_model(
         metrics["prior_beta_mean"] = float(np.mean(beta))
         metrics["prior_beta_min"] = float(np.min(beta))
         metrics["prior_beta_max"] = float(np.max(beta))
+        gate = model.prior_gate.detach().cpu().numpy()
+        data_conf = model.data_confidence.detach().cpu().numpy()
+        effective_conf = model.effective_prior_confidence.detach().cpu().numpy()
+        metrics["prior_gate_mean"] = float(np.mean(gate))
+        metrics["prior_gate_min"] = float(np.min(gate))
+        metrics["prior_gate_max"] = float(np.max(gate))
+        metrics["data_confidence_mean"] = float(np.mean(data_conf))
+        metrics["data_confidence_min"] = float(np.min(data_conf))
+        metrics["data_confidence_max"] = float(np.max(data_conf))
+        metrics["effective_prior_confidence_mean"] = float(np.mean(effective_conf))
         metrics["residual_scale"] = float(model._residual_scale.detach().cpu())
     if context_errors:
         metrics["context_mse"] = float(sum(context_errors) / len(context_errors))
@@ -282,7 +292,7 @@ def evaluate_duc_model(
 
 
 def trust_region_violation(model: DUCWorldModel, output) -> torch.Tensor:
-    confidences = model.prior_confidence.to(output.residual_effects.device)
+    confidences = model.effective_prior_confidence.to(output.residual_effects.device)
     prior_norm = output.prior_effects.pow(2).mean(dim=-1).add(1e-8).sqrt()
     residual_norm = output.residual_effects.pow(2).mean(dim=-1).add(1e-8).sqrt()
     delta = (

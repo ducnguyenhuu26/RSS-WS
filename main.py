@@ -164,7 +164,7 @@ def main(cfg: DictConfig) -> None:
                 hidden_size=int(cfg.duc.hidden_size),
                 hidden_layers=int(cfg.duc.hidden_layers),
                 history_length=int(cfg.duc.history_length),
-                prior_beta_init=float(config_get(cfg, "duc.prior_beta_init", 10.0)),
+                prior_beta_init=float(config_get(cfg, "duc.prior_beta_init", 1.0)),
                 trust_region_delta_min=float(config_get(cfg, "duc.trust_region_delta_min", 0.15)),
                 trust_region_delta_range=float(config_get(cfg, "duc.trust_region_delta_range", 0.75)),
             )
@@ -437,9 +437,9 @@ def duc_trainer_config(cfg: DictConfig, seed: int, method: str) -> DUCTrainerCon
     orth_weight = float(cfg.duc.orth_weight)
     sparse_weight = float(cfg.duc.sparse_weight)
     unknown_weight = float(cfg.duc.get("unknown_weight", 0.0))
-    trust_region_weight = float(config_get(cfg, "duc.trust_region_weight", 1.0))
-    prior_beta_weight = float(config_get(cfg, "duc.prior_beta_weight", 1e-4))
-    residual_warmup_fraction = float(config_get(cfg, "duc.residual_warmup_fraction", 0.75))
+    trust_region_weight = float(config_get(cfg, "duc.trust_region_weight", 0.2))
+    prior_beta_weight = float(config_get(cfg, "duc.prior_beta_weight", 5e-4))
+    residual_warmup_fraction = float(config_get(cfg, "duc.residual_warmup_fraction", 0.25))
     if method == "duc_no_reg":
         residual_weight = 0.0
         orth_weight = 0.0
@@ -469,6 +469,12 @@ def duc_trainer_config(cfg: DictConfig, seed: int, method: str) -> DUCTrainerCon
         trust_region_delta_range=float(config_get(cfg, "duc.trust_region_delta_range", 0.75)),
         prior_beta_weight=prior_beta_weight,
         residual_warmup_fraction=residual_warmup_fraction,
+        prior_validation=bool(config_get(cfg, "duc.prior_validation", True)),
+        prior_validation_min_gate=float(config_get(cfg, "duc.prior_validation_min_gate", 0.02)),
+        prior_validation_temperature=float(config_get(cfg, "duc.prior_validation_temperature", 0.15)),
+        prior_validation_max_samples=int(config_get(cfg, "duc.prior_validation_max_samples", 4096)),
+        prior_validation_beta_min=float(config_get(cfg, "duc.prior_validation_beta_min", 0.05)),
+        prior_validation_beta_max=float(config_get(cfg, "duc.prior_validation_beta_max", 5.0)),
         teacher_force_context=bool(cfg.duc.teacher_force_context),
         seed=seed,
         precision=str(config_get(cfg, "runtime.precision", "fp32")),

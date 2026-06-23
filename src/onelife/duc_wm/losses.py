@@ -79,9 +79,9 @@ def orthogonality_penalty(
 
 
 def residual_penalty(model: DUCWorldModel, output: DUCForwardOutput) -> torch.Tensor:
-    confidences = model.prior_confidence.to(output.residual_effects.device)
+    confidences = model.effective_prior_confidence.to(output.residual_effects.device)
     per_mechanism = output.residual_effects.pow(2).mean(dim=-1)
-    # High-confidence law priors should need only small neural corrections.
+    # Only data-validated high-confidence law priors should suppress residuals.
     return (per_mechanism * (0.25 + confidences).unsqueeze(0)).mean()
 
 
@@ -91,7 +91,7 @@ def trust_region_penalty(
     delta_min: float,
     delta_range: float,
 ) -> torch.Tensor:
-    confidences = model.prior_confidence.to(output.residual_effects.device)
+    confidences = model.effective_prior_confidence.to(output.residual_effects.device)
     prior_norm = output.prior_effects.pow(2).mean(dim=-1).add(1e-8).sqrt()
     residual_norm = output.residual_effects.pow(2).mean(dim=-1).add(1e-8).sqrt()
     delta = float(delta_min) + (1.0 - confidences) * float(delta_range)

@@ -19,7 +19,7 @@ class DUCWorldModelConfig:
     history_length: int = 4
     min_logvar: float = -8.0
     max_logvar: float = 2.0
-    prior_beta_init: float = 10.0
+    prior_beta_init: float = 1.0
     trust_region_delta_min: float = 0.15
     trust_region_delta_range: float = 0.75
 
@@ -43,6 +43,8 @@ class DUCForwardOutput:
     mechanism_delta: torch.Tensor
     prior_beta: torch.Tensor
     residual_scale: torch.Tensor
+    prior_gate: torch.Tensor
+    data_confidence: torch.Tensor
 
 
 def _mlp(input_dim: int, output_dim: int, hidden_size: int, hidden_layers: int) -> nn.Sequential:
@@ -218,6 +220,8 @@ class DUCWorldModel(nn.Module):
         self.register_buffer("prior_std", prior_std)
         self.register_buffer("context_scales", scales)
         self.register_buffer("prior_confidence", confidences)
+        self.register_buffer("prior_gate", torch.ones_like(confidences))
+        self.register_buffer("data_confidence", torch.ones_like(confidences))
         beta_init = max(0.05, min(50.0, float(config.prior_beta_init)))
         self.prior_log_beta = nn.Parameter(
             torch.full(
@@ -239,6 +243,38 @@ class DUCWorldModel(nn.Module):
     @property
     def prior_beta(self) -> torch.Tensor:
         return torch.exp(self.prior_log_beta).clamp(min=0.05, max=50.0)
+
+    @property
+    def effective_prior_confidence(self) -> torch.Tensor:
+        return (self.prior_confidence * self.data_confidence).clamp(min=0.0, max=1.0)
+
+    @torch.no_grad()
+    def set_prior_validation(
+        self,
+        gate: torch.Tensor,
+        data_confidence: torch.Tensor,
+        beta: torch.Tensor | None = None,
+    ) -> None:
+        gate = gate.to(device=self.prior_gate.device, dtype=self.prior_gate.dtype)
+        data_confidence = data_confidence.to(
+            device=self.data_confidence.device,
+            dtype=self.data_confidence.dtype,
+        )
+        if gate.shape != self.prior_gate.shape:
+            raise ValueError(f"prior gate has shape {tuple(gate.shape)}, expected {tuple(self.prior_gate.shape)}")
+        if data_confidence.shape != self.data_confidence.shape:
+            raise ValueError(
+                "prior data confidence has shape "
+                f"{tuple(data_confidence.shape)}, expected {tuple(self.data_confidence.shape)}"
+            )
+        self.prior_gate.copy_(gate.clamp(min=0.0, max=1.0))
+        self.data_confidence.copy_(data_confidence.clamp(min=0.0, max=1.0))
+        if beta is not None:
+            beta = beta.to(device=self.prior_log_beta.device, dtype=self.prior_log_beta.dtype)
+            if beta.shape != self.prior_log_beta.shape:
+                raise ValueError(f"prior beta has shape {tuple(beta.shape)}, expected {tuple(self.prior_log_beta.shape)}")
+            beta = beta.clamp(min=0.05, max=50.0)
+            self.prior_log_beta.copy_(torch.log(beta))
 
     def set_residual_scale(self, value: float) -> None:
         value = float(max(0.0, min(1.0, value)))
@@ -287,7 +323,8 @@ class DUCWorldModel(nn.Module):
             history_actions=history_actions,
         )
         beta = self.prior_beta.to(raw_prior_effects.device, raw_prior_effects.dtype)
-        prior_effects = raw_prior_effects * beta.view(1, -1, 1)
+        gate = self.prior_gate.to(raw_prior_effects.device, raw_prior_effects.dtype)
+        prior_effects = raw_prior_effects * beta.view(1, -1, 1) * gate.view(1, -1, 1)
         raw_residual_effects = self.mechanisms(states, actions)
         residual_scale = self._residual_scale.to(raw_residual_effects.device, raw_residual_effects.dtype)
         residual_effects = residual_scale * raw_residual_effects
@@ -319,6 +356,8 @@ class DUCWorldModel(nn.Module):
             mechanism_delta=mechanism_delta,
             prior_beta=beta,
             residual_scale=residual_scale,
+            prior_gate=gate,
+            data_confidence=self.data_confidence.to(raw_prior_effects.device, raw_prior_effects.dtype),
         )
 
     def nll(self, output: DUCForwardOutput, targets: torch.Tensor) -> torch.Tensor:

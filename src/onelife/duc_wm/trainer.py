@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
 import torch
 
 from onelife.mujoco_dataset import MuJoCoTransitions
@@ -33,11 +34,17 @@ class DUCTrainerConfig:
     orth_weight: float = 0.0
     sparse_weight: float = 0.0
     unknown_weight: float = 0.0
-    trust_region_weight: float = 1.0
+    trust_region_weight: float = 0.2
     trust_region_delta_min: float = 0.15
     trust_region_delta_range: float = 0.75
-    prior_beta_weight: float = 1e-4
-    residual_warmup_fraction: float = 0.75
+    prior_beta_weight: float = 5e-4
+    residual_warmup_fraction: float = 0.25
+    prior_validation: bool = True
+    prior_validation_min_gate: float = 0.02
+    prior_validation_temperature: float = 0.15
+    prior_validation_max_samples: int = 4096
+    prior_validation_beta_min: float = 0.05
+    prior_validation_beta_max: float = 5.0
     teacher_force_context: bool = True
     seed: int = 0
     precision: str = "fp32"
@@ -52,6 +59,13 @@ def fit_duc_world_model(
 ) -> list[dict[str, float]]:
     model.to(device)
     transitions = align_contexts_to_templates(transitions, model.config.templates)
+    if config.prior_validation:
+        calibrate_prior_validation(
+            model=model,
+            transitions=transitions,
+            config=config,
+            device=device,
+        )
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
     autocast_enabled, autocast_dtype = _autocast_settings(config.precision, torch.device(device))
     scaler = torch.amp.GradScaler(
@@ -178,6 +192,171 @@ def fit_duc_world_model(
         )
     model.set_residual_scale(1.0)
     return history
+
+
+@torch.no_grad()
+def calibrate_prior_validation(
+    model: DUCWorldModel,
+    transitions: MuJoCoTransitions,
+    config: DUCTrainerConfig,
+    device: torch.device | str,
+) -> dict[str, float]:
+    """Validate declarative law priors against observed transition deltas.
+
+    LLM/template laws are useful only if their direction matches the data. This
+    routine measures each prior effect before training and turns it into:
+
+    - a gate that scales the prior contribution in the forward pass;
+    - a data confidence used by residual/trust-region regularizers;
+    - a bounded beta initializer fitted by least squares.
+
+    Bad laws therefore become weak hints instead of hard constraints.
+    """
+
+    num_templates = len(model.config.templates)
+    if transitions.num_steps <= 0 or num_templates == 0:
+        return {}
+
+    sample_count = int(max(1, min(config.prior_validation_max_samples, transitions.num_steps)))
+    rng = np.random.default_rng(config.seed + 17_129)
+    if sample_count < transitions.num_steps:
+        indices = np.sort(rng.choice(transitions.num_steps, size=sample_count, replace=False))
+    else:
+        indices = np.arange(transitions.num_steps)
+
+    states = torch.tensor(transitions.states[indices], dtype=torch.float32, device=device)
+    actions = torch.tensor(transitions.actions[indices], dtype=torch.float32, device=device)
+    next_states = torch.tensor(transitions.next_states[indices], dtype=torch.float32, device=device)
+    history_states = torch.tensor(
+        _history_for_indices(
+            transitions.states,
+            indices,
+            config.history_length,
+            dones=transitions.dones,
+        ),
+        dtype=torch.float32,
+        device=device,
+    )
+    history_actions = torch.tensor(
+        _history_for_indices(
+            transitions.actions,
+            indices,
+            config.history_length,
+            dones=transitions.dones,
+        ),
+        dtype=torch.float32,
+        device=device,
+    )
+    contexts = None
+    if transitions.contexts is not None:
+        contexts = torch.tensor(transitions.contexts[indices], dtype=torch.float32, device=device)
+
+    was_training = model.training
+    model.eval()
+    raw_priors = model.law_priors(
+        states,
+        actions,
+        history_states=history_states,
+        history_actions=history_actions,
+    ).float()
+    target_delta = (next_states - states).float()
+
+    gates: list[float] = []
+    confidences: list[float] = []
+    betas: list[float] = []
+    scores: list[float] = []
+    for mechanism_index, template in enumerate(model.config.templates):
+        gate, confidence, beta, score = _validate_single_prior(
+            raw_prior=raw_priors[:, mechanism_index],
+            target_delta=target_delta,
+            context=contexts[:, mechanism_index] if contexts is not None else None,
+            output_indices=template.output_indices,
+            law_type=template.law_type,
+            min_gate=config.prior_validation_min_gate,
+            temperature=config.prior_validation_temperature,
+            beta_min=config.prior_validation_beta_min,
+            beta_max=config.prior_validation_beta_max,
+        )
+        gates.append(gate)
+        confidences.append(confidence)
+        betas.append(beta)
+        scores.append(score)
+
+    model.set_prior_validation(
+        gate=torch.tensor(gates, dtype=torch.float32, device=device),
+        data_confidence=torch.tensor(confidences, dtype=torch.float32, device=device),
+        beta=torch.tensor(betas, dtype=torch.float32, device=device),
+    )
+    if was_training:
+        model.train()
+    return {
+        "prior_gate_mean": float(np.mean(gates)),
+        "data_confidence_mean": float(np.mean(confidences)),
+        "prior_validation_score_mean": float(np.mean(scores)),
+    }
+
+
+def _validate_single_prior(
+    raw_prior: torch.Tensor,
+    target_delta: torch.Tensor,
+    context: torch.Tensor | None,
+    output_indices: tuple[int, ...],
+    law_type: str,
+    min_gate: float,
+    temperature: float,
+    beta_min: float,
+    beta_max: float,
+) -> tuple[float, float, float, float]:
+    if law_type == "learned_residual" or not output_indices:
+        return 0.0, 0.0, 1.0, 0.0
+
+    index = torch.tensor(output_indices, dtype=torch.long, device=raw_prior.device)
+    prior = raw_prior.index_select(dim=-1, index=index).float()
+    target = target_delta.index_select(dim=-1, index=index).float()
+    if context is None:
+        weights = torch.ones(prior.shape[0], dtype=prior.dtype, device=prior.device)
+        signed_prior = prior
+    else:
+        context = context.float()
+        weights = context.abs()
+        signed_prior = prior * context.unsqueeze(-1)
+
+    if float(weights.max().detach().cpu()) <= 1e-8:
+        return 0.0, 0.0, 1.0, 0.0
+    weights = weights / weights.mean().clamp_min(1e-6)
+    prior_centered = signed_prior - _weighted_mean(signed_prior, weights)
+    target_centered = target - _weighted_mean(target, weights)
+
+    weighted_prior = prior_centered * weights.unsqueeze(-1).sqrt()
+    weighted_target = target_centered * weights.unsqueeze(-1).sqrt()
+    prior_energy = weighted_prior.pow(2).sum()
+    target_energy = weighted_target.pow(2).sum()
+    if float(prior_energy.detach().cpu()) <= 1e-10 or float(target_energy.detach().cpu()) <= 1e-10:
+        return 0.0, 0.0, 1.0, 0.0
+
+    dot = (weighted_prior * weighted_target).sum()
+    scale = dot / prior_energy.clamp_min(1e-10)
+    prediction = scale * weighted_prior
+    mse_prior = (prediction - weighted_target).pow(2).mean()
+    mse_zero = weighted_target.pow(2).mean().clamp_min(1e-10)
+    improvement = (1.0 - mse_prior / mse_zero).clamp(min=0.0, max=1.0)
+    cosine = (dot / (prior_energy.sqrt() * target_energy.sqrt()).clamp_min(1e-10)).clamp(
+        min=0.0,
+        max=1.0,
+    )
+    raw_score = torch.sqrt(improvement * cosine).clamp(min=0.0, max=1.0)
+    temp = max(1e-6, float(temperature))
+    score = raw_score / (raw_score + temp)
+    score_value = float(score.detach().cpu())
+    min_gate = float(max(0.0, min(1.0, min_gate)))
+    gate = min_gate + (1.0 - min_gate) * score_value
+    beta = float(scale.abs().clamp(min=float(beta_min), max=float(beta_max)).detach().cpu())
+    return gate, score_value, beta, float(raw_score.detach().cpu())
+
+
+def _weighted_mean(values: torch.Tensor, weights: torch.Tensor) -> torch.Tensor:
+    normalizer = weights.sum().clamp_min(1e-8)
+    return (values * weights.unsqueeze(-1)).sum(dim=0, keepdim=True) / normalizer
 
 
 def residual_scale_for_epoch(epoch: int, epochs: int, warmup_fraction: float) -> float:
