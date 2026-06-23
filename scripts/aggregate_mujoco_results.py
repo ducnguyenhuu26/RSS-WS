@@ -8,7 +8,7 @@ from statistics import mean, stdev
 from typing import Any
 
 
-DEFAULT_METRIC = "score.one_step_delta_r2_uniform"
+DEFAULT_METRIC = "score.duc_r2_at_1"
 
 
 def main() -> None:

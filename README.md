@@ -1,200 +1,701 @@
-# ANSWER MuJoCo World Modeling
+# DUC-WM: Disentangled Universal Causal World Model
 
-This repository implements **ANSWER**: an automated neuro-symbolic world model
-for MuJoCo continuous-control tasks. The code is derived from One Life to Learn,
-but the final MuJoCo protocol is intentionally narrow and reproducible: one
-proposed method, external/main baselines, and architecture ablations in one
-shared table.
+This repository now implements **DUC-WM**, a new model-based control framework
+for hidden-mechanism continuous-control environments.
 
-## Method
+DUC-WM is designed for settings where the next state is not caused only by the
+current state and action. Deployment can include wind, friction shift, actuator
+delay, sticky actions, sticky transitions, mass/damping changes, or impulse
+forces. The goal is not to claim that these disturbances are new. The goal is to
+learn a world model that explains which mechanism is active and how strongly it
+affects control.
 
-For an environment \(e\), the code first builds a semantic task context
-\(C_e=(q_e,\dot q_e,u_e,r_e)\) from environment-specific state and action
-descriptions. The LLM is prompted with this context and must emit executable
-symbolic laws over flat vectors `state[i]`, `action[j]`, and `delta[k]`.
+## Problem
 
-ANSWER composes the accepted laws as a weighted product of local symbolic
-effects and then wraps the symbolic candidate with a neural ODE residual:
+We consider a family of continuous-control environments:
 
-```text
-symbolic candidate:   p_phi(delta | s, a, C_e) proportional to product_l p_l(delta | s, a) ^ alpha_l
-neural correction:    ds/dt = f_theta(s, a, symbolic_candidate)
-final prediction:     s_next = ODESolve(s, a, symbolic_candidate)
-```
+$$
+e\sim p(e)
+$$
 
-The graph layer is explicit but lightweight. Semantic concepts such as position,
-velocity, angle, actuator, contact, and target-error act as leaders; executable
-laws are followers; and state dimensions are sinks. A law can be attached to
-multiple concepts, giving a small DAG:
+with state and action:
 
-```text
-Concept -> Law -> StateDimension
-```
+$$
+x_t\in\mathbb R^d,\qquad a_t\in\mathbb R^m
+$$
 
-This graph controls which laws are allowed to influence each dimension. A soft
-gate keeps the neural ODE safe: symbolic effects are useful only when the
-supervised dynamics loss supports them, instead of being forced into the model.
+The true transition is:
 
-## Environments
+$$
+x_{t+1}=F^\star_e(x_t,a_t)+\epsilon_t
+$$
 
-Run the MuJoCo v5 tasks from small to large:
+The environment instance \(e\) is not directly observed. The agent only sees a
+short history:
 
-```text
-Swimmer-v5
-InvertedDoublePendulum-v5
-Reacher-v5
-Hopper-v5
-Walker2d-v5
-HalfCheetah-v5
-```
+$$
+h_t=(x_{t-L},a_{t-L},\dots,x_t)
+$$
 
-`InvertedPendulum-v5` is kept as the smoke/debug task but excluded from the main
-paper table because it is too easy and makes the wide table longer without
-adding much evidence. `Ant-v5` and `Pusher-v5` are also excluded from the main
-sweep; they need separate semantic task specs and are better treated as future
-stress tests.
+The control objective is:
 
-## Models
+$$
+\max_\pi\mathbb E_e[J_e(\pi)]
+$$
 
-The final table uses short row labels to save space and starts directly from
-the variant column. The experimental-design text should explain the full method
-behind each label. The formatter places baselines first, ablations second, and
-the proposed method last:
+where:
 
-```text
-onelife           OneLife     OneLife-MuJoCo binned LLM law mixture
-pets_ensemble     PETS        PETS-style bootstrap neural ensemble
-dreamer_v3        DreamerV3   External latent world-model baseline
-neural            ODE-only    ANSWER without symbolic laws
-program_only      LLM-only    ANSWER symbolic laws without neural ODE
-symbolic_neural   Lib+ODE     Symbolic library laws plus neural ODE, no LLM laws
-neural_mlp        MLP-only    Pure MLP dynamics appendix baseline
-answer_mlp        ANS-MLP     ANSWER symbolic graph/gate with the MLP backbone
-answer            ANSWER      Proposed neuro-symbolic ODE world model
-```
+$$
+J_e(\pi)=
+\mathbb E\left[
+\sum_{t=0}^{T}\gamma^t r_e(x_t,a_t)
+\right]
+$$
 
-`dreamer_v3` is external in this repo. Import compatible JSON results with
-`model: "dreamer_v3"` and the same `score` / `reward` schema before formatting.
+DUC-WM targets hidden-mechanism dynamics:
 
-## Evaluation
+$$
+x_{t+1}=F^\star(x_t,a_t,c_e)+\epsilon_t
+$$
 
-Each environment reports:
+where \(c_e\) is an unobserved context describing the strength of external or
+latent mechanisms.
 
-- **R2@1**: per-dimension delta R2 for one-step prediction,
-  `s_next - s`.
-- **R2@10**: ten-step open-loop delta R2,
-  `s_{t+10} - s_t`.
-- **Reward**: real environment return after planning with the learned model.
+## Core Assumption
 
-The paper formatter also appends **Avg. Rank**. For each displayed environment,
-models are ranked separately by `R2@1`, `R2@10`, and `Reward`, with higher
-values better. Avg. Rank is the mean over these per-metric ranks, so lower is
-better. This avoids averaging raw Reward values across MuJoCo tasks with
-different scales. Table headers show this directly with `↑` for higher-is-better
-metrics and `↓` for Avg. Rank.
+DUC-WM models the state delta:
 
-The final config uses **PEC-CEM-MPC** as the common planner. If an output
-directory also contains plain CEM-MPC results, the formatter can show both as
-`CEM-MPC / PEC-CEM-MPC`.
+$$
+\Delta x_t=x_{t+1}-x_t
+$$
 
-The OneLife comparison is fair as an adapted in-repo baseline: it uses the same
-MuJoCo train/test transitions, seed, LLM model, sample count, discretizer fitted
-on the training set, R2 metrics, and planner evaluation protocol. The caveat is
-conceptual rather than procedural: OneLife-MuJoCo remains a binned symbolic law
-mixture, while ANSWER is continuous and neural-residual based. That should be
-stated clearly in the paper.
+as a sum of universal causal mechanisms:
 
-## Setup
+$$
+\Delta x_t=
+\sum_{j=1}^{K}\alpha_{j,t}M_j(x_t,a_t)+\epsilon_t
+$$
 
-Use `uv` with Python 3.12:
+Here:
 
-```powershell
-uv sync --python 3.12
-```
+| Symbol | Meaning |
+|---|---|
+| \(M_j\) | universal causal mechanism |
+| \(\alpha_{j,t}\) | instance-specific mechanism strength |
+| \(\alpha_{j,t}M_j\) | contribution of mechanism \(j\) |
+| \(\epsilon_t\) | unmodeled noise |
 
-For Windows RTX 3050/3060 machines, this CUDA wheel has worked:
+The mechanism is invariant:
 
-```powershell
-uv pip uninstall torch torchvision torchaudio
-uv pip install torch==2.5.1+cu121 --index-url https://download.pytorch.org/whl/cu121
-```
+$$
+M_j^{(e_1)}\approx M_j^{(e_2)}
+$$
 
-For rented RTX 50-series machines, use the current official PyTorch CUDA wheel,
-for example:
+but the strength adapts:
 
-```powershell
-uv pip uninstall torch torchvision torchaudio
-uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
-```
+$$
+\alpha_{j,t}=\alpha_j(h_t)
+$$
 
-After installing the CUDA wheel, run experiments with `--no-sync`; otherwise
-`uv` may restore a CPU-only torch from the lockfile.
+Example mechanisms for Ant:
 
-Check GPU visibility:
+| Mechanism | Interpretation |
+|---|---|
+| actuation | action produces joint/body velocity change |
+| wind | external drift affects body velocity |
+| friction | contact/friction changes slip and velocity response |
+| mass | inertia changes acceleration induced by control |
+| damping | passive dissipation changes rollout stability |
+| delay | current state responds to stale actions |
+| sticky | transition is partially stuck near previous state |
+| impulse | rare unmodeled force causes sudden velocity change |
+| gravity | passive acceleration and balance shift |
 
-```powershell
-uv run --no-sync python -c "import torch; print(torch.cuda.is_available(), torch.version.cuda); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'cpu')"
-```
+## Why Additive Bounded Mechanisms
 
-Put API keys in `.env` on the machine that runs LLM-based models.
+DUC-WM uses:
+
+$$
+\hat{\Delta x}_t=
+\sum_j \alpha_{j,t}M_j(x_t,a_t)
+$$
+
+and not a product of mechanism outputs. Products are difficult for state deltas
+because deltas can be negative, long rollouts can explode, and attribution
+becomes unclear. Additive mechanisms have stable gradients:
+
+$$
+\frac{\partial\hat{\Delta x}}{\partial M_j}=\alpha_j
+$$
+
+and:
+
+$$
+\frac{\partial\hat{\Delta x}}{\partial \alpha_j}=M_j
+$$
+
+This makes it easier to learn both the shape of a mechanism and its current
+strength.
+
+## Offline LLM Prior
+
+The LLM is not called in the training loop. It is used offline to construct a
+prior over plausible mechanisms.
+
+For each mechanism, the LLM prior is represented as:
+
+$$
+T_j=(P_j^x,P_j^a,O_j,\Omega_j,s_j,\rho_j)
+$$
+
+| Component | Meaning |
+|---|---|
+| \(P_j^x\) | state dimensions read by mechanism \(j\) |
+| \(P_j^a\) | action dimensions read by mechanism \(j\) |
+| \(O_j\) | state dimensions affected by mechanism \(j\) |
+| \(\Omega_j\) | plausible range for \(\alpha_j\) |
+| \(s_j\) | maximum bounded scale |
+| \(\rho_j\) | prior confidence |
+
+The prior is:
+
+$$
+p_{\mathrm{LLM}}(M,c)
+$$
+
+where:
+
+$$
+c=(\alpha_1,\dots,\alpha_K)
+$$
+
+The implementation includes an environment-specific prompt builder in
+`onelife.duc_wm.llm_prior`. Prompts differ across Ant, Walker2d, Hopper,
+Reacher, Pusher, Swimmer, HalfCheetah, InvertedPendulum, and
+InvertedDoublePendulum profiles. The prompt is stored in each output JSON under
+`llm_prior_prompt` for traceability.
+
+By default, deterministic MuJoCo templates are used as the safe fallback prior.
+If `duc.llm_prior.json_path` is set, the runner loads LLM-generated JSON
+templates instead of the fallback templates without changing the model
+architecture.
+
+## Model
+
+Each mechanism is a small MLP:
+
+$$
+M_{\theta,j}:
+(x_{P_j^x},a_{P_j^a})\mapsto \Delta x_{O_j}
+$$
+
+The local output is expanded to the full state dimension:
+
+$$
+\tilde M_{\theta,j}(x_t,a_t)
+=
+O_j\odot M_{\theta,j}(x_{P_j^x},a_{P_j^a})
+$$
+
+The bounded strength is:
+
+$$
+\alpha_{j,t}=s_j\tanh(u_{j,t})
+$$
+
+so:
+
+$$
+|\alpha_{j,t}|\le s_j
+$$
+
+The predicted next state is:
+
+$$
+\hat x_{t+1}
+=
+x_t+
+\sum_{j=1}^{K}
+\alpha_{j,t}\tilde M_{\theta,j}(x_t,a_t)
+$$
+
+The probabilistic head is:
+
+$$
+p_\theta(x_{t+1}\mid x_t,a_t,c_t)
+=
+\mathcal N(\mu_\theta,\Sigma_\theta)
+$$
+
+with:
+
+$$
+\mu_\theta=\hat x_{t+1}
+$$
+
+and diagonal variance:
+
+$$
+\Sigma_\theta=\mathrm{diag}(\mathrm{softplus}(S_\theta(x_t,a_t,c_t)))
+$$
+
+## Context Inference
+
+During real deployment, the context \(c_t\) is not known. DUC-WM infers it from
+history:
+
+$$
+q_\phi(c_t\mid h_t)
+=
+\mathcal N(
+\mu_\phi(h_t),
+\mathrm{diag}(\sigma_\phi^2(h_t))
+)
+$$
+
+Prediction marginalizes over context:
+
+$$
+p(x_{t+1}\mid x_t,a_t,h_t)
+=
+\int
+p_\theta(x_{t+1}\mid x_t,a_t,c)
+q_\phi(c\mid h_t)\,dc
+$$
+
+The implementation uses a small Monte Carlo approximation when needed.
+
+## Virtual Causal Space
+
+DUC-WM samples virtual contexts:
+
+$$
+\mathcal V=\{c_1,\dots,c_N\}
+$$
+
+from the LLM/context prior:
+
+$$
+c_i\sim p_{\mathrm{LLM}}(c)
+$$
+
+Each context specifies the strength of mechanisms such as wind, friction,
+damping, delay, sticky transition, impulse, and gravity shift. The MuJoCo
+extension collector saves:
+
+$$
+\mathcal D_{\mathcal V}
+=
+\{x_t,a_t,x_{t+1},c_i,r_t,d_t\}
+$$
+
+The context labels make the first implementation stable and debuggable.
+
+## Training Objective
+
+The default implementation is intentionally small. It does not activate every
+regularizer at once.
+
+The base loss is:
+
+$$
+\mathcal L_{\mathrm{v0}}
+=
+\mathcal L_{\mathrm{nll}}
++
+\beta\mathcal L_{\mathrm{KL}}
++
+\lambda_{\mathrm{ctx}}\mathcal L_{\mathrm{ctx}}
+$$
+
+where:
+
+$$
+\mathcal L_{\mathrm{nll}}
+=
+-
+\mathbb E_{c\sim q_\phi(c\mid h)}
+[
+\log p_\theta(x'\mid x,a,c)
+]
+$$
+
+The prior regularizer is:
+
+$$
+\mathcal L_{\mathrm{KL}}
+=
+\mathrm{KL}
+(
+q_\phi(c\mid h)
+\|
+p_{\mathrm{LLM}}(c)
+)
+$$
+
+When virtual context labels exist:
+
+$$
+\mathcal L_{\mathrm{ctx}}
+=
+\|\mu_\phi(h)-c^\star\|_2^2
+$$
+
+The full research objective can include optional terms:
+
+$$
+\mathcal L_{\mathrm{full}}
+=
+\mathcal L_{\mathrm{v0}}
++
+\lambda_{\mathrm{roll}}\mathcal L_{\mathrm{roll}}
++
+\lambda_{\mathrm{ctrl}}\mathcal L_{\mathrm{ctrl}}
+$$
+
+$$
++
+\lambda_{\mathrm{orth}}\mathcal L_{\mathrm{orth}}
++
+\lambda_{\mathrm{sparse}}\mathcal L_{\mathrm{sparse}}
+$$
+
+These are not all enabled by default. Rollout/control/orth/sparse losses should
+be introduced only after the base model is stable.
+
+## Control-Relevant Metric
+
+Ordinary \(R^2\) can be high while planning reward is low. DUC-WM therefore
+tracks a control-weighted metric.
+
+Ordinary one-step score:
+
+$$
+R^2
+=
+1-
+\frac{\sum_t\|x_t-\hat x_t\|_2^2}
+{\sum_t\|x_t-\bar x\|_2^2}
+$$
+
+Control-weighted score:
+
+$$
+R^2_{\mathrm{DUC}}
+=
+1-
+\frac{\sum_t\|x_t-\hat x_t\|_{W_t}^2}
+{\sum_t\|x_t-\bar x\|_{W_t}^2}
+$$
+
+where:
+
+$$
+\|v\|_{W_t}^2=v^\top W_t v
+$$
+
+In the current implementation, \(W_t\) is approximated from mechanism output
+masks. A future version can use reward or value gradients:
+
+$$
+W_t=
+\nabla_x V(x_t)\nabla_x V(x_t)^\top+\lambda I
+$$
+
+## Planning
+
+The model supports MPC-style planning:
+
+$$
+a^\star_{t:t+H}
+=
+\arg\max_a
+\mathcal J_\theta
+$$
+
+with:
+
+$$
+\mathcal J_\theta
+=
+\mathbb E_{c\sim q_\phi}
+\left[
+\sum_{\ell=0}^{H}
+\gamma^\ell r(\hat x_{t+\ell},a_{t+\ell})
+\right]
+-\beta U
+$$
+
+Uncertainty has model and context parts:
+
+$$
+U=
+U_{\mathrm{model}}+U_{\mathrm{ctx}}
+$$
+
+where:
+
+$$
+U_{\mathrm{model}}
+=
+\mathbb E_c[
+\mathrm{tr}\Sigma_\theta(x,a,c)
+]
+$$
+
+and:
+
+$$
+U_{\mathrm{ctx}}
+=
+\mathrm{Var}_{c\sim q_\phi}
+[
+F_\theta(x,a,c)
+]
+$$
+
+The current planner code is a compact CEM/MPC utility. The default CLI focuses
+on training and prediction metrics first.
+
+## Theoretical Analysis
+
+### 1. LLM Prior Bound
+
+Let a mechanism world model be:
+
+$$
+f=(M,c)
+$$
+
+The LLM prior is:
+
+$$
+p_{\mathrm{LLM}}(f)
+$$
+
+Training produces posterior:
+
+$$
+q(f)
+$$
+
+For bounded losses, a PAC-Bayes-style statement gives, with probability at
+least \(1-\delta\):
+
+$$
+\mathcal L(q)
+\le
+\widehat{\mathcal L}(q)
++
+\mathcal O
+\left(
+\sqrt{
+\frac{
+\mathrm{KL}(q\|p_{\mathrm{LLM}})
++
+\log(1/\delta)}
+{n}}
+\right)
+$$
+
+Interpretation: if the LLM prior places mass near useful mechanisms, the
+posterior has smaller KL and the bound is tighter. If the prior is wrong, this
+advantage disappears and must be shown by ablation.
+
+### 2. Context Reduces Bayes Risk
+
+Assume:
+
+$$
+x'=F^\star(x,a,c)+\epsilon
+$$
+
+A context-free predictor uses:
+
+$$
+f^\star_{\mathrm{noctx}}(x,a)
+=
+\mathbb E[x'\mid x,a]
+$$
+
+Its Bayes risk is:
+
+$$
+R^\star_{\mathrm{noctx}}
+=
+\mathbb E[
+\|x'-\mathbb E[x'\mid x,a]\|^2
+]
+$$
+
+A context-aware predictor uses:
+
+$$
+f^\star_{\mathrm{ctx}}(x,a,c)
+=
+\mathbb E[x'\mid x,a,c]
+$$
+
+By total variance:
+
+$$
+\mathrm{Var}(x'\mid x,a)
+=
+\mathbb E[
+\mathrm{Var}(x'\mid x,a,c)
+]
+$$
+
+$$
++
+\mathrm{Var}
+(
+\mathbb E[x'\mid x,a,c]
+\mid x,a
+)
+$$
+
+Therefore:
+
+$$
+R^\star_{\mathrm{ctx}}
+\le
+R^\star_{\mathrm{noctx}}
+$$
+
+The inequality is strict when context changes the conditional next-state mean.
+DUC-WM approaches the context-aware predictor when \(q_\phi(c\mid h)\) can infer
+context from history.
+
+### 3. Control-Weighted Error Bounds Return Gap
+
+Assume the value function is Lipschitz in the control norm:
+
+$$
+|V(x)-V(y)|
+\le
+L_V\|x-y\|_{W}
+$$
+
+Then the model-return gap is bounded by:
+
+$$
+|J_{\mathrm{real}}(\pi)-J_{\mathrm{model}}(\pi)|
+\le
+C
+\sum_t
+\mathbb E[
+\|x_t-\hat x_t\|_{W_t}
+]
++
+C'U
+$$
+
+Thus ordinary \(R^2\) is not enough. The relevant quantity is the
+control-weighted error that appears in \(R^2_{\mathrm{DUC}}\).
+
+### 4. Conditional Comparison With Context-Free Models
+
+DUC-WM does not claim to always beat every world model. A valid comparison
+statement is conditional.
+
+Let:
+
+$$
+B_D=C E_{W,D}+C'U_D
+$$
+
+and:
+
+$$
+B_N=C E_{W,N}+C'U_N
+$$
+
+be return-gap bounds for DUC-WM and a context-free model. If:
+
+$$
+\hat J_D(\pi_D)-\hat J_N(\pi_N)>B_D+B_N
+$$
+
+then:
+
+$$
+J(\pi_D)>J(\pi_N)
+$$
+
+Proof:
+
+$$
+J(\pi_D)\ge \hat J_D(\pi_D)-B_D
+$$
+
+and:
+
+$$
+J(\pi_N)\le \hat J_N(\pi_N)+B_N
+$$
+
+The result follows by substitution. DUC-WM is expected to have smaller \(B_D\)
+only when the environment has latent but inferable mechanisms.
+
+## Runtime Envelope
+
+The implementation is intentionally H100-friendly:
+
+| Component | Default |
+|---|---|
+| mechanisms | 9 |
+| MLP layers | 2 |
+| hidden size | 256 |
+| context encoder | small MLP over history |
+| context samples | 1 for training path, optional MC later |
+| LLM use | offline only |
+| planner | optional CEM |
+
+The LLM is not in the gradient loop.
 
 ## Run
 
-Smoke test:
+Smoke run:
 
-```powershell
-uv run --no-sync --env-file .env python main.py --config-name smoke
+```bash
+uv run --no-sync python main.py --config-name smoke
 ```
 
-Full in-repo sweep, three seeds:
+Default DUC-WM run:
 
-```powershell
-uv run --no-sync --env-file .env python main.py -m problem=Swimmer-v5,InvertedDoublePendulum-v5,Reacher-v5,Hopper-v5,Walker2d-v5,HalfCheetah-v5 model=answer,onelife,pets_ensemble,neural,program_only,symbolic_neural,neural_mlp,answer_mlp seed=0,1,2 device=cuda skip_existing=true output_dir=outputs_final_answer_3seed
+```bash
+uv run --no-sync python main.py problem=Hopper-v5 device=cuda
 ```
 
-Expected in-repo JSON count:
+Example sweep:
 
-```text
-6 environments * 8 runnable models * 3 seeds = 144 JSON files
+```bash
+uv run --no-sync python main.py -m \
+  problem=Swimmer-v5,Reacher-v5,Hopper-v5,Walker2d-v5,Ant-v5 \
+  seed=0 \
+  device=cuda \
+  mujoco_extension.variant=all \
+  output_dir=outputs/duc_wm
 ```
 
-If the original seven-model sweep already exists, add only the fair MLP-backbone
-ANSWER variant:
+Aggregate one metric:
 
-```powershell
-uv run --no-sync --env-file .env python main.py -m problem=Swimmer-v5,InvertedDoublePendulum-v5,Reacher-v5,Hopper-v5,Walker2d-v5,HalfCheetah-v5 model=answer_mlp seed=0,1,2 device=cuda skip_existing=true output_dir=outputs_final_answer_3seed
+```bash
+uv run --no-sync python scripts/aggregate_mujoco_results.py \
+  outputs/duc_wm/*.json \
+  --metric score.duc_r2_at_1
 ```
 
-Format the paper table:
+## Current Claim
 
-```powershell
-$files = Get-ChildItem outputs_final_answer_3seed -Filter *.json | Select-Object -ExpandProperty FullName
-uv run --no-sync --env-file .env python scripts/format_mujoco_paper_tables.py $files --no-std
-```
+DUC-WM is for hidden-mechanism continuous control. It uses an offline LLM prior
+to define plausible causal mechanisms, trains modular neural mechanisms and a
+context posterior, and evaluates prediction with a control-aware metric.
 
-Export LaTeX:
+The valid claim is not "DUC-WM always beats NSWM." The valid claim is:
 
-```powershell
-$files = Get-ChildItem outputs_final_answer_3seed -Filter *.json | Select-Object -ExpandProperty FullName
-uv run --no-sync --env-file .env python scripts/format_mujoco_paper_tables.py $files --no-std --format latex | Tee-Object mujoco_main_table.tex
-```
-
-Aggregate LLM calls:
-
-```powershell
-uv run --no-sync --env-file .env python scripts/aggregate_mujoco_results.py outputs_final_answer_3seed/*.json --metric llm_calls --show-std
-```
-
-Useful diagnostics are saved under `program_residual`:
-
-```text
-one_step_delta_nll
-mean_symbolic_gate
-gate_active_fraction_0.01
-mean_graph_budget
-symbolic_gain_delta_r2_uniform
-active_law_count_unique
-```
-
-These diagnostics show whether the symbolic component is active and whether it
-improves the symbolic-conditioned candidate before the final gate.
+If transition dynamics depend on latent but inferable mechanisms, a
+context-aware mechanism world model can have lower Bayes transition risk than a
+context-free predictor. If its control-weighted rollout error and uncertainty
+are lower, its model-planning return gap is also lower.

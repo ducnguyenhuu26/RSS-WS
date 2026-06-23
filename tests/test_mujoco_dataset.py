@@ -11,6 +11,8 @@ def test_mujoco_transitions_roundtrip_npz(tmp_path):
         states=np.array([[0.0, 1.0], [2.0, 3.0]], dtype=np.float32),
         actions=np.array([[0.5], [1.5]], dtype=np.float32),
         next_states=np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),
+        contexts=np.array([[0.1, 0.2], [0.3, 0.4]], dtype=np.float32),
+        context_names=("wind", "sticky"),
     )
     path = tmp_path / "mujoco_transitions.npz"
 
@@ -23,6 +25,8 @@ def test_mujoco_transitions_roundtrip_npz(tmp_path):
     assert np.array_equal(loaded.states, transitions.states)
     assert np.array_equal(loaded.actions, transitions.actions)
     assert np.array_equal(loaded.next_states, transitions.next_states)
+    assert np.array_equal(loaded.contexts, transitions.contexts)
+    assert loaded.context_names == ("wind", "sticky")
 
 
 def test_mujoco_transitions_iter_torch_batches():

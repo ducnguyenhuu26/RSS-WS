@@ -16,6 +16,10 @@ class MuJoCoTransitions:
     states: npt.NDArray[np.float32]
     actions: npt.NDArray[np.float32]
     next_states: npt.NDArray[np.float32]
+    rewards: npt.NDArray[np.float32] | None = None
+    dones: npt.NDArray[np.bool_] | None = None
+    contexts: npt.NDArray[np.float32] | None = None
+    context_names: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.states.ndim != 2:
@@ -28,6 +32,17 @@ class MuJoCoTransitions:
             raise ValueError("states and next_states must have matching shape")
         if self.states.shape[0] != self.actions.shape[0]:
             raise ValueError("states and actions must have matching num_steps")
+        if self.rewards is not None and self.rewards.shape[0] != self.num_steps:
+            raise ValueError("rewards must have shape [num_steps]")
+        if self.dones is not None and self.dones.shape[0] != self.num_steps:
+            raise ValueError("dones must have shape [num_steps]")
+        if self.contexts is not None:
+            if self.contexts.ndim != 2:
+                raise ValueError("contexts must have shape [num_steps, context_dim]")
+            if self.contexts.shape[0] != self.num_steps:
+                raise ValueError("contexts must have matching num_steps")
+            if self.context_names and len(self.context_names) != self.contexts.shape[1]:
+                raise ValueError("context_names must match contexts.shape[1]")
 
     @property
     def num_steps(self) -> int:
@@ -41,23 +56,39 @@ class MuJoCoTransitions:
     def action_dim(self) -> int:
         return int(self.actions.shape[1])
 
+    @property
+    def context_dim(self) -> int:
+        return 0 if self.contexts is None else int(self.contexts.shape[1])
+
     def save_npz(self, path: str | Path) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        np.savez_compressed(
-            path,
-            states=self.states,
-            actions=self.actions,
-            next_states=self.next_states,
-        )
+        payload: dict[str, npt.NDArray[np.float32] | npt.NDArray[np.bool_]] = {
+            "states": self.states,
+            "actions": self.actions,
+            "next_states": self.next_states,
+        }
+        if self.rewards is not None:
+            payload["rewards"] = self.rewards
+        if self.dones is not None:
+            payload["dones"] = self.dones
+        if self.contexts is not None:
+            payload["contexts"] = self.contexts
+            payload["context_names"] = np.asarray(self.context_names)
+        np.savez_compressed(path, **payload)
 
     @classmethod
     def load_npz(cls, path: str | Path) -> "MuJoCoTransitions":
         loaded = np.load(Path(path))
+        context_names = tuple(str(item) for item in loaded["context_names"]) if "context_names" in loaded else ()
         return cls(
             states=loaded["states"].astype(np.float32),
             actions=loaded["actions"].astype(np.float32),
             next_states=loaded["next_states"].astype(np.float32),
+            rewards=loaded["rewards"].astype(np.float32) if "rewards" in loaded else None,
+            dones=loaded["dones"].astype(np.bool_) if "dones" in loaded else None,
+            contexts=loaded["contexts"].astype(np.float32) if "contexts" in loaded else None,
+            context_names=context_names,
         )
 
     def to_torch(

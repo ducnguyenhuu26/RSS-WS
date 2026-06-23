@@ -1,88 +1,40 @@
 problem: Hopper-v5
-model: answer
+model: duc_wm
 
 seed: 0
 train_steps: 10000
 test_steps: 2000
 epochs: 50
 batch_size: 256
+eval_batch_size: 512
 learning_rate: 0.001
-residual_l2_weight: 0.001
-hidden_sizes: [256, 256]
 device: auto
 
-ode:
-  steps: 4
+mujoco_extension:
+  variant: all
+  test_variant: all
+  num_contexts: 16
+  test_num_contexts: 8
+  action_policy: smooth_random
+  action_smoothing: 0.85
 
-gate:
-  # ANSWER starts close to the neural-only backbone and only opens symbolic
-  # interventions when they reduce the supervised dynamics loss. A temperature
-  # above 1 keeps the gate soft instead of turning it into early hard selection.
-  initial_logit: -3.0
-  temperature: 2.0
+duc:
+  history_length: 4
+  hidden_size: 256
+  hidden_layers: 2
+  beta_kl: 0.001
+  context_weight: 1.0
+  control_weight: 0.0
+  orth_weight: 0.0
+  sparse_weight: 0.0
+  teacher_force_context: true
+  llm_prior:
+    # The prompt is built per environment and stored in the output JSON for
+    # traceability. If json_path is set, templates are loaded from that JSON
+    # instead of using deterministic fallback templates.
+    json_path: null
 
-symbolic:
-  initial_law_logit: -4.0
-  l1_weight: 0.0001
-  unknown_confidence_threshold: 0.001
-  base_delta_precision: 1.0
-
-law_graph:
-  validation_sample_count: 512
-  quality_floor: 0.05
-
-probabilistic:
-  use_nll_loss: true
-
-llm:
-  provider: openai
-  model_slug: gpt-4o-mini
-  sample_count: 32
-  dt: auto
-
-discretization:
-  state_bins: 21
-  action_bins: 11
-
-rollout:
-  horizons: [10]
-  num_rollouts: 20
-  action_policy: zero
-  stop_on_done: false
-
-planning:
-  enabled: true
-  planners: [cem_pec_mpc]
-  num_episodes: 1
-  max_episode_steps: 200
-  horizon: 5
-  cem_candidates: 64
-  cem_elites: 8
-  cem_iterations: 2
-  state_ood_weight: 0.05
-  action_ood_weight: 0.01
-  disagreement_weight: 0.10
-  ensemble_variance_weight: 0.10
-  ood_z_clip: 3.0
-
-island_search:
-  candidates_per_niche: 2
-  generations: 2
-  island_size: 6
-  elite_per_island: 2
-  migration_interval: 1
-  migrants_per_island: 1
-  max_laws_per_program: 5
-  validation_sample_count: 1024
-
-pets:
-  ensemble_size: 5
-  bootstrap: true
-
-diagnostics:
-  symbolic_baselines: false
-
-output_dir: outputs
+output_dir: outputs/duc_wm
 output_name: null
 skip_existing: false
 verbose: false
