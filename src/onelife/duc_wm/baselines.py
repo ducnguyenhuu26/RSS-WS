@@ -40,6 +40,16 @@ class PETSWorldModelConfig:
 
 
 @dataclass(frozen=True)
+class MLPWorldModelConfig:
+    state_dim: int
+    action_dim: int
+    hidden_size: int = 256
+    hidden_layers: int = 2
+    min_logvar: float = -8.0
+    max_logvar: float = 2.0
+
+
+@dataclass(frozen=True)
 class CaDMWorldModelConfig:
     state_dim: int
     action_dim: int
@@ -58,6 +68,45 @@ class BaselineForwardOutput:
     latent: torch.Tensor | None = None
     member_means: torch.Tensor | None = None
     member_logvars: torch.Tensor | None = None
+
+
+class MLPWorldModel(nn.Module):
+    """Single black-box Gaussian delta model.
+
+    This is the simplest capacity-controlled dynamics baseline: no ensemble,
+    no context encoder, no named mechanisms, no LLM prior.
+    """
+
+    def __init__(self, config: MLPWorldModelConfig) -> None:
+        super().__init__()
+        self.config = config
+        self.network = _mlp(
+            input_dim=config.state_dim + config.action_dim,
+            output_dim=2 * config.state_dim,
+            hidden_size=config.hidden_size,
+            hidden_layers=config.hidden_layers,
+        )
+
+    def forward(
+        self,
+        states: torch.Tensor,
+        actions: torch.Tensor,
+        history_states: torch.Tensor | None = None,
+        history_actions: torch.Tensor | None = None,
+        context: torch.Tensor | None = None,
+        sample_context: bool = False,
+    ) -> BaselineForwardOutput:
+        del history_states, history_actions, context, sample_context
+        inputs = torch.cat([states, actions], dim=-1)
+        delta, logvar = self.network(inputs).chunk(2, dim=-1)
+        return BaselineForwardOutput(
+            mean=states + delta,
+            logvar=logvar.clamp(self.config.min_logvar, self.config.max_logvar),
+        )
+
+    def nll(self, output: BaselineForwardOutput, targets: torch.Tensor) -> torch.Tensor:
+        inv_var = torch.exp(-output.logvar)
+        return 0.5 * ((targets - output.mean).pow(2) * inv_var + output.logvar).mean()
 
 
 class PETSWorldModel(nn.Module):
@@ -207,7 +256,7 @@ class CaDMWorldModel(nn.Module):
 
 
 def fit_baseline_world_model(
-    model: PETSWorldModel | CaDMWorldModel,
+    model: MLPWorldModel | PETSWorldModel | CaDMWorldModel,
     transitions: MuJoCoTransitions,
     config: BaselineTrainerConfig,
     device: torch.device | str,
@@ -306,7 +355,7 @@ def fit_baseline_world_model(
 
 
 def evaluate_baseline_world_model(
-    model: PETSWorldModel | CaDMWorldModel,
+    model: MLPWorldModel | PETSWorldModel | CaDMWorldModel,
     transitions: MuJoCoTransitions,
     device: torch.device | str,
     control_templates: tuple[MechanismTemplate, ...],
@@ -326,7 +375,7 @@ def evaluate_baseline_world_model(
 
 
 def _rollout_loss_for_batch(
-    model: PETSWorldModel | CaDMWorldModel,
+    model: MLPWorldModel | PETSWorldModel | CaDMWorldModel,
     transitions: MuJoCoTransitions,
     batch: DUCBatch,
     horizon: int,

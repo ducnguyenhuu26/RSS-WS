@@ -6,6 +6,8 @@ from onelife.duc_wm import (
     BaselineTrainerConfig,
     CaDMWorldModel,
     CaDMWorldModelConfig,
+    MLPWorldModel,
+    MLPWorldModelConfig,
     PETSWorldModel,
     PETSWorldModelConfig,
     default_mujoco_templates,
@@ -39,6 +41,40 @@ def test_pets_baseline_training_and_eval_smoke():
             hidden_size=16,
             hidden_layers=1,
             ensemble_size=2,
+        )
+    )
+
+    history = fit_baseline_world_model(
+        model=model,
+        transitions=transitions,
+        config=BaselineTrainerConfig(epochs=1, batch_size=2, history_length=2),
+        device="cpu",
+        control_templates=templates,
+    )
+    metrics = evaluate_baseline_world_model(
+        model=model,
+        transitions=transitions,
+        device="cpu",
+        control_templates=templates,
+        batch_size=2,
+        history_length=2,
+        rollout_horizon=2,
+    )
+
+    assert history
+    assert "r2_at_1" in metrics
+    assert "r2_at_2" in metrics
+
+
+def test_mlp_baseline_training_and_eval_smoke():
+    transitions = _tiny_transitions()
+    templates = default_mujoco_templates("TinyEnv", state_dim=2, action_dim=1)
+    model = MLPWorldModel(
+        MLPWorldModelConfig(
+            state_dim=2,
+            action_dim=1,
+            hidden_size=16,
+            hidden_layers=1,
         )
     )
 

@@ -59,6 +59,23 @@ baseline:
   ensemble_size: 5
   context_dim: 10
 
+reward:
+  hidden_size: 256
+  hidden_layers: 2
+  epochs: 20
+  batch_size: 256
+  learning_rate: 0.001
+
+planning:
+  enabled: true
+  episodes: 3
+  max_steps: 200
+  horizon: 15
+  candidates: 256
+  elites: 32
+  iterations: 3
+  uncertainty_weight: 0.05
+
 runtime:
   precision: fp32
   preload_to_device: false

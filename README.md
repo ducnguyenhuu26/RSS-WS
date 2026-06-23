@@ -439,12 +439,9 @@ The ablation plan is part of the method:
 | DUC without LLM prior | does structure help? |
 | random prior | is any decomposition enough? |
 | wrong prior | can data repair bad priors? |
-| no residual | is symbolic/structural prior too rigid? |
-| global residual | are mechanism-specific residuals needed? |
 | no unknown slot | does the model over-attribute missing mechanisms? |
-| no bounded strength | does rollout stability degrade? |
-| no sparsity/orthogonality | do mechanisms collapse together? |
-| no control-weighted loss | does planning relevance degrade? |
+| no regularization | do residual/unknown/sparse/orth terms matter? |
+| no rollout loss | does rollout training improve multi-step prediction and MPC? |
 
 The strongest positive result is:
 
@@ -482,7 +479,13 @@ src/onelife/duc_wm/metrics.py
   R2@1, DUC_R2@1, R2@H, DUC_R2@H, attribution, unknown activation.
 
 src/onelife/duc_wm/planner.py
-  Compact CEM-MPC planner utility.
+  CEM-MPC planner shared by all methods.
+
+src/onelife/duc_wm/reward_model.py
+  Reward surrogate trained from transition rewards for model-based planning.
+
+src/onelife/duc_wm/planning_eval.py
+  Executes CEM-MPC actions in MuJoCo extension episodes and reports return.
 ```
 
 ## Run
@@ -505,11 +508,11 @@ Default latent-context run:
 uv run python main.py problem=Hopper-v5 device=cuda
 ```
 
-Workshop four-method sweep:
+Workshop sweep:
 
 ```bash
 uv run python main.py --config-name workshop -m \
-  model=pets,cadm,duc_random,duc_wm \
+  model=mlp,pets,cadm,duc_no_llm,duc_random,duc_wrong_prior,duc_no_unknown,duc_no_reg,duc_no_rollout,duc_wm \
   problem=Hopper-v5,Walker2d-v5 \
   seed=0,1,2 \
   device=cuda
@@ -519,7 +522,7 @@ Large-machine sweep with CPU-parallel collection and BF16 training:
 
 ```bash
 uv run python main.py --config-name workshop_big -m \
-  model=pets,cadm,duc_random,duc_wm \
+  model=mlp,pets,cadm,duc_no_llm,duc_random,duc_wrong_prior,duc_no_unknown,duc_wm \
   problem=Hopper-v5,Walker2d-v5 \
   seed=0,1,2 \
   mujoco_extension.parallel_workers=0 \
@@ -535,21 +538,32 @@ Compositional OOD sweep:
 
 ```bash
 uv run python main.py --config-name workshop -m \
-  model=pets,cadm,duc_random,duc_wm \
+  model=mlp,pets,cadm,duc_no_llm,duc_random,duc_wrong_prior,duc_wm \
   'mujoco_extension.train_variants=[wind,friction,delay,mass]' \
   'mujoco_extension.test_variants=[wind+friction,friction+delay,mass+delay]' \
   seed=0,1,2 \
   device=cuda
 ```
 
-The four primary methods are:
+The implemented methods are:
 
 | Method | Role |
 |---|---|
+| `mlp` | black-box Gaussian MLP dynamics |
 | `pets` | PETS-style probabilistic ensemble dynamics |
 | `cadm` | CaDM-style latent-context dynamics |
+| `duc_no_llm` | DUC architecture with non-semantic generic mechanisms |
 | `duc_random` | DUC architecture with random mechanism masks |
+| `duc_wrong_prior` | DUC architecture with rotated/wrong semantic masks |
+| `duc_no_unknown` | DUC-WM without the unknown fallback mechanism |
+| `duc_no_reg` | DUC-WM without residual/unknown/sparse/orth regularizers |
+| `duc_no_rollout` | DUC-WM without rollout-consistency training |
 | `duc_wm` | full DUC-WM with semantic mechanism templates |
+
+Planning is controlled by the `planning` block. `workshop.yaml` and
+`workshop_big.yaml` enable CEM-MPC by default, so output JSON files include
+`score.planner_return_mean` and `score.planner_return_std`. `smoke.yaml` keeps
+planning disabled unless explicitly overridden.
 
 Supervised virtual-context debugging run:
 
@@ -593,7 +607,8 @@ Aggregate workshop tables:
 uv run python scripts/aggregate_duc_results.py \
   outputs/duc_wm_workshop/*.json \
   --group-by model,problem,test_variant \
-  --metrics score.r2_at_1,score.r2_at_10,score.duc_r2_at_10,score.nll,score.attribution_recall_at_2,score.strength_spearman \
+  --metrics score.r2_at_1,score.r2_at_10,score.duc_r2_at_10,score.nll,\
+score.planner_return_mean,score.attribution_recall_at_2,score.strength_spearman \
   --rank-metric score.duc_r2_at_10
 ```
 
@@ -609,14 +624,14 @@ Implemented:
 - confidence-weighted residual regularization;
 - unknown activation regularization;
 - rollout and attribution metrics;
+- CEM-MPC reward evaluation through a learned reward surrogate;
 - latent-context default config and supervised smoke config.
-- PETS-style, CaDM-style, DUC-random, and full DUC-WM benchmark methods;
+- MLP, PETS-style, CaDM-style, DUC ablation, and full DUC-WM benchmark methods;
 - workshop config and grouped result aggregation script.
 
 Still recommended before making a strong paper claim:
 
 - implement executable symbolic priors for simple mechanisms;
-- add black-box MLP and black-box latent-context baselines;
-- run compositional OOD train/test splits;
-- connect CEM-MPC to benchmark rewards and report real returns;
+- run compositional OOD train/test splits at scale;
+- validate CEM-MPC returns against stronger model-based planning baselines;
 - report robustness to random, wrong, and missing LLM priors.

@@ -19,20 +19,31 @@ from onelife.duc_wm import (
     DUCTrainerConfig,
     DUCWorldModel,
     DUCWorldModelConfig,
+    MLPWorldModel,
+    MLPWorldModelConfig,
     MuJoCoExtensionConfig,
     PETSWorldModel,
     PETSWorldModelConfig,
+    PlanningEvalConfig,
+    RewardModel,
+    RewardModelConfig,
+    RewardTrainerConfig,
     build_duc_mujoco_prior_prompt,
     collect_mujoco_extension_dataset,
     default_mujoco_templates,
     evaluate_baseline_world_model,
+    evaluate_cem_mpc,
     evaluate_duc_model,
     fit_baseline_world_model,
     fit_duc_world_model,
+    fit_reward_model,
+    generic_mechanism_templates,
     load_templates_from_json_file,
     prompt_payload,
     randomize_mechanism_templates,
+    remove_unknown_template,
     synthesize_templates_with_llm,
+    wrong_mechanism_templates,
 )
 
 
@@ -128,8 +139,22 @@ def main(cfg: DictConfig) -> None:
             seed=seed + 8128,
         )
         llm_prior_status["source"] = f"{llm_prior_status['source']}+random_masks"
+    elif method == "duc_no_llm":
+        templates = generic_mechanism_templates(
+            state_dim=train_dataset.state_dim,
+            action_dim=train_dataset.action_dim,
+            count=max(1, len(templates) - 1),
+            include_unknown=True,
+        )
+        llm_prior_status["source"] = "generic_no_llm_prior"
+    elif method == "duc_wrong_prior":
+        templates = wrong_mechanism_templates(templates)
+        llm_prior_status["source"] = f"{llm_prior_status['source']}+wrong_rotated_masks"
+    elif method == "duc_no_unknown":
+        templates = remove_unknown_template(templates)
+        llm_prior_status["source"] = f"{llm_prior_status['source']}+no_unknown"
 
-    if method in {"duc_wm", "duc_random"}:
+    if method in DUC_METHODS:
         model = DUCWorldModel(
             DUCWorldModelConfig(
                 state_dim=train_dataset.state_dim,
@@ -144,31 +169,39 @@ def main(cfg: DictConfig) -> None:
         history = fit_duc_world_model(
             model=model,
             transitions=train_dataset,
-            config=DUCTrainerConfig(
-                epochs=int(cfg.epochs),
-                batch_size=int(cfg.batch_size),
-                learning_rate=float(cfg.learning_rate),
-                history_length=int(cfg.duc.history_length),
-                beta_kl=float(cfg.duc.beta_kl),
-                context_weight=float(cfg.duc.context_weight),
-                residual_weight=float(cfg.duc.get("residual_weight", 0.0)),
-                control_weight=float(cfg.duc.control_weight),
-                rollout_weight=float(cfg.duc.rollout_weight),
-                rollout_horizon=int(cfg.duc.rollout_horizon),
-                orth_weight=float(cfg.duc.orth_weight),
-                sparse_weight=float(cfg.duc.sparse_weight),
-                unknown_weight=float(cfg.duc.get("unknown_weight", 0.0)),
-                teacher_force_context=bool(cfg.duc.teacher_force_context),
-                seed=seed,
-                precision=str(config_get(cfg, "runtime.precision", "fp32")),
-                preload_to_device=bool(config_get(cfg, "runtime.preload_to_device", False)),
-            ),
+            config=duc_trainer_config(cfg, seed, method),
             device=device,
         )
         metrics = evaluate_duc_model(
             model=model,
             transitions=test_dataset,
             device=device,
+            batch_size=int(cfg.eval_batch_size),
+            history_length=int(cfg.duc.history_length),
+            rollout_horizon=int(cfg.duc.rollout_horizon),
+        )
+    elif method == "mlp":
+        model = MLPWorldModel(
+            MLPWorldModelConfig(
+                state_dim=train_dataset.state_dim,
+                action_dim=train_dataset.action_dim,
+                hidden_size=int(config_get(cfg, "baseline.hidden_size", cfg.duc.hidden_size)),
+                hidden_layers=int(config_get(cfg, "baseline.hidden_layers", cfg.duc.hidden_layers)),
+            )
+        ).to(device)
+        maybe_compile_forward(model, cfg)
+        history = fit_baseline_world_model(
+            model=model,
+            transitions=train_dataset,
+            config=baseline_trainer_config(cfg, seed),
+            device=device,
+            control_templates=templates,
+        )
+        metrics = evaluate_baseline_world_model(
+            model=model,
+            transitions=test_dataset,
+            device=device,
+            control_templates=templates,
             batch_size=int(cfg.eval_batch_size),
             history_length=int(cfg.duc.history_length),
             rollout_horizon=int(cfg.duc.rollout_horizon),
@@ -230,7 +263,37 @@ def main(cfg: DictConfig) -> None:
         )
     else:
         raise ValueError(
-            f"unknown model={method!r}; expected duc_wm, duc_random, pets, or cadm"
+            f"unknown model={method!r}; expected one of {sorted(ALL_METHODS)}"
+        )
+
+    reward_history: list[dict[str, float]] = []
+    if bool(config_get(cfg, "planning.enabled", False)):
+        reward_model = RewardModel(
+            RewardModelConfig(
+                state_dim=train_dataset.state_dim,
+                action_dim=train_dataset.action_dim,
+                hidden_size=int(config_get(cfg, "reward.hidden_size", cfg.duc.hidden_size)),
+                hidden_layers=int(config_get(cfg, "reward.hidden_layers", cfg.duc.hidden_layers)),
+            )
+        ).to(device)
+        reward_history = fit_reward_model(
+            model=reward_model,
+            transitions=train_dataset,
+            config=reward_trainer_config(cfg, seed),
+            device=device,
+        )
+        metrics.update(
+            evaluate_cem_mpc(
+                dynamics_model=model,
+                reward_model=reward_model,
+                env_id=problem,
+                variants=test_variants,
+                seed=seed + 20_000,
+                action_smoothing=float(cfg.mujoco_extension.action_smoothing),
+                history_length=int(cfg.duc.history_length),
+                config=planning_eval_config(cfg),
+                device=device,
+            )
         )
 
     payload = {
@@ -264,6 +327,7 @@ def main(cfg: DictConfig) -> None:
             for template in templates
         ],
         "training": history,
+        "reward_training": reward_history,
         "score": metrics,
         "config": OmegaConf.to_container(cfg, resolve=True),
     }
@@ -317,6 +381,77 @@ def baseline_trainer_config(cfg: DictConfig, seed: int) -> BaselineTrainerConfig
         control_weight=float(cfg.duc.control_weight),
         rollout_weight=float(cfg.duc.rollout_weight),
         rollout_horizon=int(cfg.duc.rollout_horizon),
+        seed=seed,
+        precision=str(config_get(cfg, "runtime.precision", "fp32")),
+        preload_to_device=bool(config_get(cfg, "runtime.preload_to_device", False)),
+    )
+
+
+def reward_trainer_config(cfg: DictConfig, seed: int) -> RewardTrainerConfig:
+    return RewardTrainerConfig(
+        epochs=int(config_get(cfg, "reward.epochs", max(1, int(cfg.epochs) // 3))),
+        batch_size=int(config_get(cfg, "reward.batch_size", cfg.batch_size)),
+        learning_rate=float(config_get(cfg, "reward.learning_rate", cfg.learning_rate)),
+        history_length=int(cfg.duc.history_length),
+        seed=seed,
+    )
+
+
+def planning_eval_config(cfg: DictConfig) -> PlanningEvalConfig:
+    return PlanningEvalConfig(
+        enabled=bool(config_get(cfg, "planning.enabled", False)),
+        episodes=int(config_get(cfg, "planning.episodes", 3)),
+        max_steps=int(config_get(cfg, "planning.max_steps", 200)),
+        horizon=int(config_get(cfg, "planning.horizon", 15)),
+        candidates=int(config_get(cfg, "planning.candidates", 256)),
+        elites=int(config_get(cfg, "planning.elites", 32)),
+        iterations=int(config_get(cfg, "planning.iterations", 3)),
+        uncertainty_weight=float(config_get(cfg, "planning.uncertainty_weight", 0.05)),
+    )
+
+
+DUC_METHODS = {
+    "duc_wm",
+    "duc_random",
+    "duc_no_llm",
+    "duc_wrong_prior",
+    "duc_no_unknown",
+    "duc_no_reg",
+    "duc_no_rollout",
+}
+
+BASELINE_METHODS = {"mlp", "pets", "cadm"}
+ALL_METHODS = DUC_METHODS | BASELINE_METHODS
+
+
+def duc_trainer_config(cfg: DictConfig, seed: int, method: str) -> DUCTrainerConfig:
+    residual_weight = float(cfg.duc.get("residual_weight", 0.0))
+    rollout_weight = float(cfg.duc.rollout_weight)
+    orth_weight = float(cfg.duc.orth_weight)
+    sparse_weight = float(cfg.duc.sparse_weight)
+    unknown_weight = float(cfg.duc.get("unknown_weight", 0.0))
+    if method == "duc_no_reg":
+        residual_weight = 0.0
+        orth_weight = 0.0
+        sparse_weight = 0.0
+        unknown_weight = 0.0
+    if method == "duc_no_rollout":
+        rollout_weight = 0.0
+    return DUCTrainerConfig(
+        epochs=int(cfg.epochs),
+        batch_size=int(cfg.batch_size),
+        learning_rate=float(cfg.learning_rate),
+        history_length=int(cfg.duc.history_length),
+        beta_kl=float(cfg.duc.beta_kl),
+        context_weight=float(cfg.duc.context_weight),
+        residual_weight=residual_weight,
+        control_weight=float(cfg.duc.control_weight),
+        rollout_weight=rollout_weight,
+        rollout_horizon=int(cfg.duc.rollout_horizon),
+        orth_weight=orth_weight,
+        sparse_weight=sparse_weight,
+        unknown_weight=unknown_weight,
+        teacher_force_context=bool(cfg.duc.teacher_force_context),
         seed=seed,
         precision=str(config_get(cfg, "runtime.precision", "fp32")),
         preload_to_device=bool(config_get(cfg, "runtime.preload_to_device", False)),

@@ -257,3 +257,101 @@ def randomize_mechanism_templates(
             )
         )
     return tuple(randomized)
+
+
+def generic_mechanism_templates(
+    state_dim: int,
+    action_dim: int,
+    count: int = 8,
+    include_unknown: bool = True,
+) -> tuple[MechanismTemplate, ...]:
+    """Return non-semantic dense templates for the no-LLM ablation."""
+
+    all_state = tuple(range(state_dim))
+    all_action = tuple(range(action_dim))
+    split = max(1, state_dim // 2)
+    vel = tuple(range(split, state_dim)) or all_state
+    templates: list[MechanismTemplate] = []
+    for index in range(max(1, count)):
+        output = vel if index % 2 == 0 else all_state
+        templates.append(
+            MechanismTemplate(
+                name=f"generic_{index}",
+                state_indices=all_state,
+                action_indices=all_action,
+                output_indices=output,
+                scale=0.75,
+                prior_std=0.75,
+                prior_confidence=0.0,
+                timescale="slow" if index < count // 2 else "event",
+                reward_relevance="non-semantic mechanism ablation",
+                description="dense non-semantic mechanism without LLM structure",
+            )
+        )
+    if include_unknown:
+        templates.append(
+            MechanismTemplate(
+                name="unknown",
+                state_indices=all_state,
+                action_indices=all_action,
+                output_indices=all_state,
+                scale=0.35,
+                prior_std=0.25,
+                prior_confidence=0.0,
+                timescale="unknown",
+                reward_relevance="absorbs missing non-semantic structure",
+                description="fallback slot for no-LLM ablation",
+            )
+        )
+    return tuple(templates)
+
+
+def remove_unknown_template(
+    templates: tuple[MechanismTemplate, ...],
+) -> tuple[MechanismTemplate, ...]:
+    filtered = tuple(
+        template
+        for template in templates
+        if template.name != "unknown" and template.timescale != "unknown"
+    )
+    if not filtered:
+        raise ValueError("cannot remove unknown from an empty template bank")
+    return filtered
+
+
+def wrong_mechanism_templates(
+    templates: tuple[MechanismTemplate, ...],
+) -> tuple[MechanismTemplate, ...]:
+    """Return a deterministic wrong-prior ablation by rotating semantic masks."""
+
+    semantic = [
+        template
+        for template in templates
+        if template.name != "unknown" and template.timescale != "unknown"
+    ]
+    unknown = [
+        template
+        for template in templates
+        if template.name == "unknown" or template.timescale == "unknown"
+    ]
+    if len(semantic) <= 1:
+        return templates
+    rotated = semantic[1:] + semantic[:1]
+    wrong: list[MechanismTemplate] = []
+    for original, donor in zip(semantic, rotated, strict=True):
+        wrong.append(
+            MechanismTemplate(
+                name=original.name,
+                state_indices=donor.state_indices,
+                action_indices=donor.action_indices,
+                output_indices=donor.output_indices,
+                scale=original.scale,
+                prior_mean=original.prior_mean,
+                prior_std=original.prior_std,
+                prior_confidence=original.prior_confidence,
+                timescale=original.timescale,
+                reward_relevance="wrong-prior ablation with rotated mechanism masks",
+                description=f"{original.name} assigned masks from {donor.name}",
+            )
+        )
+    return tuple(wrong + unknown)

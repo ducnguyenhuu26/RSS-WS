@@ -50,6 +50,23 @@ baseline:
   ensemble_size: 7
   context_dim: 16
 
+reward:
+  hidden_size: 512
+  hidden_layers: 3
+  epochs: 30
+  batch_size: 2048
+  learning_rate: 0.001
+
+planning:
+  enabled: true
+  episodes: 5
+  max_steps: 250
+  horizon: 20
+  candidates: 1024
+  elites: 128
+  iterations: 4
+  uncertainty_weight: 0.05
+
 runtime:
   # BF16 is the preferred fast/stable mode on H100/A100/Ada. Use fp16 only if
   # BF16 is unavailable. Override to fp32 for exact debugging.
