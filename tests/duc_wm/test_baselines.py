@@ -155,6 +155,32 @@ def test_cadm_baseline_training_and_eval_smoke():
     assert "r2_at_2" in metrics
 
 
+def test_unsupervised_cadm_ignores_raw_context_dim_mismatch():
+    transitions = _tiny_context_transitions()
+    templates = default_mujoco_templates("TinyEnv", state_dim=2, action_dim=1)
+    model = CaDMWorldModel(
+        CaDMWorldModelConfig(
+            state_dim=2,
+            action_dim=1,
+            history_length=2,
+            context_dim=3,
+            hidden_size=16,
+            hidden_layers=1,
+        )
+    )
+
+    history = fit_baseline_world_model(
+        model=model,
+        transitions=transitions,
+        config=BaselineTrainerConfig(epochs=1, batch_size=2, history_length=2),
+        device="cpu",
+        control_templates=templates,
+    )
+
+    assert history
+    assert history[0]["context"] == 0.0
+
+
 def test_context_conditioned_mlp_baseline_smoke():
     transitions = _tiny_context_transitions()
     templates = default_mujoco_templates("TinyEnv", state_dim=2, action_dim=1)

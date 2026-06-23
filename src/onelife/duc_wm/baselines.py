@@ -330,7 +330,10 @@ def fit_baseline_world_model(
                 nll = model.nll(output, batch.next_states)
                 batch_weights = control_weights.unsqueeze(0).expand_as(batch.states)
                 control = weighted_mse(output.mean, batch.next_states, batch_weights)
-                context_loss = _context_supervision_loss(output, batch)
+                if context_supervision_weight > 0.0:
+                    context_loss = _context_supervision_loss(output, batch)
+                else:
+                    context_loss = batch.states.new_zeros(())
                 rollout = _rollout_loss_for_batch(
                     model=model,
                     transitions=transitions,
