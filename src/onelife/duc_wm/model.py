@@ -77,7 +77,7 @@ class MechanismBank(nn.Module):
                 parts.append(actions.index_select(dim=-1, index=index))
             local_input = torch.cat(parts, dim=-1)
             local_effect = network(local_input)
-            full_effect = states.new_zeros(states.shape[0], self.state_dim)
+            full_effect = local_effect.new_zeros(states.shape[0], self.state_dim)
             out_index = torch.tensor(template.output_indices, device=states.device)
             full_effect.index_copy_(dim=-1, index=out_index, source=local_effect)
             effects.append(full_effect)
@@ -146,8 +146,8 @@ class ContextEncoder(nn.Module):
             )
             slow_mean, slow_logvar = self.slow_network(slow_features).chunk(2, dim=-1)
             slow_index = torch.tensor(self.slow_indices, device=history_states.device)
-            mean.index_copy_(dim=-1, index=slow_index, source=slow_mean)
-            logvar.index_copy_(dim=-1, index=slow_index, source=slow_logvar)
+            mean.index_copy_(dim=-1, index=slow_index, source=slow_mean.to(mean.dtype))
+            logvar.index_copy_(dim=-1, index=slow_index, source=slow_logvar.to(logvar.dtype))
         if self.event_network is not None:
             event_features = torch.cat(
                 [
@@ -158,8 +158,8 @@ class ContextEncoder(nn.Module):
             )
             event_mean, event_logvar = self.event_network(event_features).chunk(2, dim=-1)
             event_index = torch.tensor(self.event_indices, device=history_states.device)
-            mean.index_copy_(dim=-1, index=event_index, source=event_mean)
-            logvar.index_copy_(dim=-1, index=event_index, source=event_logvar)
+            mean.index_copy_(dim=-1, index=event_index, source=event_mean.to(mean.dtype))
+            logvar.index_copy_(dim=-1, index=event_index, source=event_logvar.to(logvar.dtype))
         return mean, logvar.clamp(min=-8.0, max=4.0)
 
 
@@ -240,9 +240,9 @@ class DUCWorldModel(nn.Module):
             alpha = alpha_mean
 
         base_input = torch.cat([states, actions], dim=-1)
-        base_delta = self.base_dynamics(base_input)
+        base_delta = self.base_dynamics(base_input).to(states.dtype)
         effects = self.mechanisms(states, actions)
-        mechanism_delta = torch.einsum("bk,bkd->bd", alpha, effects)
+        mechanism_delta = torch.einsum("bk,bkd->bd", alpha, effects).to(states.dtype)
         mean = states + base_delta + mechanism_delta
         logvar_input = torch.cat([states, actions, alpha, base_delta], dim=-1)
         logvar = self.variance_head(logvar_input).clamp(
