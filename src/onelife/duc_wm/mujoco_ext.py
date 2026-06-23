@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
+import os
 
 import gymnasium as gym
 import numpy as np
@@ -30,6 +32,7 @@ class MuJoCoExtensionConfig:
     max_episode_steps: int | None = None
     action_policy: str = "smooth_random"
     action_smoothing: float = 0.85
+    parallel_workers: int = 1
 
 
 def collect_mujoco_extension_dataset(config: MuJoCoExtensionConfig) -> MuJoCoTransitions:
@@ -46,66 +49,124 @@ def collect_mujoco_extension_dataset(config: MuJoCoExtensionConfig) -> MuJoCoTra
     if config.num_contexts <= 0:
         raise ValueError("num_contexts must be positive")
     rng = np.random.default_rng(config.seed)
+    steps_per_context = _distribute_count(config.num_steps, config.num_contexts)
+    contexts = [sample_context(config.variant, rng) for _ in range(config.num_contexts)]
+    worker_count = _resolve_worker_count(config.parallel_workers, config.num_contexts)
+    if worker_count > 1:
+        jobs = [
+            (
+                config,
+                context_id,
+                contexts[context_id],
+                steps_per_context[context_id],
+            )
+            for context_id in range(config.num_contexts)
+            if steps_per_context[context_id] > 0
+        ]
+        with ProcessPoolExecutor(max_workers=worker_count) as executor:
+            chunks = list(executor.map(_collect_context_chunk, jobs))
+        chunks.sort(key=lambda item: item["context_id"])
+        return _merge_context_chunks(chunks)
+
+    chunks = [
+        _collect_context_chunk(
+            (
+                config,
+                context_id,
+                contexts[context_id],
+                steps_per_context[context_id],
+            )
+        )
+        for context_id in range(config.num_contexts)
+        if steps_per_context[context_id] > 0
+    ]
+    return _merge_context_chunks(chunks)
+
+
+def _collect_context_chunk(
+    job: tuple[MuJoCoExtensionConfig, int, np.ndarray, int],
+) -> dict[str, np.ndarray | int]:
+    config, context_id, context, steps = job
+    rng = np.random.default_rng(config.seed + 104_729 * (context_id + 1))
     states: list[np.ndarray] = []
     actions: list[np.ndarray] = []
     next_states: list[np.ndarray] = []
     rewards: list[float] = []
     dones: list[bool] = []
-    contexts: list[np.ndarray] = []
-    steps_per_context = max(1, int(np.ceil(config.num_steps / config.num_contexts)))
-    collected = 0
-    for context_id in range(config.num_contexts):
-        context = sample_context(config.variant, rng)
-        env = gym.make(config.env_id)
-        try:
-            apply_parameter_context(env, context)
-            obs, _ = env.reset(seed=config.seed + context_id)
-            obs = np.asarray(obs, dtype=np.float32)
-            previous_action = np.zeros(env.action_space.shape, dtype=np.float32)
-            for _ in range(steps_per_context):
-                if collected >= config.num_steps:
-                    break
-                raw_action = sample_action(
-                    env,
-                    rng,
-                    previous_action=previous_action,
-                    policy=config.action_policy,
-                    smoothing=config.action_smoothing,
-                )
-                effective_action = apply_action_context(raw_action, previous_action, context, rng)
-                env_next, reward, terminated, truncated, _ = env.step(effective_action)
-                env_next = np.asarray(env_next, dtype=np.float32)
-                disturbed_next = apply_transition_context(
-                    state=obs,
-                    next_state=env_next,
-                    context=context,
-                    rng=rng,
-                )
-                states.append(obs.astype(np.float32))
-                actions.append(raw_action.astype(np.float32))
-                next_states.append(disturbed_next.astype(np.float32))
-                rewards.append(float(reward))
-                done = bool(terminated or truncated)
-                dones.append(done)
-                contexts.append(context.astype(np.float32))
-                collected += 1
-                previous_action = raw_action
-                obs = disturbed_next
-                if done:
-                    obs, _ = env.reset(seed=config.seed + context_id + collected)
-                    obs = np.asarray(obs, dtype=np.float32)
-                    previous_action = np.zeros(env.action_space.shape, dtype=np.float32)
-        finally:
-            env.close()
+    context_rows: list[np.ndarray] = []
+    env = gym.make(config.env_id)
+    try:
+        apply_parameter_context(env, context)
+        obs, _ = env.reset(seed=config.seed + context_id)
+        obs = np.asarray(obs, dtype=np.float32)
+        previous_action = np.zeros(env.action_space.shape, dtype=np.float32)
+        for step in range(steps):
+            raw_action = sample_action(
+                env,
+                rng,
+                previous_action=previous_action,
+                policy=config.action_policy,
+                smoothing=config.action_smoothing,
+            )
+            effective_action = apply_action_context(raw_action, previous_action, context, rng)
+            env_next, reward, terminated, truncated, _ = env.step(effective_action)
+            env_next = np.asarray(env_next, dtype=np.float32)
+            disturbed_next = apply_transition_context(
+                state=obs,
+                next_state=env_next,
+                context=context,
+                rng=rng,
+            )
+            states.append(obs.astype(np.float32))
+            actions.append(raw_action.astype(np.float32))
+            next_states.append(disturbed_next.astype(np.float32))
+            rewards.append(float(reward))
+            done = bool(terminated or truncated)
+            dones.append(done)
+            context_rows.append(context.astype(np.float32))
+            previous_action = raw_action
+            obs = disturbed_next
+            if done and step + 1 < steps:
+                obs, _ = env.reset(seed=config.seed + context_id + step + 1)
+                obs = np.asarray(obs, dtype=np.float32)
+                previous_action = np.zeros(env.action_space.shape, dtype=np.float32)
+    finally:
+        env.close()
+    return {
+        "context_id": context_id,
+        "states": np.asarray(states, dtype=np.float32),
+        "actions": np.asarray(actions, dtype=np.float32),
+        "next_states": np.asarray(next_states, dtype=np.float32),
+        "rewards": np.asarray(rewards, dtype=np.float32),
+        "dones": np.asarray(dones, dtype=np.bool_),
+        "contexts": np.asarray(context_rows, dtype=np.float32),
+    }
+
+
+def _merge_context_chunks(chunks: list[dict[str, np.ndarray | int]]) -> MuJoCoTransitions:
+    if not chunks:
+        raise ValueError("no context chunks were collected")
     return MuJoCoTransitions(
-        states=np.asarray(states, dtype=np.float32),
-        actions=np.asarray(actions, dtype=np.float32),
-        next_states=np.asarray(next_states, dtype=np.float32),
-        rewards=np.asarray(rewards, dtype=np.float32),
-        dones=np.asarray(dones, dtype=np.bool_),
-        contexts=np.asarray(contexts, dtype=np.float32),
+        states=np.concatenate([chunk["states"] for chunk in chunks]).astype(np.float32),
+        actions=np.concatenate([chunk["actions"] for chunk in chunks]).astype(np.float32),
+        next_states=np.concatenate([chunk["next_states"] for chunk in chunks]).astype(np.float32),
+        rewards=np.concatenate([chunk["rewards"] for chunk in chunks]).astype(np.float32),
+        dones=np.concatenate([chunk["dones"] for chunk in chunks]).astype(np.bool_),
+        contexts=np.concatenate([chunk["contexts"] for chunk in chunks]).astype(np.float32),
         context_names=CONTEXT_NAMES,
     )
+
+
+def _distribute_count(total: int, buckets: int) -> list[int]:
+    base = total // buckets
+    remainder = total % buckets
+    return [base + (1 if index < remainder else 0) for index in range(buckets)]
+
+
+def _resolve_worker_count(requested: int, num_contexts: int) -> int:
+    if requested <= 0:
+        requested = os.cpu_count() or 1
+    return max(1, min(int(requested), int(num_contexts)))
 
 
 def sample_context(variant: str, rng: np.random.Generator) -> np.ndarray:

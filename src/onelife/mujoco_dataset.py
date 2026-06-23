@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Sequence
 
 import numpy as np
 import numpy.typing as npt
@@ -131,3 +132,47 @@ class MuJoCoTransitions:
                 device=device,
             )
             yield states, actions, next_states
+
+
+def concatenate_mujoco_transitions(
+    datasets: Sequence[MuJoCoTransitions],
+) -> MuJoCoTransitions:
+    if not datasets:
+        raise ValueError("datasets must be non-empty")
+    first = datasets[0]
+    context_names = first.context_names
+    for dataset in datasets:
+        if dataset.state_dim != first.state_dim:
+            raise ValueError("all datasets must share state_dim")
+        if dataset.action_dim != first.action_dim:
+            raise ValueError("all datasets must share action_dim")
+        if dataset.context_names != context_names:
+            raise ValueError("all datasets must share context_names")
+
+    dones = []
+    for dataset in datasets:
+        if dataset.dones is None:
+            current = np.zeros(dataset.num_steps, dtype=np.bool_)
+        else:
+            current = dataset.dones.astype(np.bool_).copy()
+        if len(current) > 0:
+            current[-1] = True
+        dones.append(current)
+
+    rewards = None
+    if all(dataset.rewards is not None for dataset in datasets):
+        rewards = np.concatenate([dataset.rewards for dataset in datasets if dataset.rewards is not None])
+
+    contexts = None
+    if all(dataset.contexts is not None for dataset in datasets):
+        contexts = np.concatenate([dataset.contexts for dataset in datasets if dataset.contexts is not None])
+
+    return MuJoCoTransitions(
+        states=np.concatenate([dataset.states for dataset in datasets]),
+        actions=np.concatenate([dataset.actions for dataset in datasets]),
+        next_states=np.concatenate([dataset.next_states for dataset in datasets]),
+        rewards=rewards,
+        dones=np.concatenate(dones),
+        contexts=contexts,
+        context_names=context_names,
+    )

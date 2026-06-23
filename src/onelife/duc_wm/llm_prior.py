@@ -41,7 +41,8 @@ def build_duc_mujoco_prior_prompt(
         f"state_indices={list(template.state_indices)}, "
         f"action_indices={list(template.action_indices)}, "
         f"output_indices={list(template.output_indices)}, "
-        f"scale={template.scale}, prior_std={template.prior_std}"
+        f"scale={template.scale}, prior_std={template.prior_std}, "
+        f"confidence={template.prior_confidence}, timescale={template.timescale}"
         for template in templates
     )
     prompt = f"""
@@ -54,7 +55,8 @@ next_state = state + sum_j alpha_j(context) * M_j(state_subset, action_subset)
 
 Each M_j is a small trainable neural mechanism. Your answer must only define
 which mechanisms should exist, what inputs they read, what state coordinates
-they affect, and how uncertain the prior should be.
+they affect, whether they are slow or event mechanisms, and how uncertain the
+prior should be.
 
 Do not write Python code. Do not write symbolic equations. Do not invent a full
 simulator. Return JSON only.
@@ -106,6 +108,7 @@ Return a JSON object with this exact schema:
       "prior_mean": 0.0,
       "prior_std": 0.5,
       "confidence": 0.65,
+      "timescale": "slow",
       "reward_relevance": "how this mechanism affects planning reward",
       "description": "short mechanism explanation grounded in this environment"
     }}
@@ -119,6 +122,8 @@ Hard rules:
 - Do not include duplicate names.
 - Do not include empty output_indices.
 - Do not include arbitrary symbolic laws or executable code.
+- Use timescale="slow" for persistent physics, "event" for transient mechanisms,
+  and reserve "unknown" for a fallback residual slot if included.
 - Use scale in [0.05, 2.0].
 - Use prior_std in [0.05, 1.5].
 - Use confidence in [0.0, 1.0].
@@ -251,6 +256,9 @@ def templates_from_llm_json(
             scale=float(item.get("scale", 1.0)),
             prior_mean=float(item.get("prior_mean", 0.0)),
             prior_std=float(item.get("prior_std", 1.0)),
+            prior_confidence=float(item.get("confidence", item.get("prior_confidence", 0.5))),
+            timescale=str(item.get("timescale", _default_timescale_for_name(name))),
+            reward_relevance=str(item.get("reward_relevance", "")),
             description=str(item.get("description", "")),
         )
         template.validate(state_dim, action_dim)
@@ -262,6 +270,14 @@ def templates_from_llm_json(
     if not templates:
         raise ValueError("LLM prior JSON produced no templates")
     return tuple(templates)
+
+
+def _default_timescale_for_name(name: str) -> str:
+    if name == "unknown":
+        return "unknown"
+    if name in {"delay", "sticky", "impulse"}:
+        return "event"
+    return "slow"
 
 
 def _extract_json_object(text: str) -> str:
@@ -357,6 +373,9 @@ def prompt_payload(prompt: DUCPriorPrompt) -> dict[str, Any]:
                 "scale": item.scale,
                 "prior_mean": item.prior_mean,
                 "prior_std": item.prior_std,
+                "confidence": item.prior_confidence,
+                "timescale": item.timescale,
+                "reward_relevance": item.reward_relevance,
                 "description": item.description,
             }
             for item in prompt.fallback_templates

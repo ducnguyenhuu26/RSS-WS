@@ -11,9 +11,11 @@ from .model import DUCForwardOutput, DUCWorldModel
 class DUCLossConfig:
     beta_kl: float = 1e-3
     context_weight: float = 1.0
+    residual_weight: float = 0.0
     control_weight: float = 0.0
     orth_weight: float = 0.0
     sparse_weight: float = 0.0
+    unknown_weight: float = 0.0
 
 
 @dataclass
@@ -22,9 +24,11 @@ class DUCLossOutput:
     nll: torch.Tensor
     kl: torch.Tensor
     context: torch.Tensor
+    residual: torch.Tensor
     control: torch.Tensor
     orth: torch.Tensor
     sparse: torch.Tensor
+    unknown: torch.Tensor
 
 
 def kl_normal_diag(
@@ -68,6 +72,19 @@ def orthogonality_penalty(
     return off_diag.pow(2).mean()
 
 
+def residual_penalty(model: DUCWorldModel, output: DUCForwardOutput) -> torch.Tensor:
+    confidences = model.prior_confidence.to(output.effects.device)
+    per_mechanism = output.effects.pow(2).mean(dim=-1)
+    return (per_mechanism * confidences.unsqueeze(0)).mean()
+
+
+def unknown_activation_penalty(model: DUCWorldModel, output: DUCForwardOutput) -> torch.Tensor:
+    if not model.unknown_indices:
+        return output.alpha.new_zeros(())
+    unknown_index = torch.tensor(model.unknown_indices, device=output.alpha.device)
+    return output.alpha.index_select(dim=-1, index=unknown_index).abs().mean()
+
+
 def compute_duc_loss(
     model: DUCWorldModel,
     output: DUCForwardOutput,
@@ -87,23 +104,29 @@ def compute_duc_loss(
         context = targets.new_zeros(())
     else:
         context = (output.alpha_mean - context_targets).pow(2).mean()
+    residual = residual_penalty(model, output)
     control = weighted_mse(output.mean, targets, control_weights)
     orth = orthogonality_penalty(output, control_weights)
     sparse = output.alpha.abs().mean()
+    unknown = unknown_activation_penalty(model, output)
     total = (
         nll
         + config.beta_kl * kl
         + config.context_weight * context
+        + config.residual_weight * residual
         + config.control_weight * control
         + config.orth_weight * orth
         + config.sparse_weight * sparse
+        + config.unknown_weight * unknown
     )
     return DUCLossOutput(
         total=total,
         nll=nll.detach(),
         kl=kl.detach(),
         context=context.detach(),
+        residual=residual.detach(),
         control=control.detach(),
         orth=orth.detach(),
         sparse=sparse.detach(),
+        unknown=unknown.detach(),
     )

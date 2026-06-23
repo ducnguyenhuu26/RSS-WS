@@ -13,10 +13,13 @@ device: auto
 mujoco_extension:
   variant: wind+sticky
   test_variant: wind+sticky
+  train_variants: null
+  test_variants: null
   num_contexts: 2
   test_num_contexts: 2
   action_policy: random
   action_smoothing: 0.0
+  parallel_workers: 1
 
 duc:
   history_length: 2
@@ -24,11 +27,13 @@ duc:
   hidden_layers: 1
   beta_kl: 0.001
   context_weight: 1.0
+  residual_weight: 0.0001
   control_weight: 0.01
   rollout_weight: 0.01
   rollout_horizon: 2
   orth_weight: 0.0
   sparse_weight: 0.0
+  unknown_weight: 0.001
   teacher_force_context: true
   llm_prior:
     enabled: false
@@ -37,6 +42,23 @@ duc:
     api_key_env: OPENAI_API_KEY
     max_tokens: 1000
     json_path: null
+
+baseline:
+  hidden_size: 32
+  hidden_layers: 1
+  ensemble_size: 2
+  context_dim: 4
+
+runtime:
+  precision: fp32
+  preload_to_device: false
+  compile: false
+  compile_mode: reduce-overhead
+  matmul_precision: high
+  allow_tf32: true
+  cudnn_benchmark: true
+  num_threads: 0
+  interop_threads: 0
 
 output_dir: outputs/duc_wm_smoke
 output_name: null

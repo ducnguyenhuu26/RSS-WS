@@ -2,47 +2,43 @@ problem: Hopper-v5
 model: duc_wm
 
 seed: 0
-train_steps: 10000
-test_steps: 2000
-epochs: 50
+train_steps: 12000
+test_steps: 3000
+epochs: 60
 batch_size: 256
 eval_batch_size: 512
 learning_rate: 0.001
 device: auto
 
 mujoco_extension:
+  # Start with the full hidden-mechanism support for a fair first benchmark.
+  # For compositional OOD sweeps, override train_variants/test_variants from
+  # the CLI. A list means one run collects and concatenates all listed variants.
   variant: all
   test_variant: all
   train_variants: null
   test_variants: null
-  num_contexts: 16
-  test_num_contexts: 8
+  num_contexts: 24
+  test_num_contexts: 12
   action_policy: smooth_random
   action_smoothing: 0.85
-  parallel_workers: 1
+  parallel_workers: 4
 
 duc:
-  history_length: 4
+  history_length: 5
   hidden_size: 256
   hidden_layers: 2
   beta_kl: 0.001
-  # Main experiments should not rely on teacher-forced context labels. Keep
-  # context_weight=0 for latent inference; set it >0 for supervised attribution
-  # debugging on virtual contexts.
   context_weight: 0.0
   residual_weight: 0.0001
   control_weight: 0.05
   rollout_weight: 0.1
-  rollout_horizon: 5
+  rollout_horizon: 10
   orth_weight: 0.0001
   sparse_weight: 0.00001
   unknown_weight: 0.001
   teacher_force_context: false
   llm_prior:
-    # The prompt is built per environment and stored in the output JSON for
-    # traceability. For reproducible runs, either keep enabled=false and use
-    # deterministic fallback templates, or set json_path to a saved LLM JSON.
-    # For prior generation runs, set enabled=true.
     enabled: false
     provider: openai
     model_slug: gpt-4.1-mini
@@ -51,9 +47,6 @@ duc:
     json_path: null
 
 baseline:
-  # Shared-capacity baseline settings. PETS uses ensemble_size; CaDM uses
-  # context_dim. Both inherit hidden_size/hidden_layers from DUC unless
-  # overridden here.
   hidden_size: 256
   hidden_layers: 2
   ensemble_size: 5
@@ -63,14 +56,14 @@ runtime:
   precision: fp32
   preload_to_device: false
   compile: false
-  compile_mode: max-autotune
+  compile_mode: reduce-overhead
   matmul_precision: high
   allow_tf32: true
   cudnn_benchmark: true
   num_threads: 0
   interop_threads: 0
 
-output_dir: outputs/duc_wm
+output_dir: outputs/duc_wm_workshop
 output_name: null
 skip_existing: false
 verbose: false

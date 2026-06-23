@@ -4,7 +4,6 @@ from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from .templates import MechanismTemplate, prior_tensors
 
@@ -89,13 +88,38 @@ class ContextEncoder(nn.Module):
         self.state_dim = config.state_dim
         self.action_dim = config.action_dim
         self.history_length = config.history_length
-        input_dim = config.history_length * (config.state_dim + config.action_dim)
-        output_dim = 2 * len(config.templates)
-        self.network = _mlp(
-            input_dim=input_dim,
-            output_dim=output_dim,
-            hidden_size=config.hidden_size,
-            hidden_layers=max(1, config.hidden_layers),
+        self.context_dim = len(config.templates)
+        self.slow_indices = tuple(
+            index
+            for index, template in enumerate(config.templates)
+            if template.timescale == "slow"
+        )
+        self.event_indices = tuple(
+            index
+            for index, template in enumerate(config.templates)
+            if template.timescale in {"event", "unknown"}
+        )
+        slow_input_dim = 2 * (config.state_dim + config.action_dim)
+        event_input_dim = config.history_length * (config.state_dim + config.action_dim)
+        self.slow_network = (
+            _mlp(
+                input_dim=slow_input_dim,
+                output_dim=2 * len(self.slow_indices),
+                hidden_size=config.hidden_size,
+                hidden_layers=max(1, config.hidden_layers),
+            )
+            if self.slow_indices
+            else None
+        )
+        self.event_network = (
+            _mlp(
+                input_dim=event_input_dim,
+                output_dim=2 * len(self.event_indices),
+                hidden_size=config.hidden_size,
+                hidden_layers=max(1, config.hidden_layers),
+            )
+            if self.event_indices
+            else None
         )
 
     def forward(
@@ -105,14 +129,35 @@ class ContextEncoder(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         if history_states.ndim != 3 or history_actions.ndim != 3:
             raise ValueError("history tensors must have shape [batch, history, dim]")
-        features = torch.cat(
-            [
-                history_states.reshape(history_states.shape[0], -1),
-                history_actions.reshape(history_actions.shape[0], -1),
-            ],
-            dim=-1,
-        )
-        mean, logvar = self.network(features).chunk(2, dim=-1)
+        batch_size = history_states.shape[0]
+        mean = history_states.new_zeros(batch_size, self.context_dim)
+        logvar = history_states.new_zeros(batch_size, self.context_dim)
+        if self.slow_network is not None:
+            slow_features = torch.cat(
+                [
+                    history_states.mean(dim=1),
+                    history_actions.mean(dim=1),
+                    history_states[:, -1] - history_states[:, 0],
+                    history_actions[:, -1] - history_actions[:, 0],
+                ],
+                dim=-1,
+            )
+            slow_mean, slow_logvar = self.slow_network(slow_features).chunk(2, dim=-1)
+            slow_index = torch.tensor(self.slow_indices, device=history_states.device)
+            mean.index_copy_(dim=-1, index=slow_index, source=slow_mean)
+            logvar.index_copy_(dim=-1, index=slow_index, source=slow_logvar)
+        if self.event_network is not None:
+            event_features = torch.cat(
+                [
+                    history_states.reshape(batch_size, -1),
+                    history_actions.reshape(batch_size, -1),
+                ],
+                dim=-1,
+            )
+            event_mean, event_logvar = self.event_network(event_features).chunk(2, dim=-1)
+            event_index = torch.tensor(self.event_indices, device=history_states.device)
+            mean.index_copy_(dim=-1, index=event_index, source=event_mean)
+            logvar.index_copy_(dim=-1, index=event_index, source=event_logvar)
         return mean, logvar.clamp(min=-8.0, max=4.0)
 
 
@@ -137,10 +182,16 @@ class DUCWorldModel(nn.Module):
             hidden_size=config.hidden_size,
             hidden_layers=max(1, config.hidden_layers - 1),
         )
-        prior_mean, prior_std, scales = prior_tensors(config.templates)
+        prior_mean, prior_std, scales, confidences = prior_tensors(config.templates)
         self.register_buffer("prior_mean", prior_mean)
         self.register_buffer("prior_std", prior_std)
         self.register_buffer("context_scales", scales)
+        self.register_buffer("prior_confidence", confidences)
+        self.unknown_indices = tuple(
+            index
+            for index, template in enumerate(config.templates)
+            if template.timescale == "unknown" or template.name == "unknown"
+        )
 
     @property
     def context_dim(self) -> int:
