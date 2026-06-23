@@ -34,12 +34,12 @@ duc:
   orth_weight: 0.0
   sparse_weight: 0.0
   unknown_weight: 0.001
-  prior_beta_init: 5.0
-  trust_region_weight: 0.5
+  prior_beta_init: 10.0
+  trust_region_weight: 1.0
   trust_region_delta_min: 0.15
   trust_region_delta_range: 0.75
   prior_beta_weight: 0.0001
-  residual_warmup_fraction: 0.5
+  residual_warmup_fraction: 0.75
   teacher_force_context: true
   llm_prior:
     enabled: true

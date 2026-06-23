@@ -19,7 +19,7 @@ class DUCWorldModelConfig:
     history_length: int = 4
     min_logvar: float = -8.0
     max_logvar: float = 2.0
-    prior_beta_init: float = 5.0
+    prior_beta_init: float = 10.0
     trust_region_delta_min: float = 0.15
     trust_region_delta_range: float = 0.75
 

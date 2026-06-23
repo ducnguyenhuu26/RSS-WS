@@ -29,7 +29,7 @@ duc:
   # Main experiments should not rely on teacher-forced context labels. Keep
   # context_weight=0 for latent inference; set it >0 for supervised attribution
   # debugging on virtual contexts.
-  context_weight: 0.0
+  context_weight: 0.2
   residual_weight: 0.0002
   control_weight: 0.05
   rollout_weight: 0.1
@@ -37,12 +37,12 @@ duc:
   orth_weight: 0.00005
   sparse_weight: 0.000005
   unknown_weight: 0.0005
-  prior_beta_init: 5.0
-  trust_region_weight: 0.5
+  prior_beta_init: 10.0
+  trust_region_weight: 1.0
   trust_region_delta_min: 0.15
   trust_region_delta_range: 0.75
   prior_beta_weight: 0.0001
-  residual_warmup_fraction: 0.5
+  residual_warmup_fraction: 0.75
   teacher_force_context: false
   llm_prior:
     # The prompt is built per environment and stored in the output JSON for

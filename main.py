@@ -164,7 +164,7 @@ def main(cfg: DictConfig) -> None:
                 hidden_size=int(cfg.duc.hidden_size),
                 hidden_layers=int(cfg.duc.hidden_layers),
                 history_length=int(cfg.duc.history_length),
-                prior_beta_init=float(config_get(cfg, "duc.prior_beta_init", 5.0)),
+                prior_beta_init=float(config_get(cfg, "duc.prior_beta_init", 10.0)),
                 trust_region_delta_min=float(config_get(cfg, "duc.trust_region_delta_min", 0.15)),
                 trust_region_delta_range=float(config_get(cfg, "duc.trust_region_delta_range", 0.75)),
             )
@@ -437,9 +437,9 @@ def duc_trainer_config(cfg: DictConfig, seed: int, method: str) -> DUCTrainerCon
     orth_weight = float(cfg.duc.orth_weight)
     sparse_weight = float(cfg.duc.sparse_weight)
     unknown_weight = float(cfg.duc.get("unknown_weight", 0.0))
-    trust_region_weight = float(config_get(cfg, "duc.trust_region_weight", 0.5))
+    trust_region_weight = float(config_get(cfg, "duc.trust_region_weight", 1.0))
     prior_beta_weight = float(config_get(cfg, "duc.prior_beta_weight", 1e-4))
-    residual_warmup_fraction = float(config_get(cfg, "duc.residual_warmup_fraction", 0.5))
+    residual_warmup_fraction = float(config_get(cfg, "duc.residual_warmup_fraction", 0.75))
     if method == "duc_no_reg":
         residual_weight = 0.0
         orth_weight = 0.0
