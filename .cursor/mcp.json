@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "docfork": {
-      "command": "npx",
-      "args": ["-y", "docfork@latest"]
-    }
-  }
-}

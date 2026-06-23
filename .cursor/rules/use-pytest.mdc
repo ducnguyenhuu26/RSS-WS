@@ -1,5 +1,0 @@
----
-alwaysApply: true
----
-
-If asked to implement a test, use pytest and put it in the `tests` directory.

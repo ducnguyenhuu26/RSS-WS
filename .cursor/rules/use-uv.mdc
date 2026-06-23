@@ -1,5 +1,0 @@
----
-alwaysApply: true
----
-The interpreter for this project is managed by `uv`.
-Use `uv run --env-file .env <command>` to run commands.
