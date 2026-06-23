@@ -22,7 +22,7 @@ class DUCWorldModelConfig:
     prior_beta_init: float = 1.0
     trust_region_delta_min: float = 0.15
     trust_region_delta_range: float = 0.75
-    arbitration_logit_bias: float = -0.5
+    context_adapter_scale: float = 1.0
 
 
 @dataclass
@@ -39,6 +39,7 @@ class DUCForwardOutput:
     posterior_mean: torch.Tensor
     posterior_logvar: torch.Tensor
     base_delta: torch.Tensor
+    context_delta: torch.Tensor
     prior_delta: torch.Tensor
     residual_delta: torch.Tensor
     mechanism_delta: torch.Tensor
@@ -212,14 +213,14 @@ class DUCWorldModel(nn.Module):
             hidden_size=config.hidden_size,
             hidden_layers=config.hidden_layers,
         )
-        self.variance_head = _mlp(
-            input_dim=2 * config.state_dim + config.action_dim + len(config.templates),
+        self.context_dynamics_adapter = _mlp(
+            input_dim=config.state_dim + config.action_dim + len(config.templates),
             output_dim=config.state_dim,
             hidden_size=config.hidden_size,
             hidden_layers=max(1, config.hidden_layers - 1),
         )
-        self.mechanism_arbitrator = _mlp(
-            input_dim=5 * config.state_dim + config.action_dim + len(config.templates),
+        self.variance_head = _mlp(
+            input_dim=2 * config.state_dim + config.action_dim + len(config.templates),
             output_dim=config.state_dim,
             hidden_size=config.hidden_size,
             hidden_layers=max(1, config.hidden_layers - 1),
@@ -336,6 +337,10 @@ class DUCWorldModel(nn.Module):
 
         base_input = torch.cat([states, actions], dim=-1)
         base_delta = self.base_dynamics(base_input).to(states.dtype)
+        context_input = torch.cat([states, actions, alpha], dim=-1)
+        context_delta = (
+            float(self.config.context_adapter_scale) * self.context_dynamics_adapter(context_input)
+        ).to(states.dtype)
         raw_prior_effects = self.law_priors(
             states,
             actions,
@@ -352,22 +357,9 @@ class DUCWorldModel(nn.Module):
         prior_delta = torch.einsum("bk,bkd->bd", alpha, prior_effects).to(states.dtype)
         residual_delta = torch.einsum("bk,bkd->bd", alpha, residual_effects).to(states.dtype)
         proposed_mechanism_delta = prior_delta + residual_delta
-        arb_input = torch.cat(
-            [
-                states,
-                actions,
-                alpha,
-                base_delta,
-                prior_delta,
-                residual_delta,
-                proposed_mechanism_delta,
-            ],
-            dim=-1,
-        )
-        mix_logits = self.mechanism_arbitrator(arb_input) + float(self.config.arbitration_logit_bias)
-        mechanism_mix = torch.sigmoid(mix_logits).to(states.dtype)
-        mechanism_delta = mechanism_mix * proposed_mechanism_delta
-        mean = states + base_delta + mechanism_delta
+        mechanism_mix = torch.ones_like(proposed_mechanism_delta)
+        mechanism_delta = proposed_mechanism_delta
+        mean = states + base_delta + context_delta + mechanism_delta
         logvar_input = torch.cat([states, actions, alpha, base_delta], dim=-1)
         logvar = self.variance_head(logvar_input).clamp(
             min=self.config.min_logvar,
@@ -386,6 +378,7 @@ class DUCWorldModel(nn.Module):
             posterior_mean=posterior_mean,
             posterior_logvar=posterior_logvar,
             base_delta=base_delta,
+            context_delta=context_delta,
             prior_delta=prior_delta,
             residual_delta=residual_delta,
             mechanism_delta=mechanism_delta,

@@ -50,7 +50,7 @@ duc:
   trust_region_delta_range: 1.0
   prior_beta_weight: 0.0005
   residual_warmup_fraction: 0.25
-  arbitration_logit_bias: -0.5
+  context_adapter_scale: 1.0
   prior_validation: true
   prior_validation_min_gate: 0.08
   prior_validation_temperature: 0.08

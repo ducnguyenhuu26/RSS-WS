@@ -146,6 +146,7 @@ def fit_duc_world_model(
                     batch.history_states,
                     batch.history_actions,
                     context=context,
+                    sample_context=False,
                 )
                 batch_weights = control_weights.unsqueeze(0).expand_as(batch.states)
                 loss = compute_duc_loss(

@@ -223,6 +223,7 @@ def evaluate_duc_model(
     prior_norms: list[float] = []
     residual_norms: list[float] = []
     mechanism_norms: list[float] = []
+    context_norms: list[float] = []
     proposed_norms: list[float] = []
     mechanism_mixes: list[float] = []
     trust_violations: list[float] = []
@@ -245,6 +246,7 @@ def evaluate_duc_model(
         prior_norms.append(float(output.prior_delta.norm(dim=-1).mean().cpu()))
         residual_norms.append(float(output.residual_delta.norm(dim=-1).mean().cpu()))
         mechanism_norms.append(float(output.mechanism_delta.norm(dim=-1).mean().cpu()))
+        context_norms.append(float(output.context_delta.norm(dim=-1).mean().cpu()))
         proposed_norms.append(float(output.proposed_mechanism_delta.norm(dim=-1).mean().cpu()))
         mechanism_mixes.append(float(output.mechanism_mix.mean().cpu()))
         trust_violations.append(float(trust_region_violation(model, output).cpu()))
@@ -257,10 +259,12 @@ def evaluate_duc_model(
         prior_norm = float(sum(prior_norms) / len(prior_norms))
         residual_norm = float(sum(residual_norms) / len(residual_norms))
         mechanism_norm = float(sum(mechanism_norms) / len(mechanism_norms))
+        context_norm = float(sum(context_norms) / len(context_norms))
         proposed_norm = float(sum(proposed_norms) / len(proposed_norms))
         metrics["prior_delta_norm"] = prior_norm
         metrics["residual_delta_norm"] = residual_norm
         metrics["mechanism_delta_norm"] = mechanism_norm
+        metrics["context_delta_norm"] = context_norm
         metrics["proposed_mechanism_delta_norm"] = proposed_norm
         metrics["prior_to_total_delta_ratio"] = prior_norm / max(1e-8, mechanism_norm)
         metrics["residual_to_total_delta_ratio"] = residual_norm / max(1e-8, mechanism_norm)

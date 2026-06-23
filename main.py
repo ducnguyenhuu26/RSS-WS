@@ -167,7 +167,7 @@ def main(cfg: DictConfig) -> None:
                 prior_beta_init=float(config_get(cfg, "duc.prior_beta_init", 1.0)),
                 trust_region_delta_min=float(config_get(cfg, "duc.trust_region_delta_min", 0.15)),
                 trust_region_delta_range=float(config_get(cfg, "duc.trust_region_delta_range", 0.75)),
-                arbitration_logit_bias=float(config_get(cfg, "duc.arbitration_logit_bias", -0.5)),
+                context_adapter_scale=float(config_get(cfg, "duc.context_adapter_scale", 1.0)),
             )
         ).to(device)
         maybe_compile_forward(model, cfg)
