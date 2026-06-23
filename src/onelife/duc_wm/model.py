@@ -19,8 +19,9 @@ class DUCWorldModelConfig:
     history_length: int = 4
     min_logvar: float = -8.0
     max_logvar: float = 2.0
-    trust_region_delta_min: float = 0.25
-    trust_region_delta_range: float = 1.25
+    prior_beta_init: float = 5.0
+    trust_region_delta_min: float = 0.15
+    trust_region_delta_range: float = 0.75
 
 
 @dataclass
@@ -217,7 +218,13 @@ class DUCWorldModel(nn.Module):
         self.register_buffer("prior_std", prior_std)
         self.register_buffer("context_scales", scales)
         self.register_buffer("prior_confidence", confidences)
-        self.prior_log_beta = nn.Parameter(torch.zeros(len(config.templates)))
+        beta_init = max(0.05, min(50.0, float(config.prior_beta_init)))
+        self.prior_log_beta = nn.Parameter(
+            torch.full(
+                (len(config.templates),),
+                float(torch.log(torch.tensor(beta_init))),
+            )
+        )
         self.register_buffer("_residual_scale", torch.tensor(1.0, dtype=torch.float32))
         self.unknown_indices = tuple(
             index
@@ -231,7 +238,7 @@ class DUCWorldModel(nn.Module):
 
     @property
     def prior_beta(self) -> torch.Tensor:
-        return torch.exp(self.prior_log_beta).clamp(min=0.1, max=10.0)
+        return torch.exp(self.prior_log_beta).clamp(min=0.05, max=50.0)
 
     def set_residual_scale(self, value: float) -> None:
         value = float(max(0.0, min(1.0, value)))

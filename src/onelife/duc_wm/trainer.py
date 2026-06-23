@@ -33,11 +33,11 @@ class DUCTrainerConfig:
     orth_weight: float = 0.0
     sparse_weight: float = 0.0
     unknown_weight: float = 0.0
-    trust_region_weight: float = 0.0
-    trust_region_delta_min: float = 0.25
-    trust_region_delta_range: float = 1.25
-    prior_beta_weight: float = 0.0
-    residual_warmup_fraction: float = 0.0
+    trust_region_weight: float = 0.5
+    trust_region_delta_min: float = 0.15
+    trust_region_delta_range: float = 0.75
+    prior_beta_weight: float = 1e-4
+    residual_warmup_fraction: float = 0.5
     teacher_force_context: bool = True
     seed: int = 0
     precision: str = "fp32"
