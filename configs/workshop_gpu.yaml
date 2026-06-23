@@ -1,0 +1,89 @@
+problem: Hopper-v5
+model: duc_wm
+
+seed: 0
+train_steps: 1000
+test_steps: 1000
+epochs: 240
+batch_size: 256
+eval_batch_size: 512
+learning_rate: 0.001
+device: cuda
+
+mujoco_extension:
+  variant: all
+  test_variant: all
+  train_variants: null
+  test_variants: null
+  num_contexts: 8
+  test_num_contexts: 4
+  action_policy: smooth_random
+  action_smoothing: 0.85
+  parallel_workers: 4
+
+duc:
+  history_length: 5
+  hidden_size: 256
+  hidden_layers: 2
+  beta_kl: 0.001
+  context_weight: 0.0
+  residual_weight: 0.00005
+  control_weight: 0.05
+  rollout_weight: 0.1
+  rollout_horizon: 10
+  orth_weight: 0.00005
+  sparse_weight: 0.000005
+  unknown_weight: 0.0005
+  teacher_force_context: false
+  llm_prior:
+    enabled: false
+    provider: openai
+    model_slug: gpt-4.1-mini
+    api_key_env: OPENAI_API_KEY
+    max_tokens: 3000
+    json_path: null
+
+baseline:
+  hidden_size: 256
+  hidden_layers: 2
+  ensemble_size: 5
+  context_dim: 10
+
+reward:
+  hidden_size: 256
+  hidden_layers: 2
+  epochs: 20
+  batch_size: 256
+  learning_rate: 0.001
+
+planning:
+  enabled: true
+  episodes: 1
+  max_steps: 200
+  horizon: 10
+  candidates: 48
+  elites: 6
+  iterations: 2
+  uncertainty_weight: 0.05
+
+runtime:
+  precision: bf16
+  preload_to_device: true
+  compile: false
+  compile_mode: reduce-overhead
+  matmul_precision: high
+  allow_tf32: true
+  cudnn_benchmark: true
+  num_threads: 0
+  interop_threads: 0
+
+output_dir: outputs/duc_wm_workshop_gpu
+output_name: null
+skip_existing: false
+verbose: false
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/hydra/${now:%Y-%m-%d}/${now:%H-%M-%S}
