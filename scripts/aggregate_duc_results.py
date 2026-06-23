@@ -18,6 +18,8 @@ DEFAULT_METRICS = (
     "score.planner_return_std",
     "score.attribution_recall_at_2",
     "score.strength_spearman",
+    "score.prior_to_total_delta_ratio",
+    "score.residual_to_total_delta_ratio",
 )
 
 

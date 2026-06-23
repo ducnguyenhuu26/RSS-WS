@@ -1,19 +1,35 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 import numpy as np
 import torch
 
 
+ALLOWED_LAW_TYPES: tuple[str, ...] = (
+    "learned_residual",
+    "actuation",
+    "external_drift",
+    "velocity_damping",
+    "inertia_shift",
+    "action_delay",
+    "sticky_velocity",
+    "impulse",
+    "gravity_shift",
+)
+
+
 @dataclass(frozen=True)
 class MechanismTemplate:
-    """LLM/prior-provided structural hint for one causal mechanism."""
+    """LLM/prior-provided structural hint and safe law-DSL mechanism."""
 
     name: str
     state_indices: tuple[int, ...]
     action_indices: tuple[int, ...]
     output_indices: tuple[int, ...]
+    law_type: str = "learned_residual"
+    law_gain: float = 1.0
     scale: float = 1.0
     prior_mean: float = 0.0
     prior_std: float = 1.0
@@ -25,6 +41,16 @@ class MechanismTemplate:
     def validate(self, state_dim: int, action_dim: int) -> None:
         if not self.output_indices:
             raise ValueError(f"mechanism {self.name!r} must affect at least one state dim")
+        if self.law_type not in ALLOWED_LAW_TYPES:
+            allowed = ", ".join(ALLOWED_LAW_TYPES)
+            raise ValueError(
+                f"mechanism {self.name!r} law_type={self.law_type!r} "
+                f"is not one of: {allowed}"
+            )
+        if not math.isfinite(self.law_gain) or abs(self.law_gain) > 3.0:
+            raise ValueError(
+                f"mechanism {self.name!r} law_gain must be finite and within [-3, 3]"
+            )
         if self.scale <= 0:
             raise ValueError(f"mechanism {self.name!r} scale must be positive")
         if self.prior_std <= 0:
@@ -57,8 +83,9 @@ def default_mujoco_templates(
     """Return a compact DUC-WM mechanism prior for MuJoCo-style vectors.
 
     These templates are the deterministic fallback for the offline LLM prior.
-    A real LLM prior file can refine the same fields; the model code only
-    depends on masks, scales, and prior ranges.
+    A real LLM prior file can refine the same fields. Each template also
+    carries a safe law-DSL type that is compiled into a tensor prior effect
+    before the neural residual.
     """
 
     all_state = tuple(range(state_dim))
@@ -75,6 +102,8 @@ def default_mujoco_templates(
             state_indices=all_state,
             action_indices=all_action,
             output_indices=vel,
+            law_type="actuation",
+            law_gain=0.05,
             scale=1.25,
             prior_mean=0.85,
             prior_std=0.35,
@@ -88,6 +117,8 @@ def default_mujoco_templates(
             state_indices=pos + vel,
             action_indices=(),
             output_indices=xy_vel,
+            law_type="external_drift",
+            law_gain=0.05,
             scale=0.75,
             prior_std=0.5,
             prior_confidence=0.55,
@@ -100,6 +131,8 @@ def default_mujoco_templates(
             state_indices=contact_like,
             action_indices=all_action,
             output_indices=vel,
+            law_type="velocity_damping",
+            law_gain=0.05,
             scale=0.8,
             prior_std=0.6,
             prior_confidence=0.6,
@@ -112,6 +145,8 @@ def default_mujoco_templates(
             state_indices=all_state,
             action_indices=all_action,
             output_indices=vel,
+            law_type="inertia_shift",
+            law_gain=0.03,
             scale=0.55,
             prior_std=0.4,
             prior_confidence=0.55,
@@ -124,6 +159,8 @@ def default_mujoco_templates(
             state_indices=vel,
             action_indices=all_action,
             output_indices=vel,
+            law_type="velocity_damping",
+            law_gain=0.04,
             scale=0.55,
             prior_std=0.4,
             prior_confidence=0.65,
@@ -136,6 +173,8 @@ def default_mujoco_templates(
             state_indices=all_state,
             action_indices=all_action,
             output_indices=vel,
+            law_type="action_delay",
+            law_gain=0.05,
             scale=0.6,
             prior_std=0.5,
             prior_confidence=0.5,
@@ -148,6 +187,8 @@ def default_mujoco_templates(
             state_indices=all_state,
             action_indices=all_action,
             output_indices=all_state,
+            law_type="sticky_velocity",
+            law_gain=0.20,
             scale=0.5,
             prior_std=0.4,
             prior_confidence=0.45,
@@ -160,6 +201,8 @@ def default_mujoco_templates(
             state_indices=pos + vel,
             action_indices=(),
             output_indices=vel,
+            law_type="impulse",
+            law_gain=0.03,
             scale=0.7,
             prior_std=0.4,
             prior_confidence=0.35,
@@ -172,6 +215,8 @@ def default_mujoco_templates(
             state_indices=pos + vel,
             action_indices=(),
             output_indices=vel,
+            law_type="gravity_shift",
+            law_gain=0.03,
             scale=0.45,
             prior_std=0.3,
             prior_confidence=0.65,
@@ -184,6 +229,8 @@ def default_mujoco_templates(
             state_indices=all_state,
             action_indices=all_action,
             output_indices=all_state,
+            law_type="learned_residual",
+            law_gain=0.0,
             scale=0.35,
             prior_std=0.25,
             prior_confidence=0.0,
@@ -248,6 +295,8 @@ def randomize_mechanism_templates(
                 state_indices=state_indices,
                 action_indices=action_indices,
                 output_indices=output_indices,
+                law_type=template.law_type,
+                law_gain=template.law_gain,
                 scale=template.scale,
                 prior_mean=template.prior_mean,
                 prior_std=template.prior_std,
@@ -281,6 +330,8 @@ def generic_mechanism_templates(
                 state_indices=all_state,
                 action_indices=all_action,
                 output_indices=output,
+                law_type="learned_residual",
+                law_gain=0.0,
                 scale=0.75,
                 prior_std=0.75,
                 prior_confidence=0.0,
@@ -296,6 +347,8 @@ def generic_mechanism_templates(
                 state_indices=all_state,
                 action_indices=all_action,
                 output_indices=all_state,
+                law_type="learned_residual",
+                law_gain=0.0,
                 scale=0.35,
                 prior_std=0.25,
                 prior_confidence=0.0,
@@ -346,6 +399,8 @@ def wrong_mechanism_templates(
                 state_indices=donor.state_indices,
                 action_indices=donor.action_indices,
                 output_indices=donor.output_indices,
+                law_type=original.law_type,
+                law_gain=original.law_gain,
                 scale=original.scale,
                 prior_mean=original.prior_mean,
                 prior_std=original.prior_std,

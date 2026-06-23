@@ -43,7 +43,7 @@ duc:
     # traceability. For reproducible runs, either keep enabled=false and use
     # deterministic fallback templates, or set json_path to a saved LLM JSON.
     # For prior generation runs, set enabled=true.
-    enabled: false
+    enabled: true
     provider: openai
     model_slug: gpt-4.1-mini
     api_key_env: OPENAI_API_KEY

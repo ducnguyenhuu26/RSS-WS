@@ -8,7 +8,7 @@ from typing import Any
 
 from onelife.litellm_utils import LiteLlmMessage, LiteLlmParamsBase, LiteLlmRequest
 
-from .templates import MechanismTemplate, default_mujoco_templates
+from .templates import ALLOWED_LAW_TYPES, MechanismTemplate, default_mujoco_templates
 
 
 @dataclass(frozen=True)
@@ -41,6 +41,7 @@ def build_duc_mujoco_prior_prompt(
         f"state_indices={list(template.state_indices)}, "
         f"action_indices={list(template.action_indices)}, "
         f"output_indices={list(template.output_indices)}, "
+        f"law_type={template.law_type}, law_gain={template.law_gain}, "
         f"scale={template.scale}, prior_std={template.prior_std}, "
         f"confidence={template.prior_confidence}, timescale={template.timescale}"
         for template in templates
@@ -51,15 +52,17 @@ You are the offline scientific prior builder for DUC-WM.
 DUC-WM is a hidden-mechanism world model for continuous-control MuJoCo.
 It learns:
 
-next_state = state + sum_j alpha_j(context) * M_j(state_subset, action_subset)
+next_state = state + base_dynamics(state, action)
+           + sum_j alpha_j(context) * [P_j(state, action, history) + R_j(state, action)]
 
-Each M_j is a small trainable neural mechanism. Your answer must only define
-which mechanisms should exist, what inputs they read, what state coordinates
-they affect, whether they are slow or event mechanisms, and how uncertain the
-prior should be.
+P_j is a safe compiled law prior selected from a small DSL. R_j is a neural
+residual that repairs what the law misses. Your answer must define which
+mechanisms should exist, what inputs they read, what state coordinates they
+affect, which DSL law_type each mechanism uses, whether it is slow or event,
+and how uncertain/confident the prior should be.
 
-Do not write Python code. Do not write symbolic equations. Do not invent a full
-simulator. Return JSON only.
+Do not write Python code. Do not write arbitrary symbolic equations. Do not
+invent a full simulator. Return JSON only.
 
 Environment profile:
 {profile}
@@ -82,18 +85,33 @@ DUC-WM causal interpretation:
 - impulse: sparse unobserved force or contact kick.
 - gravity: changed passive acceleration and balance stability.
 
+Allowed law_type DSL values:
+learned_residual, actuation, external_drift, velocity_damping, inertia_shift, action_delay, sticky_velocity, impulse, gravity_shift
+
+Recommended mapping:
+- actuation -> law_type="actuation"
+- wind -> law_type="external_drift"
+- friction or damping -> law_type="velocity_damping"
+- mass -> law_type="inertia_shift"
+- delay -> law_type="action_delay"
+- sticky -> law_type="sticky_velocity"
+- impulse -> law_type="impulse"
+- gravity -> law_type="gravity_shift"
+- unknown -> law_type="learned_residual"
+
 Initial safe fallback templates:
 {mechanism_lines}
 
 Your task:
 1. Keep mechanisms that are plausible for this exact environment.
 2. Remove mechanisms that are weak or redundant for this environment.
-3. Adjust state_indices, action_indices, output_indices, scale, and prior_std.
-4. Make output_indices sparse unless the mechanism truly affects the whole body.
-5. Encode uncertainty through prior_std and confidence, not through overclaiming.
-6. Prefer mechanisms that explain reward-critical rollout errors.
-7. Ensure actuation is present.
-8. Use 6 to 10 mechanisms.
+3. Choose law_type and law_gain for the mechanism prior P_j.
+4. Adjust state_indices, action_indices, output_indices, scale, and prior_std.
+5. Make output_indices sparse unless the mechanism truly affects the whole body.
+6. Encode uncertainty through prior_std and confidence, not through overclaiming.
+7. Prefer mechanisms that explain reward-critical rollout errors.
+8. Ensure actuation is present.
+9. Use 6 to 10 mechanisms.
 
 Return a JSON object with this exact schema:
 {{
@@ -104,6 +122,8 @@ Return a JSON object with this exact schema:
       "state_indices": [0, 1],
       "action_indices": [],
       "output_indices": [2, 3],
+      "law_type": "external_drift",
+      "law_gain": 0.05,
       "scale": 0.75,
       "prior_mean": 0.0,
       "prior_std": 0.5,
@@ -122,6 +142,8 @@ Hard rules:
 - Do not include duplicate names.
 - Do not include empty output_indices.
 - Do not include arbitrary symbolic laws or executable code.
+- law_type must be one of the allowed DSL values above.
+- Use law_gain in [-0.5, 0.5] for most MuJoCo transition priors; prefer small magnitudes.
 - Use timescale="slow" for persistent physics, "event" for transient mechanisms,
   and reserve "unknown" for a fallback residual slot if included.
 - Use scale in [0.05, 2.0].
@@ -253,6 +275,8 @@ def templates_from_llm_json(
             state_indices=tuple(int(index) for index in item.get("state_indices", ())),
             action_indices=tuple(int(index) for index in item.get("action_indices", ())),
             output_indices=tuple(int(index) for index in item.get("output_indices", ())),
+            law_type=str(item.get("law_type", _default_law_type_for_name(name))),
+            law_gain=float(item.get("law_gain", item.get("coefficient_prior", 1.0))),
             scale=float(item.get("scale", 1.0)),
             prior_mean=float(item.get("prior_mean", 0.0)),
             prior_std=float(item.get("prior_std", 1.0)),
@@ -270,6 +294,22 @@ def templates_from_llm_json(
     if not templates:
         raise ValueError("LLM prior JSON produced no templates")
     return tuple(templates)
+
+
+def _default_law_type_for_name(name: str) -> str:
+    mapping = {
+        "actuation": "actuation",
+        "wind": "external_drift",
+        "friction": "velocity_damping",
+        "mass": "inertia_shift",
+        "damping": "velocity_damping",
+        "delay": "action_delay",
+        "sticky": "sticky_velocity",
+        "impulse": "impulse",
+        "gravity": "gravity_shift",
+        "unknown": "learned_residual",
+    }
+    return mapping.get(name, "learned_residual")
 
 
 def _default_timescale_for_name(name: str) -> str:
@@ -316,8 +356,8 @@ def synthesize_templates_with_llm(
             LiteLlmMessage(
                 role="system",
                 content=(
-                    "You produce strict JSON mechanism priors for DUC-WM. "
-                    "Never return markdown or explanatory prose."
+                    "You produce strict JSON safe law-DSL mechanism priors for DUC-WM. "
+                    "Never return markdown, Python code, or explanatory prose."
                 ),
             ),
             LiteLlmMessage(role="user", content=prior_prompt.prompt),
@@ -370,6 +410,8 @@ def prompt_payload(prompt: DUCPriorPrompt) -> dict[str, Any]:
                 "state_indices": list(item.state_indices),
                 "action_indices": list(item.action_indices),
                 "output_indices": list(item.output_indices),
+                "law_type": item.law_type,
+                "law_gain": item.law_gain,
                 "scale": item.scale,
                 "prior_mean": item.prior_mean,
                 "prior_std": item.prior_std,

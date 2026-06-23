@@ -95,19 +95,20 @@ def main(cfg: DictConfig) -> None:
         action_dim=train_dataset.action_dim,
     )
     prior_path = cfg.duc.llm_prior.get("json_path")
+    should_use_duc_prior = method in DUC_METHODS
     llm_prior_status: dict[str, Any] = {
         "source": "fallback",
         "error": None,
         "raw_response": None,
     }
-    if prior_path:
+    if should_use_duc_prior and prior_path:
         templates = load_templates_from_json_file(
             Path(str(prior_path)),
             state_dim=train_dataset.state_dim,
             action_dim=train_dataset.action_dim,
         )
         llm_prior_status["source"] = f"json_path:{prior_path}"
-    elif bool(cfg.duc.llm_prior.get("enabled", False)):
+    elif should_use_duc_prior and bool(cfg.duc.llm_prior.get("enabled", False)):
         try:
             templates, raw_response = synthesize_templates_with_llm(
                 prior_prompt=prior_prompt,
@@ -317,6 +318,8 @@ def main(cfg: DictConfig) -> None:
                 "state_indices": list(template.state_indices),
                 "action_indices": list(template.action_indices),
                 "output_indices": list(template.output_indices),
+                "law_type": template.law_type,
+                "law_gain": template.law_gain,
                 "scale": template.scale,
                 "prior_mean": template.prior_mean,
                 "prior_std": template.prior_std,

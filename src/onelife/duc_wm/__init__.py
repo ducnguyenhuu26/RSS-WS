@@ -1,5 +1,6 @@
 from .data import DUCBatch, iter_duc_batches
 from .losses import DUCLossConfig, DUCLossOutput, compute_duc_loss
+from .law_dsl import LawPriorBank
 from .llm_prior import (
     DUCLLMPriorConfig,
     DUCPriorPrompt,
@@ -46,6 +47,7 @@ __all__ = [
     "BaselineTrainerConfig",
     "DUCWorldModel",
     "DUCWorldModelConfig",
+    "LawPriorBank",
     "CaDMWorldModel",
     "CaDMWorldModelConfig",
     "MLPWorldModel",

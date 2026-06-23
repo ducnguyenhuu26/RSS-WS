@@ -220,6 +220,9 @@ def evaluate_duc_model(
     )
     alphas: list[np.ndarray] = []
     context_errors: list[float] = []
+    prior_norms: list[float] = []
+    residual_norms: list[float] = []
+    mechanism_norms: list[float] = []
     for batch in iter_duc_batches(
         transitions,
         batch_size=batch_size,
@@ -236,11 +239,23 @@ def evaluate_duc_model(
             sample_context=False,
         )
         alphas.append(output.alpha_mean.cpu().numpy())
+        prior_norms.append(float(output.prior_delta.norm(dim=-1).mean().cpu()))
+        residual_norms.append(float(output.residual_delta.norm(dim=-1).mean().cpu()))
+        mechanism_norms.append(float(output.mechanism_delta.norm(dim=-1).mean().cpu()))
         if batch.contexts is not None:
             context_errors.append(
                 float((output.alpha_mean - batch.contexts).pow(2).mean().cpu())
             )
     alpha = np.concatenate(alphas, axis=0)
+    if prior_norms:
+        prior_norm = float(sum(prior_norms) / len(prior_norms))
+        residual_norm = float(sum(residual_norms) / len(residual_norms))
+        mechanism_norm = float(sum(mechanism_norms) / len(mechanism_norms))
+        metrics["prior_delta_norm"] = prior_norm
+        metrics["residual_delta_norm"] = residual_norm
+        metrics["mechanism_delta_norm"] = mechanism_norm
+        metrics["prior_to_total_delta_ratio"] = prior_norm / max(1e-8, mechanism_norm)
+        metrics["residual_to_total_delta_ratio"] = residual_norm / max(1e-8, mechanism_norm)
     if context_errors:
         metrics["context_mse"] = float(sum(context_errors) / len(context_errors))
     if transitions.contexts is not None:

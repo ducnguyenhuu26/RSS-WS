@@ -73,9 +73,10 @@ def orthogonality_penalty(
 
 
 def residual_penalty(model: DUCWorldModel, output: DUCForwardOutput) -> torch.Tensor:
-    confidences = model.prior_confidence.to(output.effects.device)
-    per_mechanism = output.effects.pow(2).mean(dim=-1)
-    return (per_mechanism * confidences.unsqueeze(0)).mean()
+    confidences = model.prior_confidence.to(output.residual_effects.device)
+    per_mechanism = output.residual_effects.pow(2).mean(dim=-1)
+    # High-confidence law priors should need only small neural corrections.
+    return (per_mechanism * (0.25 + confidences).unsqueeze(0)).mean()
 
 
 def unknown_activation_penalty(model: DUCWorldModel, output: DUCForwardOutput) -> torch.Tensor:

@@ -46,7 +46,7 @@ duc:
   unknown_weight: 0.0005
   teacher_force_context: false
   llm_prior:
-    enabled: false
+    enabled: true
     provider: openai
     model_slug: gpt-4.1-mini
     api_key_env: OPENAI_API_KEY

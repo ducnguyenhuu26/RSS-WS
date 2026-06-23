@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 
+from .law_dsl import LawPriorBank
 from .templates import MechanismTemplate, prior_tensors
 
 
@@ -25,11 +26,15 @@ class DUCForwardOutput:
     mean: torch.Tensor
     logvar: torch.Tensor
     effects: torch.Tensor
+    prior_effects: torch.Tensor
+    residual_effects: torch.Tensor
     alpha: torch.Tensor
     alpha_mean: torch.Tensor
     posterior_mean: torch.Tensor
     posterior_logvar: torch.Tensor
     base_delta: torch.Tensor
+    prior_delta: torch.Tensor
+    residual_delta: torch.Tensor
     mechanism_delta: torch.Tensor
 
 
@@ -44,7 +49,9 @@ def _mlp(input_dim: int, output_dim: int, hidden_size: int, hidden_layers: int) 
     return nn.Sequential(*layers)
 
 
-class MechanismBank(nn.Module):
+class ResidualMechanismBank(nn.Module):
+    """Neural residual mechanisms R_j that correct compiled prior laws P_j."""
+
     def __init__(self, config: DUCWorldModelConfig) -> None:
         super().__init__()
         self.state_dim = config.state_dim
@@ -75,7 +82,10 @@ class MechanismBank(nn.Module):
             if template.action_indices:
                 index = torch.tensor(template.action_indices, device=actions.device)
                 parts.append(actions.index_select(dim=-1, index=index))
-            local_input = torch.cat(parts, dim=-1)
+            if parts:
+                local_input = torch.cat(parts, dim=-1)
+            else:
+                local_input = states.new_zeros(states.shape[0], 1)
             local_effect = network(local_input)
             full_effect = local_effect.new_zeros(states.shape[0], self.state_dim)
             out_index = torch.tensor(template.output_indices, device=states.device)
@@ -166,9 +176,14 @@ class ContextEncoder(nn.Module):
 class DUCWorldModel(nn.Module):
     """Disentangled Universal Causal World Model.
 
-    The model keeps MLPs small and modular. Context values are bounded through
-    tanh before multiplying mechanism effects, which keeps rollout gradients
-    stable while preserving attribution.
+    DUC-WM uses an LLM/template law DSL as a mechanistic prior P_j and lets a
+    neural residual R_j repair what the prior misses:
+
+        x_next = x + f_base(x, a)
+                 + sum_j alpha_j(h) * (P_j(x, a, h) + R_j(x, a)).
+
+    This keeps the prior executable, safe, and inspectable while preserving
+    enough neural capacity for model mismatch.
     """
 
     def __init__(self, config: DUCWorldModelConfig) -> None:
@@ -176,7 +191,8 @@ class DUCWorldModel(nn.Module):
         if not config.templates:
             raise ValueError("DUCWorldModel requires at least one mechanism template")
         self.config = config
-        self.mechanisms = MechanismBank(config)
+        self.law_priors = LawPriorBank(config.templates, config.state_dim, config.action_dim)
+        self.mechanisms = ResidualMechanismBank(config)
         self.context_encoder = ContextEncoder(config)
         self.base_dynamics = _mlp(
             input_dim=config.state_dim + config.action_dim,
@@ -241,8 +257,17 @@ class DUCWorldModel(nn.Module):
 
         base_input = torch.cat([states, actions], dim=-1)
         base_delta = self.base_dynamics(base_input).to(states.dtype)
-        effects = self.mechanisms(states, actions)
-        mechanism_delta = torch.einsum("bk,bkd->bd", alpha, effects).to(states.dtype)
+        prior_effects = self.law_priors(
+            states,
+            actions,
+            history_states=history_states,
+            history_actions=history_actions,
+        )
+        residual_effects = self.mechanisms(states, actions)
+        effects = prior_effects + residual_effects
+        prior_delta = torch.einsum("bk,bkd->bd", alpha, prior_effects).to(states.dtype)
+        residual_delta = torch.einsum("bk,bkd->bd", alpha, residual_effects).to(states.dtype)
+        mechanism_delta = prior_delta + residual_delta
         mean = states + base_delta + mechanism_delta
         logvar_input = torch.cat([states, actions, alpha, base_delta], dim=-1)
         logvar = self.variance_head(logvar_input).clamp(
@@ -253,11 +278,15 @@ class DUCWorldModel(nn.Module):
             mean=mean,
             logvar=logvar,
             effects=effects,
+            prior_effects=prior_effects,
+            residual_effects=residual_effects,
             alpha=alpha,
             alpha_mean=alpha_mean,
             posterior_mean=posterior_mean,
             posterior_logvar=posterior_logvar,
             base_delta=base_delta,
+            prior_delta=prior_delta,
+            residual_delta=residual_delta,
             mechanism_delta=mechanism_delta,
         )
 

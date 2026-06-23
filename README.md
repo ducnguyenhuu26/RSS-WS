@@ -3,9 +3,11 @@
 DUC-WM is a model-based control framework for continuous-control environments
 whose transition dynamics depend on hidden but inferable mechanisms. The method
 does not ask an LLM to predict dynamics directly. Instead, the LLM defines a
-structured mechanism hypothesis space. Data then decides which mechanisms are
-active, how strongly they act, and how much each LLM prior must be repaired by a
-mechanism-specific neural residual.
+safe mechanism-law hypothesis space: mechanism names, masks, confidence, and a
+small DSL law type such as velocity damping, action delay, or external drift.
+Data then decides which mechanisms are active, how strongly they act, and how
+much each compiled prior law must be repaired by a mechanism-specific neural
+residual.
 
 The central claim is conditional:
 
@@ -68,26 +70,32 @@ x_t+B_\theta(x_t,a_t)
 +
 \sum_{j=1}^{K}
 \alpha_{j,t}
-G_{\theta,j}(x_t[P_j^x],a_t[P_j^a]).
+\left[
+P_j^{LLM}(x_t,a_t,h_t)+R_{\theta,j}(x_t[P_j^x],a_t[P_j^a])
+\right].
 $$
 
 The base trunk \(B_\theta\) learns ordinary MuJoCo dynamics shared across contexts.
-The mechanism bank \(G_{\theta,j}\) learns reusable deviations caused by hidden
-mechanisms such as wind, friction, mass, damping, delay, sticky transitions,
-impulse, and gravity.
+The compiled law prior \(P_j^{LLM}\) is selected from a safe DSL emitted by the
+LLM or fallback template bank. The residual bank \(R_{\theta,j}\) learns reusable
+corrections caused by hidden mechanisms such as wind, friction, mass, damping,
+delay, sticky transitions, impulse, and gravity.
 
 The components are:
 
 | Symbol | Meaning |
 |---|---|
 | \(B_\theta\) | shared base dynamics trunk |
-| \(G_{\theta,j}\) | mechanism-specific neural shift |
+| \(P_j^{LLM}\) | compiled safe law prior for mechanism \(j\) |
+| \(R_{\theta,j}\) | mechanism-specific neural residual |
 | \(\alpha_{j,t}\) | bounded inferred strength of mechanism \(j\) |
 | unknown slot | dense fallback mechanism for missing or wrong priors |
 
-The current implementation uses structural priors. The LLM/fallback template
-specifies mechanism names, masks, scales, confidence, timescale, and reward
-relevance. The trainable networks learn executable effects from data.
+The current implementation uses safe executable law-DSL priors. The LLM/fallback
+template specifies mechanism names, masks, `law_type`, `law_gain`, scales,
+confidence, timescale, and reward relevance. Code then compiles each DSL law into
+a tensor prior effect; trainable residual networks learn only the missing or
+wrong part.
 
 ## Mechanism Templates
 
@@ -95,7 +103,8 @@ Each mechanism template is:
 
 $$
 T_j=
-(\mathrm{name}_j,P_j^x,P_j^a,O_j,s_j,\mu_j,\sigma_j,\rho_j,\tau_j,\eta_j).
+(\mathrm{name}_j,P_j^x,P_j^a,O_j,\ell_j,g_j,s_j,
+\mu_j,\sigma_j,\rho_j,\tau_j,\eta_j).
 $$
 
 | Field | Meaning |
@@ -104,6 +113,8 @@ $$
 | \(P_j^x\) | state dimensions read by the mechanism |
 | \(P_j^a\) | action dimensions read by the mechanism |
 | \(O_j\) | state dimensions written by the mechanism |
+| \(\ell_j\) | safe DSL law type, e.g. velocity_damping or action_delay |
+| \(g_j\) | small prior law gain |
 | \(s_j\) | maximum strength scale |
 | \(\mu_j,\sigma_j\) | prior mean and uncertainty for raw context |
 | \(\rho_j\) | prior confidence |
@@ -450,7 +461,10 @@ main.py
   Hydra entrypoint: collect data, build prior, train, evaluate, write JSON.
 
 src/onelife/duc_wm/templates.py
-  MechanismTemplate, fallback MuJoCo templates, slow/event/unknown metadata.
+  MechanismTemplate, fallback MuJoCo templates, law DSL metadata.
+
+src/onelife/duc_wm/law_dsl.py
+  Safe compiler from law_type/law_gain templates to tensor prior effects.
 
 src/onelife/duc_wm/llm_prior.py
   Offline LLM prompt, JSON parsing, fallback template serialization.
@@ -564,7 +578,7 @@ The implemented methods are:
 | `duc_no_unknown` | DUC-WM without the unknown fallback mechanism |
 | `duc_no_reg` | DUC-WM without residual/unknown/sparse/orth regularizers |
 | `duc_no_rollout` | DUC-WM without rollout-consistency training |
-| `duc_wm` | full DUC-WM with semantic mechanism templates |
+| `duc_wm` | full DUC-WM with LLM/fallback law-DSL priors plus neural residuals |
 
 Planning is controlled by the `planning` block. `workshop.yaml` and
 `workshop_big.yaml` enable CEM-MPC by default, so output JSON files include
@@ -622,13 +636,14 @@ score.planner_return_mean,score.attribution_recall_at_2,score.strength_spearman 
 
 Implemented:
 
-- structural LLM/fallback mechanism templates;
+- LLM/fallback safe mechanism law-DSL templates;
 - slow/event/unknown template metadata;
+- compiled tensor law priors plus mechanism-specific residual shifts;
 - invariant base dynamics trunk plus mechanism-specific shifts;
 - split context encoder for slow and event mechanisms;
 - bounded mechanism strengths;
 - unknown residual slot in the default template bank;
-- confidence-weighted residual regularization;
+- confidence-weighted residual regularization on neural corrections only;
 - unknown activation regularization;
 - rollout and attribution metrics;
 - CEM-MPC reward evaluation through a learned reward surrogate;
@@ -638,7 +653,6 @@ Implemented:
 
 Still recommended before making a strong paper claim:
 
-- implement executable symbolic priors for simple mechanisms;
 - run compositional OOD train/test splits at scale;
 - validate CEM-MPC returns against stronger model-based planning baselines;
 - report robustness to random, wrong, and missing LLM priors.
