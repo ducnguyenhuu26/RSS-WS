@@ -318,6 +318,7 @@ def main(cfg: DictConfig) -> None:
                 "action_indices": list(template.action_indices),
                 "output_indices": list(template.output_indices),
                 "scale": template.scale,
+                "prior_mean": template.prior_mean,
                 "prior_std": template.prior_std,
                 "prior_confidence": template.prior_confidence,
                 "timescale": template.timescale,

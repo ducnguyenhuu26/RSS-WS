@@ -14,6 +14,8 @@ DEFAULT_METRICS = (
     "score.r2_at_10",
     "score.duc_r2_at_10",
     "score.nll",
+    "score.planner_return_mean",
+    "score.planner_return_std",
     "score.attribution_recall_at_2",
     "score.strength_spearman",
 )

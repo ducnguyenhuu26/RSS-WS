@@ -1,4 +1,4 @@
-problem: Hopper-v5
+problem: Swimmer-v5
 model: duc_wm
 
 seed: 0
@@ -11,13 +11,20 @@ learning_rate: 0.001
 device: auto
 
 mujoco_extension:
-  # Start with the full hidden-mechanism support for a fair first benchmark.
-  # For compositional OOD sweeps, override train_variants/test_variants from
-  # the CLI. A list means one run collects and concatenates all listed variants.
-  variant: all
-  test_variant: all
-  train_variants: null
-  test_variants: null
+  # Pilot setting for DUC-WM's intended advantage: learn reusable single
+  # mechanisms, then evaluate unseen combinations under the same CEM budget.
+  variant: wind
+  test_variant: wind+friction
+  train_variants:
+    - wind
+    - friction
+    - damping
+    - delay
+    - sticky
+  test_variants:
+    - wind+friction
+    - damping+delay
+    - sticky+wind
   num_contexts: 8
   test_num_contexts: 4
   action_policy: smooth_random
@@ -80,7 +87,7 @@ runtime:
   num_threads: 0
   interop_threads: 0
 
-output_dir: outputs/duc_wm_workshop
+output_dir: outputs/duc_wm_pilot_swimmer
 output_name: null
 skip_existing: false
 verbose: false

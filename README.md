@@ -59,43 +59,35 @@ $$
 \Delta x_t=x_{t+1}-x_t
 $$
 
-as a sparse additive sum of mechanism contributions:
+as an invariant base transition plus sparse hidden-mechanism shifts:
 
 $$
 \hat x_{t+1}
 =
-x_t+
+x_t+B_\theta(x_t,a_t)
++
 \sum_{j=1}^{K}
 \alpha_{j,t}
-\left[
-M_j^{prior}(x_t,a_t,h_t)
-+
-R_{\theta,j}(x_t,a_t,h_t)
-\right]
-+
-\alpha_{0,t}G_0(x_t,a_t,h_t).
+G_{\theta,j}(x_t[P_j^x],a_t[P_j^a]).
 $$
+
+The base trunk \(B_\theta\) learns ordinary MuJoCo dynamics shared across contexts.
+The mechanism bank \(G_{\theta,j}\) learns reusable deviations caused by hidden
+mechanisms such as wind, friction, mass, damping, delay, sticky transitions,
+impulse, and gravity.
 
 The components are:
 
 | Symbol | Meaning |
 |---|---|
-| \(M_j^{prior}\) | executable symbolic or semi-symbolic prior if available |
-| \(R_{\theta,j}\) | mechanism-specific neural residual |
+| \(B_\theta\) | shared base dynamics trunk |
+| \(G_{\theta,j}\) | mechanism-specific neural shift |
 | \(\alpha_{j,t}\) | bounded inferred strength of mechanism \(j\) |
-| \(G_0\) | unknown fallback mechanism for missing or wrong priors |
-| \(\alpha_{0,t}\) | activation of the unknown mechanism |
+| unknown slot | dense fallback mechanism for missing or wrong priors |
 
-The default implementation uses structural priors first:
-
-$$
-M_j^{prior}=0,
-\qquad
-G_j=R_{\theta,j}.
-$$
-
-This keeps the framework robust when the LLM can provide only names, masks,
-scales, confidence, and reward relevance.
+The current implementation uses structural priors. The LLM/fallback template
+specifies mechanism names, masks, scales, confidence, timescale, and reward
+relevance. The trainable networks learn executable effects from data.
 
 ## Mechanism Templates
 
@@ -169,7 +161,7 @@ where:
 
 $$
 \mu_\theta=
-x_t+\sum_j \alpha_{j,t}G_j(x_t,a_t,h_t)+\alpha_{0,t}G_0(x_t,a_t,h_t).
+x_t+B_\theta(x_t,a_t)+\sum_j \alpha_{j,t}G_{\theta,j}(x_t[P_j^x],a_t[P_j^a]).
 $$
 
 The covariance is diagonal:
@@ -618,6 +610,7 @@ Implemented:
 
 - structural LLM/fallback mechanism templates;
 - slow/event/unknown template metadata;
+- invariant base dynamics trunk plus mechanism-specific shifts;
 - split context encoder for slow and event mechanisms;
 - bounded mechanism strengths;
 - unknown residual slot in the default template bank;

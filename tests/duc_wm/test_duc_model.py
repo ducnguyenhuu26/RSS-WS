@@ -37,6 +37,8 @@ def test_duc_world_model_forward_shapes():
     assert output.logvar.shape == (4, 8)
     assert output.effects.shape == (4, len(templates), 8)
     assert output.alpha.shape == (4, len(templates))
+    assert output.base_delta.shape == (4, 8)
+    assert output.mechanism_delta.shape == (4, 8)
 
 
 def test_duc_training_smoke_on_synthetic_contexts():

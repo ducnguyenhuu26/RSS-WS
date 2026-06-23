@@ -2,9 +2,9 @@ problem: Hopper-v5
 model: duc_wm
 
 seed: 0
-train_steps: 10000
-test_steps: 2000
-epochs: 50
+train_steps: 1000
+test_steps: 1000
+epochs: 240
 batch_size: 256
 eval_batch_size: 512
 learning_rate: 0.001
@@ -15,14 +15,14 @@ mujoco_extension:
   test_variant: all
   train_variants: null
   test_variants: null
-  num_contexts: 16
-  test_num_contexts: 8
+  num_contexts: 8
+  test_num_contexts: 4
   action_policy: smooth_random
   action_smoothing: 0.85
   parallel_workers: 1
 
 duc:
-  history_length: 4
+  history_length: 5
   hidden_size: 256
   hidden_layers: 2
   beta_kl: 0.001
@@ -30,13 +30,13 @@ duc:
   # context_weight=0 for latent inference; set it >0 for supervised attribution
   # debugging on virtual contexts.
   context_weight: 0.0
-  residual_weight: 0.0001
+  residual_weight: 0.00005
   control_weight: 0.05
   rollout_weight: 0.1
-  rollout_horizon: 5
-  orth_weight: 0.0001
-  sparse_weight: 0.00001
-  unknown_weight: 0.001
+  rollout_horizon: 10
+  orth_weight: 0.00005
+  sparse_weight: 0.000005
+  unknown_weight: 0.0005
   teacher_force_context: false
   llm_prior:
     # The prompt is built per environment and stored in the output JSON for
@@ -68,12 +68,12 @@ reward:
 
 planning:
   enabled: true
-  episodes: 3
+  episodes: 1
   max_steps: 200
-  horizon: 15
-  candidates: 256
-  elites: 32
-  iterations: 3
+  horizon: 10
+  candidates: 48
+  elites: 6
+  iterations: 2
   uncertainty_weight: 0.05
 
 runtime:
