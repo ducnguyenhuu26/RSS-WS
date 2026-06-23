@@ -22,6 +22,7 @@ class DUCWorldModelConfig:
     prior_beta_init: float = 1.0
     trust_region_delta_min: float = 0.15
     trust_region_delta_range: float = 0.75
+    arbitration_logit_bias: float = -0.5
 
 
 @dataclass
@@ -41,6 +42,8 @@ class DUCForwardOutput:
     prior_delta: torch.Tensor
     residual_delta: torch.Tensor
     mechanism_delta: torch.Tensor
+    proposed_mechanism_delta: torch.Tensor
+    mechanism_mix: torch.Tensor
     prior_beta: torch.Tensor
     residual_scale: torch.Tensor
     prior_gate: torch.Tensor
@@ -215,6 +218,12 @@ class DUCWorldModel(nn.Module):
             hidden_size=config.hidden_size,
             hidden_layers=max(1, config.hidden_layers - 1),
         )
+        self.mechanism_arbitrator = _mlp(
+            input_dim=5 * config.state_dim + config.action_dim + len(config.templates),
+            output_dim=config.state_dim,
+            hidden_size=config.hidden_size,
+            hidden_layers=max(1, config.hidden_layers - 1),
+        )
         prior_mean, prior_std, scales, confidences = prior_tensors(config.templates)
         self.register_buffer("prior_mean", prior_mean)
         self.register_buffer("prior_std", prior_std)
@@ -222,6 +231,7 @@ class DUCWorldModel(nn.Module):
         self.register_buffer("prior_confidence", confidences)
         self.register_buffer("prior_gate", torch.ones_like(confidences))
         self.register_buffer("data_confidence", torch.ones_like(confidences))
+        self.register_buffer("reward_sensitivity", torch.ones(config.state_dim, dtype=torch.float32))
         beta_init = max(0.05, min(50.0, float(config.prior_beta_init)))
         self.prior_log_beta = nn.Parameter(
             torch.full(
@@ -247,6 +257,16 @@ class DUCWorldModel(nn.Module):
     @property
     def effective_prior_confidence(self) -> torch.Tensor:
         return (self.prior_confidence * self.data_confidence).clamp(min=0.0, max=1.0)
+
+    @torch.no_grad()
+    def set_reward_sensitivity(self, weights: torch.Tensor) -> None:
+        weights = weights.to(device=self.reward_sensitivity.device, dtype=self.reward_sensitivity.dtype)
+        if weights.shape != self.reward_sensitivity.shape:
+            raise ValueError(
+                f"reward sensitivity has shape {tuple(weights.shape)}, "
+                f"expected {tuple(self.reward_sensitivity.shape)}"
+            )
+        self.reward_sensitivity.copy_(weights.clamp(min=0.1, max=20.0))
 
     @torch.no_grad()
     def set_prior_validation(
@@ -331,7 +351,22 @@ class DUCWorldModel(nn.Module):
         effects = prior_effects + residual_effects
         prior_delta = torch.einsum("bk,bkd->bd", alpha, prior_effects).to(states.dtype)
         residual_delta = torch.einsum("bk,bkd->bd", alpha, residual_effects).to(states.dtype)
-        mechanism_delta = prior_delta + residual_delta
+        proposed_mechanism_delta = prior_delta + residual_delta
+        arb_input = torch.cat(
+            [
+                states,
+                actions,
+                alpha,
+                base_delta,
+                prior_delta,
+                residual_delta,
+                proposed_mechanism_delta,
+            ],
+            dim=-1,
+        )
+        mix_logits = self.mechanism_arbitrator(arb_input) + float(self.config.arbitration_logit_bias)
+        mechanism_mix = torch.sigmoid(mix_logits).to(states.dtype)
+        mechanism_delta = mechanism_mix * proposed_mechanism_delta
         mean = states + base_delta + mechanism_delta
         logvar_input = torch.cat([states, actions, alpha, base_delta], dim=-1)
         logvar = self.variance_head(logvar_input).clamp(
@@ -354,6 +389,8 @@ class DUCWorldModel(nn.Module):
             prior_delta=prior_delta,
             residual_delta=residual_delta,
             mechanism_delta=mechanism_delta,
+            proposed_mechanism_delta=proposed_mechanism_delta,
+            mechanism_mix=mechanism_mix,
             prior_beta=beta,
             residual_scale=residual_scale,
             prior_gate=gate,

@@ -167,6 +167,7 @@ def main(cfg: DictConfig) -> None:
                 prior_beta_init=float(config_get(cfg, "duc.prior_beta_init", 1.0)),
                 trust_region_delta_min=float(config_get(cfg, "duc.trust_region_delta_min", 0.15)),
                 trust_region_delta_range=float(config_get(cfg, "duc.trust_region_delta_range", 0.75)),
+                arbitration_logit_bias=float(config_get(cfg, "duc.arbitration_logit_bias", -0.5)),
             )
         ).to(device)
         maybe_compile_forward(model, cfg)
@@ -475,6 +476,8 @@ def duc_trainer_config(cfg: DictConfig, seed: int, method: str) -> DUCTrainerCon
         prior_validation_max_samples=int(config_get(cfg, "duc.prior_validation_max_samples", 4096)),
         prior_validation_beta_min=float(config_get(cfg, "duc.prior_validation_beta_min", 0.05)),
         prior_validation_beta_max=float(config_get(cfg, "duc.prior_validation_beta_max", 8.0)),
+        reward_sensitivity_scale=float(config_get(cfg, "duc.reward_sensitivity_scale", 4.0)),
+        reward_sensitivity_max=float(config_get(cfg, "duc.reward_sensitivity_max", 6.0)),
         teacher_force_context=bool(cfg.duc.teacher_force_context),
         seed=seed,
         precision=str(config_get(cfg, "runtime.precision", "fp32")),

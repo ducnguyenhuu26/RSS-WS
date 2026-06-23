@@ -45,6 +45,8 @@ class DUCTrainerConfig:
     prior_validation_max_samples: int = 4096
     prior_validation_beta_min: float = 0.05
     prior_validation_beta_max: float = 8.0
+    reward_sensitivity_scale: float = 4.0
+    reward_sensitivity_max: float = 6.0
     teacher_force_context: bool = True
     seed: int = 0
     precision: str = "fp32"
@@ -59,6 +61,13 @@ def fit_duc_world_model(
 ) -> list[dict[str, float]]:
     model.to(device)
     transitions = align_contexts_to_templates(transitions, model.config.templates)
+    reward_sensitivity = estimate_reward_sensitivity(
+        transitions=transitions,
+        device=device,
+        scale=config.reward_sensitivity_scale,
+        max_weight=config.reward_sensitivity_max,
+    )
+    model.set_reward_sensitivity(reward_sensitivity)
     if config.prior_validation:
         calibrate_prior_validation(
             model=model,
@@ -87,6 +96,7 @@ def fit_duc_world_model(
     )
     control_weights_np = default_control_weights(transitions.state_dim, model.config.templates)
     control_weights = torch.tensor(control_weights_np, dtype=torch.float32, device=device)
+    control_weights = control_weights * reward_sensitivity
     prepared = (
         prepare_duc_data(transitions, history_length=config.history_length, device=device)
         if config.preload_to_device
@@ -272,6 +282,7 @@ def calibrate_prior_validation(
             context=contexts[:, mechanism_index] if contexts is not None else None,
             output_indices=template.output_indices,
             law_type=template.law_type,
+            state_weights=model.reward_sensitivity.to(raw_priors.device),
             min_gate=config.prior_validation_min_gate,
             temperature=config.prior_validation_temperature,
             beta_min=config.prior_validation_beta_min,
@@ -302,6 +313,7 @@ def _validate_single_prior(
     context: torch.Tensor | None,
     output_indices: tuple[int, ...],
     law_type: str,
+    state_weights: torch.Tensor,
     min_gate: float,
     temperature: float,
     beta_min: float,
@@ -313,6 +325,7 @@ def _validate_single_prior(
     index = torch.tensor(output_indices, dtype=torch.long, device=raw_prior.device)
     prior = raw_prior.index_select(dim=-1, index=index).float()
     target = target_delta.index_select(dim=-1, index=index).float()
+    dim_weights = state_weights.index_select(dim=0, index=index).float().clamp_min(1e-6)
     if context is None:
         weights = torch.ones(prior.shape[0], dtype=prior.dtype, device=prior.device)
         signed_prior = prior
@@ -327,8 +340,8 @@ def _validate_single_prior(
     prior_centered = signed_prior - _weighted_mean(signed_prior, weights)
     target_centered = target - _weighted_mean(target, weights)
 
-    weighted_prior = prior_centered * weights.unsqueeze(-1).sqrt()
-    weighted_target = target_centered * weights.unsqueeze(-1).sqrt()
+    weighted_prior = prior_centered * weights.unsqueeze(-1).sqrt() * dim_weights.unsqueeze(0).sqrt()
+    weighted_target = target_centered * weights.unsqueeze(-1).sqrt() * dim_weights.unsqueeze(0).sqrt()
     prior_energy = weighted_prior.pow(2).sum()
     target_energy = weighted_target.pow(2).sum()
     if float(prior_energy.detach().cpu()) <= 1e-10 or float(target_energy.detach().cpu()) <= 1e-10:
@@ -359,6 +372,42 @@ def _validate_single_prior(
 def _weighted_mean(values: torch.Tensor, weights: torch.Tensor) -> torch.Tensor:
     normalizer = weights.sum().clamp_min(1e-8)
     return (values * weights.unsqueeze(-1)).sum(dim=0, keepdim=True) / normalizer
+
+
+def estimate_reward_sensitivity(
+    transitions: MuJoCoTransitions,
+    device: torch.device | str,
+    scale: float,
+    max_weight: float,
+) -> torch.Tensor:
+    if transitions.rewards is None:
+        return torch.ones(transitions.state_dim, dtype=torch.float32, device=device)
+    rewards = torch.tensor(transitions.rewards, dtype=torch.float32, device=device)
+    if rewards.numel() < 2 or float(rewards.std().detach().cpu()) <= 1e-8:
+        return torch.ones(transitions.state_dim, dtype=torch.float32, device=device)
+    states = torch.tensor(transitions.states, dtype=torch.float32, device=device)
+    next_states = torch.tensor(transitions.next_states, dtype=torch.float32, device=device)
+    delta = next_states - states
+    reward_centered = rewards - rewards.mean()
+    reward_std = reward_centered.std().clamp_min(1e-6)
+    next_corr = _absolute_correlation(next_states, reward_centered, reward_std)
+    delta_corr = _absolute_correlation(delta, reward_centered, reward_std)
+    sensitivity = torch.maximum(next_corr, delta_corr)
+    if float(sensitivity.max().detach().cpu()) > 1e-8:
+        sensitivity = sensitivity / sensitivity.max().clamp_min(1e-8)
+    weights = 1.0 + float(scale) * sensitivity
+    return weights.clamp(min=1.0, max=float(max_weight))
+
+
+def _absolute_correlation(
+    values: torch.Tensor,
+    reward_centered: torch.Tensor,
+    reward_std: torch.Tensor,
+) -> torch.Tensor:
+    centered = values - values.mean(dim=0, keepdim=True)
+    std = centered.std(dim=0).clamp_min(1e-6)
+    covariance = (centered * reward_centered.unsqueeze(-1)).mean(dim=0)
+    return (covariance / (std * reward_std)).abs().nan_to_num(0.0)
 
 
 def residual_scale_for_epoch(epoch: int, epochs: int, warmup_fraction: float) -> float:
