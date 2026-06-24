@@ -516,6 +516,7 @@ def duc_trainer_config(cfg: DictConfig, seed: int, method: str) -> DUCTrainerCon
         prior_beta_weight=prior_beta_weight,
         residual_warmup_fraction=residual_warmup_fraction,
         prior_validation=bool(config_get(cfg, "duc.prior_validation", True)),
+        prior_validation_use_context=bool(config_get(cfg, "duc.prior_validation_use_context", True)),
         prior_validation_min_gate=float(config_get(cfg, "duc.prior_validation_min_gate", 0.08)),
         prior_validation_temperature=float(config_get(cfg, "duc.prior_validation_temperature", 0.08)),
         prior_validation_max_samples=int(config_get(cfg, "duc.prior_validation_max_samples", 4096)),

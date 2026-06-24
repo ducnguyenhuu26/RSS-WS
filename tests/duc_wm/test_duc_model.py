@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 
+import onelife.duc_wm.trainer as trainer_module
 from onelife.duc_wm import (
     DUCTrainerConfig,
     DUCWorldModel,
@@ -73,6 +74,49 @@ def test_duc_training_smoke_on_synthetic_contexts():
     assert history
     assert "r2_at_1" in metrics
     assert "duc_r2_at_1" in metrics
+
+
+def test_prior_validation_can_ignore_context_labels(monkeypatch):
+    transitions = MuJoCoTransitions(
+        states=np.array([[0.0, 0.0], [1.0, 0.5], [2.0, 1.0]], dtype=np.float32),
+        actions=np.array([[1.0], [0.5], [0.0]], dtype=np.float32),
+        next_states=np.array([[1.0, 0.5], [1.6, 0.8], [2.1, 1.0]], dtype=np.float32),
+        contexts=np.array([[0.2], [0.3], [0.4]], dtype=np.float32),
+        context_names=("actuation",),
+    )
+    templates = default_mujoco_templates("TinyEnv", state_dim=2, action_dim=1)[:1]
+    model = DUCWorldModel(
+        DUCWorldModelConfig(
+            state_dim=2,
+            action_dim=1,
+            templates=templates,
+            hidden_size=16,
+            hidden_layers=1,
+            history_length=2,
+        )
+    )
+    seen_contexts = []
+
+    def fake_validate_single_prior(**kwargs):
+        seen_contexts.append(kwargs["context"])
+        return 0.5, 0.5, 1.0, 0.5
+
+    monkeypatch.setattr(trainer_module, "_validate_single_prior", fake_validate_single_prior)
+
+    trainer_module.calibrate_prior_validation(
+        model=model,
+        transitions=transitions,
+        config=DUCTrainerConfig(
+            history_length=2,
+            prior_validation_use_context=False,
+            context_weight=0.0,
+            teacher_force_context=False,
+        ),
+        device="cpu",
+    )
+
+    assert seen_contexts
+    assert all(context is None for context in seen_contexts)
 
 
 def test_duc_reward_wake_replay_training_smoke():

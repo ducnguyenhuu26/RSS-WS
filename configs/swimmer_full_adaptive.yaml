@@ -44,6 +44,9 @@ duc:
   residual_warmup_fraction: 0.25
   context_adapter_scale: 1.0
   prior_validation: true
+  # Set false for no-label DUC: keep validating law priors from observed
+  # transition deltas, but do not peek at ground-truth context labels.
+  prior_validation_use_context: true
   prior_validation_min_gate: 0.08
   prior_validation_temperature: 0.08
   prior_validation_max_samples: 8192

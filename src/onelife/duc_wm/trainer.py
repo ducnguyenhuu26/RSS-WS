@@ -40,6 +40,7 @@ class DUCTrainerConfig:
     prior_beta_weight: float = 5e-4
     residual_warmup_fraction: float = 0.25
     prior_validation: bool = True
+    prior_validation_use_context: bool = True
     prior_validation_min_gate: float = 0.08
     prior_validation_temperature: float = 0.08
     prior_validation_max_samples: int = 4096
@@ -165,7 +166,7 @@ def fit_duc_world_model(
                     model=model,
                     output=output,
                     targets=batch.next_states,
-                    context_targets=batch.contexts,
+                    context_targets=batch.contexts if config.context_weight > 0.0 else None,
                     reward_targets=batch.rewards,
                     config=loss_config,
                     control_weights=batch_weights,
@@ -317,7 +318,7 @@ def calibrate_prior_validation(
         device=device,
     )
     contexts = None
-    if transitions.contexts is not None:
+    if config.prior_validation_use_context and transitions.contexts is not None:
         contexts = torch.tensor(transitions.contexts[indices], dtype=torch.float32, device=device)
 
     was_training = model.training
