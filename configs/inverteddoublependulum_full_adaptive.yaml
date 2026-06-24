@@ -1,0 +1,115 @@
+problem: InvertedDoublePendulum-v5
+model: duc_wm
+
+seed: 0
+train_steps: 50000
+test_steps: 10000
+epochs: 80
+batch_size: 1024
+eval_batch_size: 4096
+learning_rate: 0.001
+device: cuda
+
+mujoco_extension:
+  variant: all
+  test_variant: all
+  train_variants: null
+  test_variants: null
+  num_contexts: 64
+  test_num_contexts: 16
+  action_policy: smooth_random
+  action_smoothing: 0.85
+  parallel_workers: 0
+
+duc:
+  history_length: 8
+  hidden_size: 384
+  hidden_layers: 3
+  beta_kl: 0.001
+  context_weight: 0.08
+  residual_weight: 0.00005
+  control_weight: 0.05
+  rollout_weight: 0.08
+  rollout_horizon: 10
+  orth_weight: 0.00005
+  sparse_weight: 0.000005
+  unknown_weight: 0.0005
+  prior_beta_init: 1.0
+  trust_region_weight: 0.2
+  trust_region_delta_min: 0.15
+  trust_region_delta_range: 1.0
+  prior_beta_weight: 0.0005
+  residual_warmup_fraction: 0.25
+  context_adapter_scale: 1.0
+  prior_validation: true
+  prior_validation_use_context: true
+  prior_validation_min_gate: 0.08
+  prior_validation_temperature: 0.08
+  prior_validation_max_samples: 8192
+  prior_validation_beta_min: 0.05
+  prior_validation_beta_max: 8.0
+  reward_sensitivity_scale: 4.0
+  reward_sensitivity_max: 6.0
+  reward_weight: 0.0
+  wake_replay_weight: 0.0
+  wake_replay_top_quantile: 0.70
+  action_rank_weight: 0.0
+  action_rank_margin: 0.05
+  symbolic_validation_interval: 0
+  symbolic_validation_reward_weight: 1.0
+  symbolic_validation_after_training: false
+  teacher_force_context: false
+  llm_prior:
+    enabled: true
+    provider: openai
+    model_slug: gpt-4.1-mini
+    api_key_env: OPENAI_API_KEY
+    max_tokens: 3000
+    json_path: null
+
+baseline:
+  hidden_size: 384
+  hidden_layers: 3
+  ensemble_size: 7
+  context_dim: 10
+  context_weight: 0.08
+
+reward:
+  hidden_size: 384
+  hidden_layers: 3
+  epochs: 30
+  batch_size: 1024
+  learning_rate: 0.001
+  seed_offset: 50000
+
+planning:
+  enabled: true
+  episodes: 3
+  max_steps: 300
+  horizon: 20
+  candidates: 512
+  elites: 64
+  iterations: 4
+  uncertainty_weight: 0.0
+
+runtime:
+  precision: bf16
+  preload_to_device: true
+  compile: false
+  compile_mode: reduce-overhead
+  matmul_precision: high
+  allow_tf32: true
+  cudnn_benchmark: true
+  num_threads: 0
+  interop_threads: 0
+
+output_dir: outputs/duc_wm_inverteddoublependulum_full_adaptive
+output_name: null
+skip_existing: false
+verbose: false
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/hydra/${now:%Y-%m-%d}/${now:%H-%M-%S}

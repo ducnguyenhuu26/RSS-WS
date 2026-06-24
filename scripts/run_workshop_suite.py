@@ -7,9 +7,13 @@ from pathlib import Path
 
 
 DEFAULT_ENVS = {
+    "ant": "ant_full_adaptive",
     "halfcheetah": "halfcheetah_full_adaptive",
+    "inverted_double_pendulum": "inverteddoublependulum_full_adaptive",
+    "inverteddoublependulum": "inverteddoublependulum_full_adaptive",
     "swimmer": "swimmer_full_adaptive",
     "hopper": "hopper_full_adaptive",
+    "pusher": "pusher_full_adaptive",
     "walker2d": "walker2d_full_adaptive",
 }
 
@@ -23,7 +27,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--envs",
-        default="swimmer,hopper,walker2d",
+        default="swimmer,hopper,walker2d,halfcheetah,inverted_double_pendulum",
         help=(
             "Comma-separated env aliases/configs. Known aliases: "
             + ",".join(sorted(DEFAULT_ENVS))

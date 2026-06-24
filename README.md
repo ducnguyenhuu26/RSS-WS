@@ -583,7 +583,7 @@ Main workshop MuJoCo protocol:
 
 ```bash
 uv run python scripts/run_workshop_suite.py \
-  --envs swimmer,hopper,walker2d \
+  --envs swimmer,hopper,walker2d,halfcheetah,inverted_double_pendulum \
   --seeds 0,1,2 \
   --models duc_wm,cadm_supervised,pets_context \
   --max-parallel 3 \
@@ -599,18 +599,23 @@ context-supervised adaptive baseline: it can learn from context labels during
 training but must infer context from history at planning time, like DUC-WM.
 `pets_context` is an oracle-context PETS-style upper bound, included as a strong
 diagnostic rather than a weaker baseline. The default env set is
-`Swimmer-v5`, `Hopper-v5`, and `Walker2d-v5`; `halfcheetah_full_adaptive` is
-available as an appendix-scale fourth environment.
+`Swimmer-v5`, `Hopper-v5`, `Walker2d-v5`, `HalfCheetah-v5`, and
+`InvertedDoublePendulum-v5`; `pusher_full_adaptive` and `ant_full_adaptive` are
+available for appendix-scale stress tests.
 
 Aggregate the main table and average rank:
 
 ```bash
 uv run python scripts/aggregate_avg_rank.py \
   "outputs/duc_wm_workshop_main/*.json" \
-  --metric score.planner_return_mean \
-  --csv-out outputs/duc_wm_workshop_main/avg_rank_return.csv \
-  | tee outputs/duc_wm_workshop_main/avg_rank_return.txt
+  --metrics score.r2_at_1,score.r2_at_10,score.planner_return_mean \
+  --csv-out outputs/duc_wm_workshop_main/avg_rank_composite.csv \
+  | tee outputs/duc_wm_workshop_main/avg_rank_composite.txt
 ```
+
+The main ranking is a composite AvgRank over `R2@1`, `R2@10`, and
+`planner_return_mean`. `R2` measures world-model prediction quality, while
+planner return measures whether the learned model is useful for CEM-MPC.
 
 Compositional OOD sweep:
 
@@ -714,7 +719,7 @@ Implemented:
 - CEM-MPC reward evaluation through a learned reward surrogate;
 - latent-context default config and supervised smoke config.
 - MLP, PETS-style, CaDM-style, DUC ablation, and full DUC-WM benchmark methods;
-- full adaptive Swimmer/Hopper/Walker2d/HalfCheetah configs;
+- full adaptive Swimmer/Hopper/Walker2d/HalfCheetah/InvertedDoublePendulum/Pusher/Ant configs;
 - workshop suite launcher plus grouped and average-rank aggregation scripts.
 
 Still recommended before making a strong paper claim:
