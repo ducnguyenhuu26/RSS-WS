@@ -579,6 +579,39 @@ single GPU unless monitoring shows plenty of free VRAM and low utilization.
 Each process uses CPU workers for MuJoCo collection/env stepping and CUDA for
 training, rollout evaluation, and CEM candidate scoring.
 
+Main workshop MuJoCo protocol:
+
+```bash
+uv run python scripts/run_workshop_suite.py \
+  --envs swimmer,hopper,walker2d \
+  --seeds 0,1,2 \
+  --models duc_wm,cadm_supervised,pets_context \
+  --max-parallel 3 \
+  device=cuda \
+  runtime.precision=bf16 \
+  runtime.preload_to_device=true \
+  planning.uncertainty_weight=0.0 \
+  mujoco_extension.parallel_workers=12
+```
+
+This is the main fair workshop comparison. `cadm_supervised` is the closest
+context-supervised adaptive baseline: it can learn from context labels during
+training but must infer context from history at planning time, like DUC-WM.
+`pets_context` is an oracle-context PETS-style upper bound, included as a strong
+diagnostic rather than a weaker baseline. The default env set is
+`Swimmer-v5`, `Hopper-v5`, and `Walker2d-v5`; `halfcheetah_full_adaptive` is
+available as an appendix-scale fourth environment.
+
+Aggregate the main table and average rank:
+
+```bash
+uv run python scripts/aggregate_avg_rank.py \
+  "outputs/duc_wm_workshop_main/*.json" \
+  --metric score.planner_return_mean \
+  --csv-out outputs/duc_wm_workshop_main/avg_rank_return.csv \
+  | tee outputs/duc_wm_workshop_main/avg_rank_return.txt
+```
+
 Compositional OOD sweep:
 
 ```bash
@@ -596,7 +629,10 @@ The implemented methods are:
 |---|---|
 | `mlp` | black-box Gaussian MLP dynamics |
 | `pets` | PETS-style probabilistic ensemble dynamics |
+| `pets_context` | PETS-style ensemble with oracle context, used as an upper-bound diagnostic |
 | `cadm` | CaDM-style latent-context dynamics |
+| `cadm_supervised` | CaDM-style latent-context dynamics with context supervision during training |
+| `cadm_context` | CaDM-style dynamics with oracle context, used as an upper-bound diagnostic |
 | `duc_no_llm` | DUC architecture with non-semantic generic mechanisms |
 | `duc_random` | DUC architecture with random mechanism masks |
 | `duc_wrong_prior` | DUC architecture with rotated/wrong semantic masks |
@@ -678,7 +714,8 @@ Implemented:
 - CEM-MPC reward evaluation through a learned reward surrogate;
 - latent-context default config and supervised smoke config.
 - MLP, PETS-style, CaDM-style, DUC ablation, and full DUC-WM benchmark methods;
-- workshop config and grouped result aggregation script.
+- full adaptive Swimmer/Hopper/Walker2d/HalfCheetah configs;
+- workshop suite launcher plus grouped and average-rank aggregation scripts.
 
 Still recommended before making a strong paper claim:
 
