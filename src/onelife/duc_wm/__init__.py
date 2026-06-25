@@ -15,6 +15,12 @@ from .model import DUCForwardOutput, DUCWorldModel, DUCWorldModelConfig
 from .mujoco_ext import MuJoCoExtensionConfig, collect_mujoco_extension_dataset
 from .planning_eval import PlanningEvalConfig, evaluate_cem_mpc
 from .reward_model import RewardModel, RewardModelConfig, RewardTrainerConfig, fit_reward_model
+from .simfutures import (
+    SimFuturesTrainerConfig,
+    SimFuturesWorldModel,
+    SimFuturesWorldModelConfig,
+    fit_simfutures_world_model,
+)
 from .templates import (
     MechanismTemplate,
     default_mujoco_templates,
@@ -47,6 +53,9 @@ __all__ = [
     "BaselineTrainerConfig",
     "DUCWorldModel",
     "DUCWorldModelConfig",
+    "SimFuturesTrainerConfig",
+    "SimFuturesWorldModel",
+    "SimFuturesWorldModelConfig",
     "LawPriorBank",
     "CaDMWorldModel",
     "CaDMWorldModelConfig",
@@ -69,6 +78,7 @@ __all__ = [
     "evaluate_baseline_world_model",
     "evaluate_cem_mpc",
     "fit_duc_world_model",
+    "fit_simfutures_world_model",
     "fit_baseline_world_model",
     "fit_reward_model",
     "load_templates_from_json_file",

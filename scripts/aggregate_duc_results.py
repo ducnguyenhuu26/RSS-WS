@@ -24,6 +24,10 @@ DEFAULT_METRICS = (
     "score.prior_beta_mean",
     "score.prior_beta_min",
     "score.prior_beta_max",
+    "score.law_posterior_mean",
+    "score.law_posterior_entropy",
+    "score.law_channel_mse",
+    "score.planning_bonus_mean",
 )
 
 

@@ -28,6 +28,9 @@ from onelife.duc_wm import (
     RewardModel,
     RewardModelConfig,
     RewardTrainerConfig,
+    SimFuturesTrainerConfig,
+    SimFuturesWorldModel,
+    SimFuturesWorldModelConfig,
     build_duc_mujoco_prior_prompt,
     collect_mujoco_extension_dataset,
     default_mujoco_templates,
@@ -37,6 +40,7 @@ from onelife.duc_wm import (
     fit_baseline_world_model,
     fit_duc_world_model,
     fit_reward_model,
+    fit_simfutures_world_model,
     generic_mechanism_templates,
     load_templates_from_json_file,
     prompt_payload,
@@ -156,7 +160,35 @@ def main(cfg: DictConfig) -> None:
         templates = remove_unknown_template(templates)
         llm_prior_status["source"] = f"{llm_prior_status['source']}+no_unknown"
 
-    if method in DUC_METHODS:
+    if method in SIMFUTURES_METHODS:
+        model = SimFuturesWorldModel(
+            SimFuturesWorldModelConfig(
+                state_dim=train_dataset.state_dim,
+                action_dim=train_dataset.action_dim,
+                templates=templates,
+                hidden_size=int(cfg.duc.hidden_size),
+                hidden_layers=int(cfg.duc.hidden_layers),
+                history_length=int(cfg.duc.history_length),
+                symbolic_delta_scale=float(config_get(cfg, "simfutures.symbolic_delta_scale", 0.20)),
+                planning_delta_scale=float(config_get(cfg, "simfutures.planning_delta_scale", 0.15)),
+            )
+        ).to(device)
+        maybe_compile_forward(model, cfg)
+        history = fit_simfutures_world_model(
+            model=model,
+            transitions=train_dataset,
+            config=simfutures_trainer_config(cfg, seed),
+            device=device,
+        )
+        metrics = evaluate_duc_model(
+            model=model,
+            transitions=test_dataset,
+            device=device,
+            batch_size=int(cfg.eval_batch_size),
+            history_length=int(cfg.duc.history_length),
+            rollout_horizon=int(cfg.duc.rollout_horizon),
+        )
+    elif method in LEGACY_DUC_METHODS:
         model = DUCWorldModel(
             DUCWorldModelConfig(
                 state_dim=train_dataset.state_dim,
@@ -341,7 +373,7 @@ def main(cfg: DictConfig) -> None:
         )
 
     payload = {
-        "framework": "DUC-WM benchmark",
+        "framework": "SimFutures-LP benchmark",
         "model": method,
         "problem": problem,
         "seed": seed,
@@ -456,11 +488,17 @@ def planning_eval_config(cfg: DictConfig) -> PlanningEvalConfig:
         elites=int(config_get(cfg, "planning.elites", 32)),
         iterations=int(config_get(cfg, "planning.iterations", 3)),
         uncertainty_weight=float(config_get(cfg, "planning.uncertainty_weight", 0.05)),
+        model_bonus_weight=float(config_get(cfg, "planning.model_bonus_weight", 0.0)),
     )
 
 
-DUC_METHODS = {
+SIMFUTURES_METHODS = {
     "duc_wm",
+    "simfutures",
+}
+
+LEGACY_DUC_METHODS = {
+    "duc_wm_legacy",
     "duc_wm_safe",
     "duc_wm_dual",
     "duc_random",
@@ -470,6 +508,7 @@ DUC_METHODS = {
     "duc_no_reg",
     "duc_no_rollout",
 }
+DUC_METHODS = SIMFUTURES_METHODS | LEGACY_DUC_METHODS
 
 BASELINE_METHODS = {
     "mlp",
@@ -485,6 +524,33 @@ ALL_METHODS = DUC_METHODS | BASELINE_METHODS
 
 def baseline_context_weight(cfg: DictConfig) -> float:
     return float(config_get(cfg, "baseline.context_weight", cfg.duc.context_weight))
+
+
+def simfutures_trainer_config(cfg: DictConfig, seed: int) -> SimFuturesTrainerConfig:
+    return SimFuturesTrainerConfig(
+        epochs=int(cfg.epochs),
+        batch_size=int(cfg.batch_size),
+        learning_rate=float(cfg.learning_rate),
+        history_length=int(cfg.duc.history_length),
+        beta_kl=float(config_get(cfg, "simfutures.beta_kl", cfg.duc.beta_kl)),
+        prior_kl_weight=float(config_get(cfg, "simfutures.prior_kl_weight", 5e-4)),
+        law_channel_weight=float(config_get(cfg, "simfutures.law_channel_weight", 0.10)),
+        reward_weight=float(config_get(cfg, "simfutures.reward_weight", 0.10)),
+        reliability_weight=float(config_get(cfg, "simfutures.reliability_weight", 0.20)),
+        control_weight=float(config_get(cfg, "simfutures.control_weight", cfg.duc.control_weight)),
+        rollout_weight=float(config_get(cfg, "simfutures.rollout_weight", cfg.duc.rollout_weight)),
+        rollout_horizon=int(cfg.duc.rollout_horizon),
+        posterior_update_interval=int(config_get(cfg, "simfutures.posterior_update_interval", 1)),
+        posterior_update_samples=int(config_get(cfg, "simfutures.posterior_update_samples", 4096)),
+        posterior_trust=float(config_get(cfg, "simfutures.posterior_trust", 0.25)),
+        posterior_temperature=float(config_get(cfg, "simfutures.posterior_temperature", 1.0)),
+        utility_error_weight=float(config_get(cfg, "simfutures.utility_error_weight", 1.0)),
+        utility_reward_gap_weight=float(config_get(cfg, "simfutures.utility_reward_gap_weight", 0.25)),
+        utility_law_weight=float(config_get(cfg, "simfutures.utility_law_weight", 0.10)),
+        seed=seed,
+        precision=str(config_get(cfg, "runtime.precision", "fp32")),
+        preload_to_device=bool(config_get(cfg, "runtime.preload_to_device", False)),
+    )
 
 
 def duc_trainer_config(cfg: DictConfig, seed: int, method: str) -> DUCTrainerConfig:

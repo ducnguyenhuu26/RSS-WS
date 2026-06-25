@@ -74,6 +74,24 @@ duc:
     max_tokens: 3000
     json_path: null
 
+simfutures:
+  symbolic_delta_scale: 0.20
+  planning_delta_scale: 0.15
+  beta_kl: 0.001
+  prior_kl_weight: 0.0005
+  law_channel_weight: 0.12
+  reward_weight: 0.10
+  reliability_weight: 0.25
+  control_weight: 0.05
+  rollout_weight: 0.08
+  posterior_update_interval: 1
+  posterior_update_samples: 4096
+  posterior_trust: 0.25
+  posterior_temperature: 1.0
+  utility_error_weight: 1.0
+  utility_reward_gap_weight: 0.25
+  utility_law_weight: 0.10
+
 baseline:
   # Shared-capacity baseline settings. PETS uses ensemble_size; CaDM uses
   # context_dim. Both inherit hidden_size/hidden_layers from DUC unless
@@ -99,6 +117,7 @@ planning:
   elites: 6
   iterations: 2
   uncertainty_weight: 0.05
+  model_bonus_weight: 0.20
 
 runtime:
   precision: fp32

@@ -19,6 +19,7 @@ class CEMPlannerConfig:
     iterations: int = 4
     context_samples: int = 4
     uncertainty_weight: float = 0.0
+    model_bonus_weight: float = 0.0
 
 
 @torch.no_grad()
@@ -114,7 +115,15 @@ def rollout_action_sequences(
         )
         reward = reward_fn(state, action, output.mean)
         uncertainty = torch.exp(output.logvar).mean(dim=-1)
-        total = total + reward - config.uncertainty_weight * uncertainty
+        bonus = getattr(output, "planning_bonus", None)
+        if bonus is None:
+            bonus = torch.zeros_like(reward)
+        total = (
+            total
+            + reward
+            + float(config.model_bonus_weight) * bonus
+            - config.uncertainty_weight * uncertainty
+        )
         state = output.mean
         if history_states is not None:
             history_states = torch.cat([history_states[:, 1:], state.unsqueeze(1)], dim=1)

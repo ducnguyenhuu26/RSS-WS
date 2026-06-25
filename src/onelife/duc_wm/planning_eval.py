@@ -29,6 +29,7 @@ class PlanningEvalConfig:
     elites: int = 32
     iterations: int = 3
     uncertainty_weight: float = 0.0
+    model_bonus_weight: float = 0.0
 
 
 @torch.no_grad()
@@ -121,6 +122,7 @@ def _run_planned_episode(
             elites=config.elites,
             iterations=config.iterations,
             uncertainty_weight=config.uncertainty_weight,
+            model_bonus_weight=config.model_bonus_weight,
         )
         rng = np.random.default_rng(seed + 1)
         model_context = (

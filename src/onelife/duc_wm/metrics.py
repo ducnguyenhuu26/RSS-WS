@@ -230,6 +230,8 @@ def evaluate_duc_model(
     proposed_norms: list[float] = []
     planning_delta_norms: list[float] = []
     mechanism_mixes: list[float] = []
+    law_channel_errors: list[float] = []
+    planning_bonuses: list[float] = []
     trust_violations: list[float] = []
     for batch in iter_duc_batches(
         transitions,
@@ -238,14 +240,25 @@ def evaluate_duc_model(
         shuffle=False,
         device=device,
     ):
-        output = model(
-            batch.states,
-            batch.actions,
-            batch.history_states,
-            batch.history_actions,
-            context=None,
-            sample_context=False,
-        )
+        try:
+            output = model(
+                batch.states,
+                batch.actions,
+                batch.history_states,
+                batch.history_actions,
+                context=None,
+                sample_context=False,
+                next_states=batch.next_states,
+            )
+        except TypeError:
+            output = model(
+                batch.states,
+                batch.actions,
+                batch.history_states,
+                batch.history_actions,
+                context=None,
+                sample_context=False,
+            )
         alphas.append(output.alpha_mean.cpu().numpy())
         prior_norms.append(float(output.prior_delta.norm(dim=-1).mean().cpu()))
         residual_norms.append(float(output.residual_delta.norm(dim=-1).mean().cpu()))
@@ -254,6 +267,12 @@ def evaluate_duc_model(
         proposed_norms.append(float(output.proposed_mechanism_delta.norm(dim=-1).mean().cpu()))
         planning_delta_norms.append(float(output.planning_delta.norm(dim=-1).mean().cpu()))
         mechanism_mixes.append(float(output.mechanism_mix.mean().cpu()))
+        if hasattr(output, "law_channel_pred") and hasattr(output, "law_channel_targets"):
+            law_channel_errors.append(
+                float((output.law_channel_pred - output.law_channel_targets).pow(2).mean().cpu())
+            )
+        if hasattr(output, "planning_bonus"):
+            planning_bonuses.append(float(output.planning_bonus.mean().cpu()))
         trust_violations.append(float(trust_region_violation(model, output).cpu()))
         if batch.contexts is not None:
             context_errors.append(
@@ -298,6 +317,18 @@ def evaluate_duc_model(
         metrics["reward_sensitivity_mean"] = float(np.mean(reward_sensitivity))
         metrics["reward_sensitivity_max"] = float(np.max(reward_sensitivity))
         metrics["residual_scale"] = float(model._residual_scale.detach().cpu())
+        if hasattr(model, "law_posterior_probs"):
+            posterior = model.law_posterior_probs.detach().cpu().numpy()
+            clipped = np.clip(posterior, 1e-6, 1.0 - 1e-6)
+            entropy = -(clipped * np.log(clipped) + (1.0 - clipped) * np.log(1.0 - clipped))
+            metrics["law_posterior_mean"] = float(np.mean(posterior))
+            metrics["law_posterior_min"] = float(np.min(posterior))
+            metrics["law_posterior_max"] = float(np.max(posterior))
+            metrics["law_posterior_entropy"] = float(np.mean(entropy))
+        if law_channel_errors:
+            metrics["law_channel_mse"] = float(sum(law_channel_errors) / len(law_channel_errors))
+        if planning_bonuses:
+            metrics["planning_bonus_mean"] = float(sum(planning_bonuses) / len(planning_bonuses))
     if context_errors:
         metrics["context_mse"] = float(sum(context_errors) / len(context_errors))
     if transitions.contexts is not None:
@@ -319,9 +350,11 @@ def trust_region_violation(model: DUCWorldModel, output) -> torch.Tensor:
     confidences = model.effective_prior_confidence.to(output.residual_effects.device)
     prior_norm = output.prior_effects.pow(2).mean(dim=-1).add(1e-8).sqrt()
     residual_norm = output.residual_effects.pow(2).mean(dim=-1).add(1e-8).sqrt()
+    delta_min = float(getattr(model.config, "trust_region_delta_min", 0.15))
+    delta_range = float(getattr(model.config, "trust_region_delta_range", 0.75))
     delta = (
-        float(model.config.trust_region_delta_min)
-        + (1.0 - confidences) * float(model.config.trust_region_delta_range)
+        delta_min
+        + (1.0 - confidences) * delta_range
     )
     violation = torch.relu(residual_norm - delta.unsqueeze(0) * prior_norm)
     return (confidences.unsqueeze(0) * violation).mean()

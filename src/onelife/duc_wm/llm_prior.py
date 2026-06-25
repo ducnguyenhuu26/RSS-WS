@@ -47,19 +47,17 @@ def build_duc_mujoco_prior_prompt(
         for template in templates
     )
     prompt = f"""
-You are the offline scientific prior builder for DUC-WM.
+You are the offline scientific prior builder for SimFutures-LP.
 
-DUC-WM is a hidden-mechanism world model for continuous-control MuJoCo.
-It learns:
+SimFutures-LP is a continuous-control world model and planner. It does not ask
+an LLM to predict dynamics or actions directly. The LLM defines a safe portfolio
+of executable law templates. Code compiles each template into a bounded tensor
+law channel m_j(state, action, next_state). A neural model then learns a latent
+posterior over which laws are valid and useful for reward-seeking planning.
 
-next_state = state + base_dynamics(state, action)
-           + sum_j alpha_j(context) * [P_j(state, action, history) + R_j(state, action)]
-
-P_j is a safe compiled law prior selected from a small DSL. R_j is a neural
-residual that repairs what the law misses. Your answer must define which
-mechanisms should exist, what inputs they read, what state coordinates they
-affect, which DSL law_type each mechanism uses, whether it is slow or event,
-and how uncertain/confident the prior should be.
+Your answer must define which law templates should exist, what inputs they read,
+what state coordinates they affect, which DSL law_type each law uses, whether it
+is persistent or event-like, and how uncertain/confident the prior should be.
 
 Do not write Python code. Do not write arbitrary symbolic equations. Do not
 invent a full simulator. Return JSON only.
@@ -74,7 +72,7 @@ Flat vector interface:
 - valid action indices: 0..{action_dim - 1}
 - index role hint: {dimension_hint}
 
-DUC-WM causal interpretation:
+SimFutures-LP law interpretation:
 - actuation: action-driven change in velocity/body coordinates.
 - wind: persistent external drift or force.
 - friction: contact or surface-dependent velocity damping.
@@ -103,13 +101,13 @@ Initial safe fallback templates:
 {mechanism_lines}
 
 Your task:
-1. Keep mechanisms that are plausible for this exact environment.
-2. Remove mechanisms that are weak or redundant for this environment.
-3. Choose law_type and law_gain for the mechanism prior P_j.
+1. Keep law templates that are plausible for this exact environment.
+2. Remove laws that are weak or redundant for this environment.
+3. Choose law_type and law_gain for the executable law channel.
 4. Adjust state_indices, action_indices, output_indices, scale, and prior_std.
-5. Make output_indices sparse unless the mechanism truly affects the whole body.
+5. Make output_indices sparse unless the law truly affects the whole body.
 6. Encode uncertainty through prior_std and confidence, not through overclaiming.
-7. Prefer mechanisms that explain reward-critical rollout errors.
+7. Prefer laws that can separate high-reward rollouts from merely accurate rollouts.
 8. Ensure actuation is present.
 9. Use 6 to 10 mechanisms.
 
@@ -129,15 +127,15 @@ Return a JSON object with this exact schema:
       "prior_std": 0.5,
       "confidence": 0.65,
       "timescale": "slow",
-      "reward_relevance": "how this mechanism affects planning reward",
-      "description": "short mechanism explanation grounded in this environment"
+      "reward_relevance": "how this law affects planning reward",
+      "description": "short law explanation grounded in this environment"
     }}
   ]
 }}
 
 Hard rules:
 - Use only valid integer indices within the given state/action dimensions.
-- Use only mechanism names from the DUC-WM causal interpretation list unless a
+- Use only mechanism names from the SimFutures-LP law interpretation list unless a
   new name is absolutely necessary.
 - Do not include duplicate names.
 - Do not include empty output_indices.
@@ -356,7 +354,7 @@ def synthesize_templates_with_llm(
             LiteLlmMessage(
                 role="system",
                 content=(
-                    "You produce strict JSON safe law-DSL mechanism priors for DUC-WM. "
+                    "You produce strict JSON safe law-DSL priors for SimFutures-LP. "
                     "Never return markdown, Python code, or explanatory prose."
                 ),
             ),
