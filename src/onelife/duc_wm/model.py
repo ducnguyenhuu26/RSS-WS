@@ -27,11 +27,15 @@ class DUCWorldModelConfig:
     safe_prior_init: float = 1.0
     safe_prior_min: float = 0.0
     safe_prior_max: float = 1.0
+    dual_planning_head: bool = False
+    planning_delta_scale: float = 0.25
 
 
 @dataclass
 class DUCForwardOutput:
     mean: torch.Tensor
+    prediction_mean: torch.Tensor
+    planning_mean: torch.Tensor
     logvar: torch.Tensor
     effects: torch.Tensor
     prior_effects: torch.Tensor
@@ -49,11 +53,13 @@ class DUCForwardOutput:
     mechanism_delta: torch.Tensor
     proposed_mechanism_delta: torch.Tensor
     mechanism_mix: torch.Tensor
+    planning_delta: torch.Tensor
     prior_beta: torch.Tensor
     residual_scale: torch.Tensor
     prior_gate: torch.Tensor
     data_confidence: torch.Tensor
     reward_pred: torch.Tensor
+    planning_reward_pred: torch.Tensor
 
 
 def _mlp(input_dim: int, output_dim: int, hidden_size: int, hidden_layers: int) -> nn.Sequential:
@@ -249,6 +255,19 @@ class DUCWorldModel(nn.Module):
             hidden_size=config.hidden_size,
             hidden_layers=max(1, config.hidden_layers - 1),
         )
+        self.dual_planning_head = bool(config.dual_planning_head)
+        if self.dual_planning_head:
+            planning_input_dim = config.action_dim + len(config.templates) + 6 * config.state_dim
+            self.planning_residual_head = _mlp(
+                input_dim=planning_input_dim,
+                output_dim=config.state_dim,
+                hidden_size=config.hidden_size,
+                hidden_layers=max(1, config.hidden_layers - 1),
+            )
+            _init_last_linear_constant(self.planning_residual_head, 0.0)
+        else:
+            self.planning_residual_head = None
+        self._planning_mode = False
         self.safe_prior_mixture = bool(config.safe_prior_mixture)
         if self.safe_prior_mixture:
             mix_input_dim = config.state_dim + config.action_dim + len(config.templates) + 3 * config.state_dim
@@ -337,6 +356,13 @@ class DUCWorldModel(nn.Module):
         value = float(max(0.0, min(1.0, value)))
         self._residual_scale.fill_(value)
 
+    def set_planning_mode(self, enabled: bool) -> None:
+        self._planning_mode = bool(enabled)
+
+    @property
+    def planning_mode(self) -> bool:
+        return bool(self._planning_mode)
+
     def alpha_from_raw(self, raw_context: torch.Tensor) -> torch.Tensor:
         return self.context_scales.to(raw_context.device) * torch.tanh(raw_context)
 
@@ -415,16 +441,42 @@ class DUCWorldModel(nn.Module):
         proposed_mechanism_delta = unmixed_prior_delta + residual_delta
         mechanism_mix = prior_mix
         mechanism_delta = prior_delta + residual_delta
-        mean = states + base_delta + context_delta + mechanism_delta
+        prediction_mean = states + base_delta + context_delta + mechanism_delta
+        if self.planning_residual_head is None:
+            planning_delta = states.new_zeros(states.shape)
+        else:
+            planning_input = torch.cat(
+                [
+                    states,
+                    actions,
+                    alpha,
+                    base_delta,
+                    context_delta,
+                    prior_delta,
+                    residual_delta,
+                    prediction_mean - states,
+                ],
+                dim=-1,
+            )
+            planning_delta = (
+                float(self.config.planning_delta_scale)
+                * torch.tanh(self.planning_residual_head(planning_input))
+            ).to(states.dtype)
+        planning_mean = prediction_mean + planning_delta
+        mean = planning_mean if self._planning_mode else prediction_mean
         logvar_input = torch.cat([states, actions, alpha, base_delta], dim=-1)
         logvar = self.variance_head(logvar_input).clamp(
             min=self.config.min_logvar,
             max=self.config.max_logvar,
         )
-        reward_input = torch.cat([states, actions, mean, alpha], dim=-1)
+        reward_input = torch.cat([states, actions, prediction_mean, alpha], dim=-1)
         reward_pred = self.reward_head(reward_input).squeeze(-1).to(states.dtype)
+        planning_reward_input = torch.cat([states, actions, planning_mean, alpha], dim=-1)
+        planning_reward_pred = self.reward_head(planning_reward_input).squeeze(-1).to(states.dtype)
         return DUCForwardOutput(
             mean=mean,
+            prediction_mean=prediction_mean,
+            planning_mean=planning_mean,
             logvar=logvar,
             effects=effects,
             prior_effects=prior_effects,
@@ -442,11 +494,13 @@ class DUCWorldModel(nn.Module):
             mechanism_delta=mechanism_delta,
             proposed_mechanism_delta=proposed_mechanism_delta,
             mechanism_mix=mechanism_mix,
+            planning_delta=planning_delta,
             prior_beta=beta,
             residual_scale=residual_scale,
             prior_gate=gate,
             data_confidence=self.data_confidence.to(raw_prior_effects.device, raw_prior_effects.dtype),
             reward_pred=reward_pred,
+            planning_reward_pred=planning_reward_pred,
         )
 
     def nll(self, output: DUCForwardOutput, targets: torch.Tensor) -> torch.Tensor:

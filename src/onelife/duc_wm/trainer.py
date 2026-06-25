@@ -49,6 +49,9 @@ class DUCTrainerConfig:
     reward_sensitivity_scale: float = 4.0
     reward_sensitivity_max: float = 6.0
     reward_weight: float = 0.0
+    planning_weight: float = 0.0
+    planning_consistency_weight: float = 0.0
+    planning_reward_weight: float = 0.0
     wake_replay_weight: float = 0.0
     wake_replay_top_quantile: float = 0.7
     action_rank_weight: float = 0.0
@@ -103,6 +106,9 @@ def fit_duc_world_model(
         trust_region_delta_range=config.trust_region_delta_range,
         prior_beta_weight=config.prior_beta_weight,
         reward_weight=config.reward_weight,
+        planning_weight=config.planning_weight,
+        planning_consistency_weight=config.planning_consistency_weight,
+        planning_reward_weight=config.planning_reward_weight,
     )
     control_weights_np = default_control_weights(transitions.state_dim, model.config.templates)
     control_weights = torch.tensor(control_weights_np, dtype=torch.float32, device=device)
@@ -126,6 +132,9 @@ def fit_duc_world_model(
         rolls: list[float] = []
         unknowns: list[float] = []
         rewards: list[float] = []
+        plannings: list[float] = []
+        planning_consistencies: list[float] = []
+        planning_rewards: list[float] = []
         wakes: list[float] = []
         ranks: list[float] = []
         batches = (
@@ -162,6 +171,17 @@ def fit_duc_world_model(
                     sample_context=False,
                 )
                 batch_weights = control_weights.unsqueeze(0).expand_as(batch.states)
+                planning_weights = batch_weights
+                if (
+                    config.planning_weight > 0.0
+                    and batch.rewards is not None
+                    and batch.rewards.numel() > 0
+                ):
+                    reward_weights = high_reward_weights(
+                        batch.rewards,
+                        config.wake_replay_top_quantile,
+                    )
+                    planning_weights = batch_weights * reward_weights.unsqueeze(-1)
                 loss = compute_duc_loss(
                     model=model,
                     output=output,
@@ -170,6 +190,7 @@ def fit_duc_world_model(
                     reward_targets=batch.rewards,
                     config=loss_config,
                     control_weights=batch_weights,
+                    planning_weights=planning_weights,
                 )
                 rollout = _rollout_loss_for_batch(
                     model=model,
@@ -220,6 +241,9 @@ def fit_duc_world_model(
             rolls.append(float(rollout.detach().cpu()))
             unknowns.append(float(loss.unknown.cpu()))
             rewards.append(float(loss.reward.cpu()))
+            plannings.append(float(loss.planning.cpu()))
+            planning_consistencies.append(float(loss.planning_consistency.cpu()))
+            planning_rewards.append(float(loss.planning_reward.cpu()))
             wakes.append(float(wake.detach().cpu()))
             ranks.append(float(rank.detach().cpu()))
         epoch_record = {
@@ -235,6 +259,9 @@ def fit_duc_world_model(
             "rollout": sum(rolls) / max(1, len(rolls)),
             "unknown": sum(unknowns) / max(1, len(unknowns)),
             "reward": sum(rewards) / max(1, len(rewards)),
+            "planning": sum(plannings) / max(1, len(plannings)),
+            "planning_consistency": sum(planning_consistencies) / max(1, len(planning_consistencies)),
+            "planning_reward": sum(planning_rewards) / max(1, len(planning_rewards)),
             "wake_replay": sum(wakes) / max(1, len(wakes)),
             "action_rank": sum(ranks) / max(1, len(ranks)),
         }

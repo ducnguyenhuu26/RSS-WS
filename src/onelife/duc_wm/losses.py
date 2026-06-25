@@ -21,6 +21,9 @@ class DUCLossConfig:
     trust_region_delta_range: float = 0.75
     prior_beta_weight: float = 5e-4
     reward_weight: float = 0.0
+    planning_weight: float = 0.0
+    planning_consistency_weight: float = 0.0
+    planning_reward_weight: float = 0.0
 
 
 @dataclass
@@ -37,6 +40,9 @@ class DUCLossOutput:
     trust_region: torch.Tensor
     prior_beta: torch.Tensor
     reward: torch.Tensor
+    planning: torch.Tensor
+    planning_consistency: torch.Tensor
+    planning_reward: torch.Tensor
 
 
 def kl_normal_diag(
@@ -124,6 +130,7 @@ def compute_duc_loss(
     reward_targets: torch.Tensor | None,
     config: DUCLossConfig,
     control_weights: torch.Tensor | None = None,
+    planning_weights: torch.Tensor | None = None,
 ) -> DUCLossOutput:
     nll = model.nll(output, targets)
     kl = kl_normal_diag(
@@ -150,8 +157,12 @@ def compute_duc_loss(
     prior_beta = prior_beta_penalty(model)
     if reward_targets is None:
         reward = targets.new_zeros(())
+        planning_reward = targets.new_zeros(())
     else:
         reward = (output.reward_pred - reward_targets).pow(2).mean()
+        planning_reward = (output.planning_reward_pred - reward_targets).pow(2).mean()
+    planning = weighted_mse(output.planning_mean, targets, planning_weights)
+    planning_consistency = output.planning_delta.pow(2).mean()
     total = (
         nll
         + config.beta_kl * kl
@@ -164,6 +175,9 @@ def compute_duc_loss(
         + config.trust_region_weight * trust_region
         + config.prior_beta_weight * prior_beta
         + config.reward_weight * reward
+        + config.planning_weight * planning
+        + config.planning_consistency_weight * planning_consistency
+        + config.planning_reward_weight * planning_reward
     )
     return DUCLossOutput(
         total=total,
@@ -178,4 +192,7 @@ def compute_duc_loss(
         trust_region=trust_region.detach(),
         prior_beta=prior_beta.detach(),
         reward=reward.detach(),
+        planning=planning.detach(),
+        planning_consistency=planning_consistency.detach(),
+        planning_reward=planning_reward.detach(),
     )

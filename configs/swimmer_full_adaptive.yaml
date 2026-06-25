@@ -47,6 +47,11 @@ duc:
   safe_prior_init: 0.25
   safe_prior_min: 0.0
   safe_prior_max: 1.0
+  dual_planning_head: false
+  planning_delta_scale: 0.25
+  planning_weight: 0.0
+  planning_consistency_weight: 0.0
+  planning_reward_weight: 0.0
   prior_validation: true
   # Set false for no-label DUC: keep validating law priors from observed
   # transition deltas, but do not peek at ground-truth context labels.

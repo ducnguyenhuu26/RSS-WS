@@ -174,6 +174,9 @@ def main(cfg: DictConfig) -> None:
                 safe_prior_init=float(config_get(cfg, "duc.safe_prior_init", 0.25 if method == "duc_wm_safe" else 1.0)),
                 safe_prior_min=float(config_get(cfg, "duc.safe_prior_min", 0.0)),
                 safe_prior_max=float(config_get(cfg, "duc.safe_prior_max", 1.0)),
+                dual_planning_head=bool(config_get(cfg, "duc.dual_planning_head", False))
+                or method == "duc_wm_dual",
+                planning_delta_scale=float(config_get(cfg, "duc.planning_delta_scale", 0.25)),
             )
         ).to(device)
         maybe_compile_forward(model, cfg)
@@ -459,6 +462,7 @@ def planning_eval_config(cfg: DictConfig) -> PlanningEvalConfig:
 DUC_METHODS = {
     "duc_wm",
     "duc_wm_safe",
+    "duc_wm_dual",
     "duc_random",
     "duc_no_llm",
     "duc_wrong_prior",
@@ -507,6 +511,16 @@ def duc_trainer_config(cfg: DictConfig, seed: int, method: str) -> DUCTrainerCon
         unknown_weight = 0.0
         trust_region_weight = 0.0
         residual_warmup_fraction = 0.0
+    planning_weight = float(config_get(cfg, "duc.planning_weight", 0.0))
+    planning_consistency_weight = float(config_get(cfg, "duc.planning_consistency_weight", 0.0))
+    planning_reward_weight = float(config_get(cfg, "duc.planning_reward_weight", 0.0))
+    if method == "duc_wm_dual":
+        if planning_weight <= 0.0:
+            planning_weight = 0.35
+        if planning_consistency_weight <= 0.0:
+            planning_consistency_weight = 0.02
+        if planning_reward_weight <= 0.0:
+            planning_reward_weight = 0.05
     return DUCTrainerConfig(
         epochs=int(cfg.epochs),
         batch_size=int(cfg.batch_size),
@@ -536,6 +550,9 @@ def duc_trainer_config(cfg: DictConfig, seed: int, method: str) -> DUCTrainerCon
         reward_sensitivity_scale=float(config_get(cfg, "duc.reward_sensitivity_scale", 4.0)),
         reward_sensitivity_max=float(config_get(cfg, "duc.reward_sensitivity_max", 6.0)),
         reward_weight=float(config_get(cfg, "duc.reward_weight", 0.0)),
+        planning_weight=planning_weight,
+        planning_consistency_weight=planning_consistency_weight,
+        planning_reward_weight=planning_reward_weight,
         wake_replay_weight=float(config_get(cfg, "duc.wake_replay_weight", 0.0)),
         wake_replay_top_quantile=float(config_get(cfg, "duc.wake_replay_top_quantile", 0.7)),
         action_rank_weight=float(config_get(cfg, "duc.action_rank_weight", 0.0)),

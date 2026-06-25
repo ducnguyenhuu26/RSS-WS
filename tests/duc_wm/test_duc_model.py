@@ -40,7 +40,11 @@ def test_duc_world_model_forward_shapes():
     assert output.alpha.shape == (4, len(templates))
     assert output.base_delta.shape == (4, 8)
     assert output.mechanism_delta.shape == (4, 8)
+    assert output.prediction_mean.shape == (4, 8)
+    assert output.planning_mean.shape == (4, 8)
+    assert output.planning_delta.shape == (4, 8)
     assert output.reward_pred.shape == (4,)
+    assert output.planning_reward_pred.shape == (4,)
 
 
 def test_safe_prior_mixture_starts_as_falsifiable_gate():
@@ -78,6 +82,41 @@ def test_safe_prior_mixture_starts_as_falsifiable_gate():
         output.prior_delta + output.residual_delta,
         atol=1e-5,
     )
+
+
+def test_dual_planning_head_switches_only_planner_mean():
+    templates = default_mujoco_templates("Ant-v5", state_dim=8, action_dim=3)
+    model = DUCWorldModel(
+        DUCWorldModelConfig(
+            state_dim=8,
+            action_dim=3,
+            templates=templates,
+            hidden_size=16,
+            hidden_layers=1,
+            history_length=2,
+            dual_planning_head=True,
+            planning_delta_scale=0.25,
+        )
+    )
+    for module in reversed(model.planning_residual_head):  # type: ignore[union-attr]
+        if isinstance(module, torch.nn.Linear):
+            torch.nn.init.zeros_(module.weight)
+            torch.nn.init.constant_(module.bias, 0.5)
+            break
+    states = torch.randn(4, 8)
+    actions = torch.randn(4, 3)
+    history_states = torch.randn(4, 2, 8)
+    history_actions = torch.randn(4, 2, 3)
+
+    predictive = model(states, actions, history_states, history_actions, sample_context=False)
+    model.set_planning_mode(True)
+    planning = model(states, actions, history_states, history_actions, sample_context=False)
+    model.set_planning_mode(False)
+
+    assert torch.allclose(predictive.mean, predictive.prediction_mean)
+    assert not torch.allclose(predictive.prediction_mean, predictive.planning_mean)
+    assert torch.allclose(planning.mean, planning.planning_mean)
+    assert torch.allclose(planning.prediction_mean, predictive.prediction_mean)
 
 
 def test_duc_training_smoke_on_synthetic_contexts():

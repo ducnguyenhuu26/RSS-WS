@@ -56,27 +56,34 @@ def evaluate_cem_mpc(
 
     dynamics_model.eval()
     reward_model.eval()
+    previous_planning_mode = getattr(dynamics_model, "planning_mode", None)
+    if hasattr(dynamics_model, "set_planning_mode"):
+        dynamics_model.set_planning_mode(True)
     rng = np.random.default_rng(seed)
     returns: list[float] = []
     lengths: list[int] = []
-    for episode in range(config.episodes):
-        variant = variants[episode % len(variants)]
-        context = sample_context(variant, rng)
-        episode_return, episode_length = _run_planned_episode(
-            dynamics_model=dynamics_model,
-            reward_model=reward_model,
-            env_id=env_id,
-            context=context,
-            seed=seed + 10_007 * episode,
-            action_smoothing=action_smoothing,
-            history_length=history_length,
-            config=config,
-            device=device,
-            use_oracle_context=use_oracle_context,
-            context_templates=context_templates,
-        )
-        returns.append(episode_return)
-        lengths.append(episode_length)
+    try:
+        for episode in range(config.episodes):
+            variant = variants[episode % len(variants)]
+            context = sample_context(variant, rng)
+            episode_return, episode_length = _run_planned_episode(
+                dynamics_model=dynamics_model,
+                reward_model=reward_model,
+                env_id=env_id,
+                context=context,
+                seed=seed + 10_007 * episode,
+                action_smoothing=action_smoothing,
+                history_length=history_length,
+                config=config,
+                device=device,
+                use_oracle_context=use_oracle_context,
+                context_templates=context_templates,
+            )
+            returns.append(episode_return)
+            lengths.append(episode_length)
+    finally:
+        if hasattr(dynamics_model, "set_planning_mode") and previous_planning_mode is not None:
+            dynamics_model.set_planning_mode(bool(previous_planning_mode))
     return {
         "planner_return_mean": float(np.mean(returns)),
         "planner_return_std": float(np.std(returns)),
