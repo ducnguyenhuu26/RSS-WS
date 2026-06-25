@@ -169,6 +169,11 @@ def main(cfg: DictConfig) -> None:
                 trust_region_delta_min=float(config_get(cfg, "duc.trust_region_delta_min", 0.15)),
                 trust_region_delta_range=float(config_get(cfg, "duc.trust_region_delta_range", 0.75)),
                 context_adapter_scale=float(config_get(cfg, "duc.context_adapter_scale", 1.0)),
+                safe_prior_mixture=bool(config_get(cfg, "duc.safe_prior_mixture", False))
+                or method == "duc_wm_safe",
+                safe_prior_init=float(config_get(cfg, "duc.safe_prior_init", 0.25 if method == "duc_wm_safe" else 1.0)),
+                safe_prior_min=float(config_get(cfg, "duc.safe_prior_min", 0.0)),
+                safe_prior_max=float(config_get(cfg, "duc.safe_prior_max", 1.0)),
             )
         ).to(device)
         maybe_compile_forward(model, cfg)
@@ -453,6 +458,7 @@ def planning_eval_config(cfg: DictConfig) -> PlanningEvalConfig:
 
 DUC_METHODS = {
     "duc_wm",
+    "duc_wm_safe",
     "duc_random",
     "duc_no_llm",
     "duc_wrong_prior",
@@ -496,6 +502,11 @@ def duc_trainer_config(cfg: DictConfig, seed: int, method: str) -> DUCTrainerCon
         residual_warmup_fraction = 0.0
     if method == "duc_no_rollout":
         rollout_weight = 0.0
+    if method == "duc_wm_safe":
+        residual_weight = 0.0
+        unknown_weight = 0.0
+        trust_region_weight = 0.0
+        residual_warmup_fraction = 0.0
     return DUCTrainerConfig(
         epochs=int(cfg.epochs),
         batch_size=int(cfg.batch_size),

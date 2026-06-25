@@ -43,6 +43,43 @@ def test_duc_world_model_forward_shapes():
     assert output.reward_pred.shape == (4,)
 
 
+def test_safe_prior_mixture_starts_as_falsifiable_gate():
+    templates = default_mujoco_templates("Ant-v5", state_dim=8, action_dim=3)
+    model = DUCWorldModel(
+        DUCWorldModelConfig(
+            state_dim=8,
+            action_dim=3,
+            templates=templates,
+            hidden_size=16,
+            hidden_layers=1,
+            history_length=2,
+            safe_prior_mixture=True,
+            safe_prior_init=0.25,
+        )
+    )
+    states = torch.randn(4, 8)
+    actions = torch.randn(4, 3)
+    history_states = torch.randn(4, 2, 8)
+    history_actions = torch.randn(4, 2, 3)
+
+    output = model(states, actions, history_states, history_actions, sample_context=False)
+
+    assert output.mean.shape == (4, 8)
+    assert output.mechanism_mix.shape == (4, 1)
+    assert float(output.mechanism_mix.min()) >= 0.0
+    assert float(output.mechanism_mix.max()) <= 1.0
+    assert torch.allclose(
+        output.mechanism_mix.mean(),
+        torch.tensor(0.25, dtype=output.mechanism_mix.dtype),
+        atol=1e-4,
+    )
+    assert torch.allclose(
+        output.mechanism_delta,
+        output.prior_delta + output.residual_delta,
+        atol=1e-5,
+    )
+
+
 def test_duc_training_smoke_on_synthetic_contexts():
     transitions = MuJoCoTransitions(
         states=np.array([[0.0, 0.0], [1.0, 0.5], [2.0, 1.0], [3.0, 1.5]], dtype=np.float32),

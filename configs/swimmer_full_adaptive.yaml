@@ -43,6 +43,10 @@ duc:
   prior_beta_weight: 0.0005
   residual_warmup_fraction: 0.25
   context_adapter_scale: 1.0
+  safe_prior_mixture: false
+  safe_prior_init: 0.25
+  safe_prior_min: 0.0
+  safe_prior_max: 1.0
   prior_validation: true
   # Set false for no-label DUC: keep validating law priors from observed
   # transition deltas, but do not peek at ground-truth context labels.

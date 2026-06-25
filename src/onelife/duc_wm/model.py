@@ -23,6 +23,10 @@ class DUCWorldModelConfig:
     trust_region_delta_min: float = 0.15
     trust_region_delta_range: float = 0.75
     context_adapter_scale: float = 1.0
+    safe_prior_mixture: bool = False
+    safe_prior_init: float = 1.0
+    safe_prior_min: float = 0.0
+    safe_prior_max: float = 1.0
 
 
 @dataclass
@@ -61,6 +65,19 @@ def _mlp(input_dim: int, output_dim: int, hidden_size: int, hidden_layers: int) 
         last = hidden_size
     layers.append(nn.Linear(last, output_dim))
     return nn.Sequential(*layers)
+
+
+def _logit(value: float) -> float:
+    value = min(1.0 - 1e-4, max(1e-4, float(value)))
+    return float(torch.logit(torch.tensor(value)).item())
+
+
+def _init_last_linear_constant(module: nn.Sequential, bias: float) -> None:
+    for layer in reversed(module):
+        if isinstance(layer, nn.Linear):
+            nn.init.zeros_(layer.weight)
+            nn.init.constant_(layer.bias, bias)
+            return
 
 
 class ResidualMechanismBank(nn.Module):
@@ -232,6 +249,18 @@ class DUCWorldModel(nn.Module):
             hidden_size=config.hidden_size,
             hidden_layers=max(1, config.hidden_layers - 1),
         )
+        self.safe_prior_mixture = bool(config.safe_prior_mixture)
+        if self.safe_prior_mixture:
+            mix_input_dim = config.state_dim + config.action_dim + len(config.templates) + 3 * config.state_dim
+            self.prior_mixer = _mlp(
+                input_dim=mix_input_dim,
+                output_dim=1,
+                hidden_size=config.hidden_size,
+                hidden_layers=max(1, config.hidden_layers - 1),
+            )
+            _init_last_linear_constant(self.prior_mixer, _logit(config.safe_prior_init))
+        else:
+            self.prior_mixer = None
         prior_mean, prior_std, scales, confidences = prior_tensors(config.templates)
         self.register_buffer("prior_mean", prior_mean)
         self.register_buffer("prior_std", prior_std)
@@ -356,16 +385,36 @@ class DUCWorldModel(nn.Module):
         )
         beta = self.prior_beta.to(raw_prior_effects.device, raw_prior_effects.dtype)
         gate = self.prior_gate.to(raw_prior_effects.device, raw_prior_effects.dtype)
-        prior_effects = raw_prior_effects * beta.view(1, -1, 1) * gate.view(1, -1, 1)
+        calibrated_prior_effects = raw_prior_effects * beta.view(1, -1, 1) * gate.view(1, -1, 1)
         raw_residual_effects = self.mechanisms(states, actions)
         residual_scale = self._residual_scale.to(raw_residual_effects.device, raw_residual_effects.dtype)
         residual_effects = residual_scale * raw_residual_effects
+        unmixed_prior_delta = torch.einsum("bk,bkd->bd", alpha, calibrated_prior_effects).to(states.dtype)
+        residual_delta = torch.einsum("bk,bkd->bd", alpha, residual_effects).to(states.dtype)
+        if self.prior_mixer is None:
+            prior_mix = states.new_ones(states.shape[0], 1)
+        else:
+            mix_input = torch.cat(
+                [
+                    states,
+                    actions,
+                    alpha,
+                    base_delta,
+                    unmixed_prior_delta,
+                    residual_delta,
+                ],
+                dim=-1,
+            )
+            prior_mix = torch.sigmoid(self.prior_mixer(mix_input)).to(states.dtype)
+            mix_min = float(max(0.0, min(1.0, self.config.safe_prior_min)))
+            mix_max = float(max(mix_min, min(1.0, self.config.safe_prior_max)))
+            prior_mix = mix_min + (mix_max - mix_min) * prior_mix
+        prior_effects = calibrated_prior_effects * prior_mix.unsqueeze(1)
         effects = prior_effects + residual_effects
         prior_delta = torch.einsum("bk,bkd->bd", alpha, prior_effects).to(states.dtype)
-        residual_delta = torch.einsum("bk,bkd->bd", alpha, residual_effects).to(states.dtype)
-        proposed_mechanism_delta = prior_delta + residual_delta
-        mechanism_mix = torch.ones_like(proposed_mechanism_delta)
-        mechanism_delta = proposed_mechanism_delta
+        proposed_mechanism_delta = unmixed_prior_delta + residual_delta
+        mechanism_mix = prior_mix
+        mechanism_delta = prior_delta + residual_delta
         mean = states + base_delta + context_delta + mechanism_delta
         logvar_input = torch.cat([states, actions, alpha, base_delta], dim=-1)
         logvar = self.variance_head(logvar_input).clamp(

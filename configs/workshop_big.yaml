@@ -42,6 +42,10 @@ duc:
   prior_beta_weight: 0.0005
   residual_warmup_fraction: 0.25
   context_adapter_scale: 1.0
+  safe_prior_mixture: false
+  safe_prior_init: 0.25
+  safe_prior_min: 0.0
+  safe_prior_max: 1.0
   prior_validation: true
   prior_validation_min_gate: 0.08
   prior_validation_temperature: 0.08
