@@ -13,7 +13,7 @@ from typing import Any
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Aggregate DUC-WM benchmark JSON files into per-environment ranks "
+            "Aggregate SimFutures-LP benchmark JSON files into per-environment ranks "
             "and method-level average rank. Pass multiple metrics for a "
             "composite AvgRank over env-metric pairs."
         )

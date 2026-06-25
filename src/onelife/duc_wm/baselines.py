@@ -7,6 +7,7 @@ import torch.nn as nn
 
 from onelife.mujoco_dataset import MuJoCoTransitions
 
+from .core import mlp, weighted_mse
 from .data import (
     DUCBatch,
     align_contexts_to_templates,
@@ -14,9 +15,7 @@ from .data import (
     iter_prepared_duc_batches,
     prepare_duc_data,
 )
-from .losses import weighted_mse
 from .metrics import _history_for_indices, default_control_weights, evaluate_world_model
-from .model import _mlp
 from .templates import MechanismTemplate
 
 
@@ -88,7 +87,7 @@ class MLPWorldModel(nn.Module):
     def __init__(self, config: MLPWorldModelConfig) -> None:
         super().__init__()
         self.config = config
-        self.network = _mlp(
+        self.network = mlp(
             input_dim=config.state_dim + config.action_dim + config.context_dim,
             output_dim=2 * config.state_dim,
             hidden_size=config.hidden_size,
@@ -122,7 +121,7 @@ class PETSWorldModel(nn.Module):
 
     This is the workshop baseline version: an ensemble of Gaussian delta models
     trained on the same offline transitions and evaluated with the same rollout
-    metric as DUC-WM. It does not implement particle TS inside MPC.
+    metric as SimFutures-LP. It does not implement particle TS inside MPC.
     """
 
     def __init__(self, config: PETSWorldModelConfig) -> None:
@@ -133,7 +132,7 @@ class PETSWorldModel(nn.Module):
         output_dim = 2 * config.state_dim
         self.members = nn.ModuleList(
             [
-                _mlp(
+                mlp(
                     input_dim=config.state_dim + config.action_dim + config.context_dim,
                     output_dim=output_dim,
                     hidden_size=config.hidden_size,
@@ -193,20 +192,20 @@ class CaDMWorldModel(nn.Module):
 
     It learns an uninterpreted context vector from recent history and conditions
     a Gaussian delta model on that vector. There are no named mechanisms or LLM
-    masks, which makes it the closest architecture-level baseline for DUC-WM.
+    masks, which makes it the closest architecture-level baseline for SimFutures-LP.
     """
 
     def __init__(self, config: CaDMWorldModelConfig) -> None:
         super().__init__()
         self.config = config
         history_input_dim = config.history_length * (config.state_dim + config.action_dim)
-        self.context_encoder = _mlp(
+        self.context_encoder = mlp(
             input_dim=history_input_dim,
             output_dim=config.context_dim,
             hidden_size=config.hidden_size,
             hidden_layers=max(1, config.hidden_layers),
         )
-        self.dynamics = _mlp(
+        self.dynamics = mlp(
             input_dim=config.state_dim + config.action_dim + config.context_dim,
             output_dim=2 * config.state_dim,
             hidden_size=config.hidden_size,

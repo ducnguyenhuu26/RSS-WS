@@ -7,8 +7,8 @@ import torch.nn as nn
 
 from onelife.mujoco_dataset import MuJoCoTransitions
 
+from .core import mlp
 from .data import iter_duc_batches
-from .model import _mlp
 
 
 @dataclass(frozen=True)
@@ -34,7 +34,7 @@ class RewardModel(nn.Module):
     def __init__(self, config: RewardModelConfig) -> None:
         super().__init__()
         self.config = config
-        self.network = _mlp(
+        self.network = mlp(
             input_dim=2 * config.state_dim + config.action_dim,
             output_dim=1,
             hidden_size=config.hidden_size,

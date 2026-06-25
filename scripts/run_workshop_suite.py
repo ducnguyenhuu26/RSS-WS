@@ -21,7 +21,7 @@ DEFAULT_ENVS = {
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Run the main DUC-WM workshop MuJoCo suite across env configs, "
+            "Run the main SimFutures-LP workshop MuJoCo suite across env configs, "
             "seeds, and fair baseline methods."
         )
     )
@@ -37,8 +37,8 @@ def main() -> None:
     parser.add_argument("--seeds", default="0,1,2")
     parser.add_argument("--models", default="duc_wm,cadm_supervised,pets_context")
     parser.add_argument("--max-parallel", type=int, default=3)
-    parser.add_argument("--output-dir", default="outputs/duc_wm_workshop_main")
-    parser.add_argument("--log-root", default="outputs/balanced_logs/workshop_main")
+    parser.add_argument("--output-dir", default="outputs/simfutures_workshop_main")
+    parser.add_argument("--log-root", default="outputs/balanced_logs/simfutures_workshop_main")
     parser.add_argument(
         "overrides",
         nargs=argparse.REMAINDER,

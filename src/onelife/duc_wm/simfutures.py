@@ -8,11 +8,10 @@ import torch.nn as nn
 
 from onelife.mujoco_dataset import MuJoCoTransitions
 
+from .core import WorldModelForwardOutput, kl_normal_diag, mlp, weighted_mse
 from .data import DUCBatch, iter_duc_batches, iter_prepared_duc_batches, prepare_duc_data
 from .law_dsl import LawPriorBank
-from .losses import kl_normal_diag, weighted_mse
 from .metrics import _history_for_indices, default_control_weights
-from .model import DUCForwardOutput, _mlp
 from .templates import MechanismTemplate, prior_tensors
 
 
@@ -63,7 +62,7 @@ class SimFuturesWorldModel(nn.Module):
     channels. A neural prior/posterior pair infers latent law validity, a clean
     conditional dynamics model predicts state deltas, and a reliability head
     learns whether a law-conditioned transition is useful for reward-seeking
-    planning. The old DUC residual bank is intentionally not used here.
+    planning.
     """
 
     def __init__(self, config: SimFuturesWorldModelConfig) -> None:
@@ -76,13 +75,13 @@ class SimFuturesWorldModel(nn.Module):
         history_dim = config.history_length * (config.state_dim + config.action_dim)
         prior_input_dim = history_dim + config.state_dim + config.action_dim
         posterior_input_dim = prior_input_dim + config.state_dim + self.num_laws
-        self.prior_encoder = _mlp(
+        self.prior_encoder = mlp(
             input_dim=prior_input_dim,
             output_dim=2 * self.num_laws,
             hidden_size=config.hidden_size,
             hidden_layers=max(1, config.hidden_layers),
         )
-        self.posterior_encoder = _mlp(
+        self.posterior_encoder = mlp(
             input_dim=posterior_input_dim,
             output_dim=2 * self.num_laws,
             hidden_size=config.hidden_size,
@@ -94,25 +93,25 @@ class SimFuturesWorldModel(nn.Module):
             + self.num_laws
             + config.state_dim
         )
-        self.dynamics = _mlp(
+        self.dynamics = mlp(
             input_dim=dynamics_input_dim,
             output_dim=2 * config.state_dim,
             hidden_size=config.hidden_size,
             hidden_layers=config.hidden_layers,
         )
-        self.reward_head = _mlp(
+        self.reward_head = mlp(
             input_dim=config.state_dim + config.action_dim + config.state_dim + self.num_laws,
             output_dim=1,
             hidden_size=config.hidden_size,
             hidden_layers=max(1, config.hidden_layers - 1),
         )
-        self.law_observer = _mlp(
+        self.law_observer = mlp(
             input_dim=self.num_laws,
             output_dim=self.num_laws,
             hidden_size=config.hidden_size,
             hidden_layers=max(1, config.hidden_layers - 1),
         )
-        self.reliability_head = _mlp(
+        self.reliability_head = mlp(
             input_dim=(
                 config.state_dim
                 + config.action_dim
@@ -123,7 +122,7 @@ class SimFuturesWorldModel(nn.Module):
             hidden_size=config.hidden_size,
             hidden_layers=max(1, config.hidden_layers - 1),
         )
-        self.planning_head = _mlp(
+        self.planning_head = mlp(
             input_dim=(
                 config.state_dim
                 + config.action_dim
@@ -255,7 +254,7 @@ class SimFuturesWorldModel(nn.Module):
         context: torch.Tensor | None = None,
         sample_context: bool = True,
         next_states: torch.Tensor | None = None,
-    ) -> DUCForwardOutput:
+    ) -> WorldModelForwardOutput:
         if history_states is None or history_actions is None:
             history_states, history_actions = self.default_history(states, actions)
         raw_prior_effects = self.law_priors(
@@ -324,7 +323,7 @@ class SimFuturesWorldModel(nn.Module):
 
         zero_effects = raw_prior_effects.new_zeros(raw_prior_effects.shape)
         mechanism_mix = self.law_posterior_probs.to(states.device, states.dtype).mean().expand(states.shape[0], 1)
-        output = DUCForwardOutput(
+        output = WorldModelForwardOutput(
             mean=mean,
             prediction_mean=prediction_mean,
             planning_mean=planning_mean,
@@ -361,7 +360,7 @@ class SimFuturesWorldModel(nn.Module):
         output.symbolic_delta = symbolic_delta
         return output
 
-    def nll(self, output: DUCForwardOutput, targets: torch.Tensor) -> torch.Tensor:
+    def nll(self, output: WorldModelForwardOutput, targets: torch.Tensor) -> torch.Tensor:
         inv_var = torch.exp(-output.logvar)
         return 0.5 * ((targets - output.mean).pow(2) * inv_var + output.logvar).mean()
 
@@ -626,7 +625,7 @@ def law_channel_targets(
 
 
 def wake_utility_targets(
-    output: DUCForwardOutput,
+    output: WorldModelForwardOutput,
     batch: DUCBatch,
     control_weights: torch.Tensor,
     config: SimFuturesTrainerConfig,

@@ -16,9 +16,6 @@ from onelife.duc_wm import (
     CaDMWorldModel,
     CaDMWorldModelConfig,
     DUCLLMPriorConfig,
-    DUCTrainerConfig,
-    DUCWorldModel,
-    DUCWorldModelConfig,
     MLPWorldModel,
     MLPWorldModelConfig,
     MuJoCoExtensionConfig,
@@ -38,16 +35,11 @@ from onelife.duc_wm import (
     evaluate_cem_mpc,
     evaluate_duc_model,
     fit_baseline_world_model,
-    fit_duc_world_model,
     fit_reward_model,
     fit_simfutures_world_model,
-    generic_mechanism_templates,
     load_templates_from_json_file,
     prompt_payload,
-    randomize_mechanism_templates,
-    remove_unknown_template,
     synthesize_templates_with_llm,
-    wrong_mechanism_templates,
 )
 
 
@@ -137,29 +129,6 @@ def main(cfg: DictConfig) -> None:
     else:
         templates = prior_prompt.fallback_templates
 
-    if method == "duc_random":
-        templates = randomize_mechanism_templates(
-            templates=templates,
-            state_dim=train_dataset.state_dim,
-            action_dim=train_dataset.action_dim,
-            seed=seed + 8128,
-        )
-        llm_prior_status["source"] = f"{llm_prior_status['source']}+random_masks"
-    elif method == "duc_no_llm":
-        templates = generic_mechanism_templates(
-            state_dim=train_dataset.state_dim,
-            action_dim=train_dataset.action_dim,
-            count=max(1, len(templates) - 1),
-            include_unknown=True,
-        )
-        llm_prior_status["source"] = "generic_no_llm_prior"
-    elif method == "duc_wrong_prior":
-        templates = wrong_mechanism_templates(templates)
-        llm_prior_status["source"] = f"{llm_prior_status['source']}+wrong_rotated_masks"
-    elif method == "duc_no_unknown":
-        templates = remove_unknown_template(templates)
-        llm_prior_status["source"] = f"{llm_prior_status['source']}+no_unknown"
-
     if method in SIMFUTURES_METHODS:
         model = SimFuturesWorldModel(
             SimFuturesWorldModelConfig(
@@ -178,44 +147,6 @@ def main(cfg: DictConfig) -> None:
             model=model,
             transitions=train_dataset,
             config=simfutures_trainer_config(cfg, seed),
-            device=device,
-        )
-        metrics = evaluate_duc_model(
-            model=model,
-            transitions=test_dataset,
-            device=device,
-            batch_size=int(cfg.eval_batch_size),
-            history_length=int(cfg.duc.history_length),
-            rollout_horizon=int(cfg.duc.rollout_horizon),
-        )
-    elif method in LEGACY_DUC_METHODS:
-        model = DUCWorldModel(
-            DUCWorldModelConfig(
-                state_dim=train_dataset.state_dim,
-                action_dim=train_dataset.action_dim,
-                templates=templates,
-                hidden_size=int(cfg.duc.hidden_size),
-                hidden_layers=int(cfg.duc.hidden_layers),
-                history_length=int(cfg.duc.history_length),
-                prior_beta_init=float(config_get(cfg, "duc.prior_beta_init", 1.0)),
-                trust_region_delta_min=float(config_get(cfg, "duc.trust_region_delta_min", 0.15)),
-                trust_region_delta_range=float(config_get(cfg, "duc.trust_region_delta_range", 0.75)),
-                context_adapter_scale=float(config_get(cfg, "duc.context_adapter_scale", 1.0)),
-                safe_prior_mixture=bool(config_get(cfg, "duc.safe_prior_mixture", False))
-                or method == "duc_wm_safe",
-                safe_prior_init=float(config_get(cfg, "duc.safe_prior_init", 0.25 if method == "duc_wm_safe" else 1.0)),
-                safe_prior_min=float(config_get(cfg, "duc.safe_prior_min", 0.0)),
-                safe_prior_max=float(config_get(cfg, "duc.safe_prior_max", 1.0)),
-                dual_planning_head=bool(config_get(cfg, "duc.dual_planning_head", False))
-                or method == "duc_wm_dual",
-                planning_delta_scale=float(config_get(cfg, "duc.planning_delta_scale", 0.25)),
-            )
-        ).to(device)
-        maybe_compile_forward(model, cfg)
-        history = fit_duc_world_model(
-            model=model,
-            transitions=train_dataset,
-            config=duc_trainer_config(cfg, seed, method),
             device=device,
         )
         metrics = evaluate_duc_model(
@@ -497,18 +428,7 @@ SIMFUTURES_METHODS = {
     "simfutures",
 }
 
-LEGACY_DUC_METHODS = {
-    "duc_wm_legacy",
-    "duc_wm_safe",
-    "duc_wm_dual",
-    "duc_random",
-    "duc_no_llm",
-    "duc_wrong_prior",
-    "duc_no_unknown",
-    "duc_no_reg",
-    "duc_no_rollout",
-}
-DUC_METHODS = SIMFUTURES_METHODS | LEGACY_DUC_METHODS
+DUC_METHODS = SIMFUTURES_METHODS
 
 BASELINE_METHODS = {
     "mlp",
@@ -547,86 +467,6 @@ def simfutures_trainer_config(cfg: DictConfig, seed: int) -> SimFuturesTrainerCo
         utility_error_weight=float(config_get(cfg, "simfutures.utility_error_weight", 1.0)),
         utility_reward_gap_weight=float(config_get(cfg, "simfutures.utility_reward_gap_weight", 0.25)),
         utility_law_weight=float(config_get(cfg, "simfutures.utility_law_weight", 0.10)),
-        seed=seed,
-        precision=str(config_get(cfg, "runtime.precision", "fp32")),
-        preload_to_device=bool(config_get(cfg, "runtime.preload_to_device", False)),
-    )
-
-
-def duc_trainer_config(cfg: DictConfig, seed: int, method: str) -> DUCTrainerConfig:
-    residual_weight = float(cfg.duc.get("residual_weight", 0.0))
-    rollout_weight = float(cfg.duc.rollout_weight)
-    orth_weight = float(cfg.duc.orth_weight)
-    sparse_weight = float(cfg.duc.sparse_weight)
-    unknown_weight = float(cfg.duc.get("unknown_weight", 0.0))
-    trust_region_weight = float(config_get(cfg, "duc.trust_region_weight", 0.2))
-    prior_beta_weight = float(config_get(cfg, "duc.prior_beta_weight", 5e-4))
-    residual_warmup_fraction = float(config_get(cfg, "duc.residual_warmup_fraction", 0.25))
-    if method == "duc_no_reg":
-        residual_weight = 0.0
-        orth_weight = 0.0
-        sparse_weight = 0.0
-        unknown_weight = 0.0
-        trust_region_weight = 0.0
-        prior_beta_weight = 0.0
-        residual_warmup_fraction = 0.0
-    if method == "duc_no_rollout":
-        rollout_weight = 0.0
-    if method == "duc_wm_safe":
-        residual_weight = 0.0
-        unknown_weight = 0.0
-        trust_region_weight = 0.0
-        residual_warmup_fraction = 0.0
-    planning_weight = float(config_get(cfg, "duc.planning_weight", 0.0))
-    planning_consistency_weight = float(config_get(cfg, "duc.planning_consistency_weight", 0.0))
-    planning_reward_weight = float(config_get(cfg, "duc.planning_reward_weight", 0.0))
-    if method == "duc_wm_dual":
-        if planning_weight <= 0.0:
-            planning_weight = 0.35
-        if planning_consistency_weight <= 0.0:
-            planning_consistency_weight = 0.02
-        if planning_reward_weight <= 0.0:
-            planning_reward_weight = 0.05
-    return DUCTrainerConfig(
-        epochs=int(cfg.epochs),
-        batch_size=int(cfg.batch_size),
-        learning_rate=float(cfg.learning_rate),
-        history_length=int(cfg.duc.history_length),
-        beta_kl=float(cfg.duc.beta_kl),
-        context_weight=float(cfg.duc.context_weight),
-        residual_weight=residual_weight,
-        control_weight=float(cfg.duc.control_weight),
-        rollout_weight=rollout_weight,
-        rollout_horizon=int(cfg.duc.rollout_horizon),
-        orth_weight=orth_weight,
-        sparse_weight=sparse_weight,
-        unknown_weight=unknown_weight,
-        trust_region_weight=trust_region_weight,
-        trust_region_delta_min=float(config_get(cfg, "duc.trust_region_delta_min", 0.15)),
-        trust_region_delta_range=float(config_get(cfg, "duc.trust_region_delta_range", 0.75)),
-        prior_beta_weight=prior_beta_weight,
-        residual_warmup_fraction=residual_warmup_fraction,
-        prior_validation=bool(config_get(cfg, "duc.prior_validation", True)),
-        prior_validation_use_context=bool(config_get(cfg, "duc.prior_validation_use_context", True)),
-        prior_validation_min_gate=float(config_get(cfg, "duc.prior_validation_min_gate", 0.08)),
-        prior_validation_temperature=float(config_get(cfg, "duc.prior_validation_temperature", 0.08)),
-        prior_validation_max_samples=int(config_get(cfg, "duc.prior_validation_max_samples", 4096)),
-        prior_validation_beta_min=float(config_get(cfg, "duc.prior_validation_beta_min", 0.05)),
-        prior_validation_beta_max=float(config_get(cfg, "duc.prior_validation_beta_max", 8.0)),
-        reward_sensitivity_scale=float(config_get(cfg, "duc.reward_sensitivity_scale", 4.0)),
-        reward_sensitivity_max=float(config_get(cfg, "duc.reward_sensitivity_max", 6.0)),
-        reward_weight=float(config_get(cfg, "duc.reward_weight", 0.0)),
-        planning_weight=planning_weight,
-        planning_consistency_weight=planning_consistency_weight,
-        planning_reward_weight=planning_reward_weight,
-        wake_replay_weight=float(config_get(cfg, "duc.wake_replay_weight", 0.0)),
-        wake_replay_top_quantile=float(config_get(cfg, "duc.wake_replay_top_quantile", 0.7)),
-        action_rank_weight=float(config_get(cfg, "duc.action_rank_weight", 0.0)),
-        action_rank_margin=float(config_get(cfg, "duc.action_rank_margin", 0.05)),
-        symbolic_validation_interval=int(config_get(cfg, "duc.symbolic_validation_interval", 0)),
-        symbolic_validation_reward_weight=float(config_get(cfg, "duc.symbolic_validation_reward_weight", 1.0)),
-        symbolic_validation_after_training=bool(config_get(cfg, "duc.symbolic_validation_after_training", True)),
-        teacher_force_context=bool(cfg.duc.teacher_force_context),
         seed=seed,
         precision=str(config_get(cfg, "runtime.precision", "fp32")),
         preload_to_device=bool(config_get(cfg, "runtime.preload_to_device", False)),

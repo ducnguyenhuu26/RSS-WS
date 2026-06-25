@@ -21,7 +21,7 @@ class RunningJob:
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Run DUC-WM benchmark methods as controlled parallel processes. "
+            "Run SimFutures-LP benchmark methods as controlled parallel processes. "
             "This overlaps CPU-heavy MuJoCo collection/env stepping with "
             "GPU-heavy training/planning without oversubscribing one GPU too hard."
         )

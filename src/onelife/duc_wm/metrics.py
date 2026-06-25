@@ -7,7 +7,6 @@ import torch.nn as nn
 from onelife.mujoco_dataset import MuJoCoTransitions
 
 from .data import align_contexts_to_templates, iter_duc_batches
-from .model import DUCWorldModel
 from .templates import MechanismTemplate
 
 
@@ -203,7 +202,7 @@ def evaluate_world_model(
 
 @torch.no_grad()
 def evaluate_duc_model(
-    model: DUCWorldModel,
+    model: nn.Module,
     transitions: MuJoCoTransitions,
     device: torch.device | str,
     batch_size: int = 512,
@@ -346,7 +345,7 @@ def evaluate_duc_model(
     return metrics
 
 
-def trust_region_violation(model: DUCWorldModel, output) -> torch.Tensor:
+def trust_region_violation(model: nn.Module, output) -> torch.Tensor:
     confidences = model.effective_prior_confidence.to(output.residual_effects.device)
     prior_norm = output.prior_effects.pow(2).mean(dim=-1).add(1e-8).sqrt()
     residual_norm = output.residual_effects.pow(2).mean(dim=-1).add(1e-8).sqrt()

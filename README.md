@@ -2,9 +2,9 @@
 
 SimFutures-LP is a model-based continuous-control framework for MuJoCo tasks
 with hidden or partially observed dynamics factors. The method keeps the useful
-part of the old DUC branch - per-environment LLM prompts, safe law-DSL
-templates, and the fair PETS/CaDM benchmark pipeline - but replaces the old
-mechanism-residual world model.
+infrastructure already present in this branch - per-environment LLM prompts,
+safe law-DSL templates, and the fair PETS/CaDM benchmark pipeline - while using
+a new future-simulated law-posterior world model.
 
 The core claim is:
 

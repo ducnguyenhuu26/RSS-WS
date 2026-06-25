@@ -27,38 +27,9 @@ duc:
   hidden_layers: 1
   beta_kl: 0.001
   context_weight: 1.0
-  residual_weight: 0.0001
   control_weight: 0.01
   rollout_weight: 0.01
   rollout_horizon: 2
-  orth_weight: 0.0
-  sparse_weight: 0.0
-  unknown_weight: 0.001
-  prior_beta_init: 1.0
-  trust_region_weight: 0.2
-  trust_region_delta_min: 0.15
-  trust_region_delta_range: 1.0
-  prior_beta_weight: 0.0005
-  residual_warmup_fraction: 0.25
-  context_adapter_scale: 1.0
-  safe_prior_mixture: false
-  safe_prior_init: 0.25
-  safe_prior_min: 0.0
-  safe_prior_max: 1.0
-  dual_planning_head: false
-  planning_delta_scale: 0.25
-  planning_weight: 0.0
-  planning_consistency_weight: 0.0
-  planning_reward_weight: 0.0
-  prior_validation: true
-  prior_validation_min_gate: 0.08
-  prior_validation_temperature: 0.08
-  prior_validation_max_samples: 512
-  prior_validation_beta_min: 0.05
-  prior_validation_beta_max: 8.0
-  reward_sensitivity_scale: 4.0
-  reward_sensitivity_max: 6.0
-  teacher_force_context: true
   llm_prior:
     enabled: true
     provider: openai
@@ -69,7 +40,6 @@ duc:
 
 simfutures:
   symbolic_delta_scale: 0.20
-  planning_delta_scale: 0.15
   beta_kl: 0.001
   prior_kl_weight: 0.0005
   law_channel_weight: 0.10
@@ -120,7 +90,7 @@ runtime:
   num_threads: 0
   interop_threads: 0
 
-output_dir: outputs/duc_wm_smoke
+output_dir: outputs/simfutures_smoke
 output_name: null
 skip_existing: false
 verbose: false

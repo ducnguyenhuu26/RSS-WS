@@ -33,7 +33,7 @@ DEFAULT_METRICS = (
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Aggregate DUC-WM benchmark JSON outputs by method/problem/split."
+        description="Aggregate SimFutures-LP benchmark JSON outputs by method/problem/split."
     )
     parser.add_argument("files", nargs="+", type=Path)
     parser.add_argument(

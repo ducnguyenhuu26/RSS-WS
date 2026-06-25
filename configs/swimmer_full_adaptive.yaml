@@ -29,56 +29,20 @@ duc:
   hidden_layers: 3
   beta_kl: 0.001
   context_weight: 0.08
-  residual_weight: 0.00005
   control_weight: 0.05
   rollout_weight: 0.08
   rollout_horizon: 10
-  orth_weight: 0.00005
-  sparse_weight: 0.000005
-  unknown_weight: 0.0005
-  prior_beta_init: 1.0
-  trust_region_weight: 0.2
-  trust_region_delta_min: 0.15
-  trust_region_delta_range: 1.0
-  prior_beta_weight: 0.0005
-  residual_warmup_fraction: 0.25
-  context_adapter_scale: 1.0
-  safe_prior_mixture: false
-  safe_prior_init: 0.25
-  safe_prior_min: 0.0
-  safe_prior_max: 1.0
-  dual_planning_head: false
-  planning_delta_scale: 0.25
-  planning_weight: 0.0
-  planning_consistency_weight: 0.0
-  planning_reward_weight: 0.0
-  prior_validation: true
   # Set false for no-label DUC: keep validating law priors from observed
   # transition deltas, but do not peek at ground-truth context labels.
-  prior_validation_use_context: true
-  prior_validation_min_gate: 0.08
-  prior_validation_temperature: 0.08
-  prior_validation_max_samples: 8192
-  prior_validation_beta_min: 0.05
-  prior_validation_beta_max: 8.0
-  reward_sensitivity_scale: 4.0
-  reward_sensitivity_max: 6.0
   # Main protocol uses DUC-core: mechanistic prior projection, context
   # inference, residual repair, trust-region regularization, and fair MPC.
   # Reward-wake replay remains available as an ablation but is disabled here
   # because it hurt Swimmer control in the current implementation.
   reward_weight: 0.0
-  wake_replay_weight: 0.0
-  wake_replay_top_quantile: 0.70
-  action_rank_weight: 0.0
   action_rank_margin: 0.05
   # Learned symbolic revalidation is optional ablation, not the main protocol.
-  symbolic_validation_interval: 0
-  symbolic_validation_reward_weight: 1.0
-  symbolic_validation_after_training: false
   # Keep false for benchmark runs: DUC learns to infer alpha from history,
   # while context supervision still trains the inferred alpha.
-  teacher_force_context: false
   llm_prior:
     enabled: true
     provider: openai
@@ -89,7 +53,6 @@ duc:
 
 simfutures:
   symbolic_delta_scale: 0.20
-  planning_delta_scale: 0.15
   beta_kl: 0.001
   prior_kl_weight: 0.0005
   law_channel_weight: 0.12
@@ -149,7 +112,7 @@ runtime:
   num_threads: 0
   interop_threads: 0
 
-output_dir: outputs/duc_wm_swimmer_full_adaptive
+output_dir: outputs/simfutures_swimmer_full_adaptive
 output_name: null
 skip_existing: false
 verbose: false

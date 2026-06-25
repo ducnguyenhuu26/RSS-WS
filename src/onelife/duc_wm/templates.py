@@ -80,12 +80,12 @@ def default_mujoco_templates(
     state_dim: int,
     action_dim: int,
 ) -> tuple[MechanismTemplate, ...]:
-    """Return a compact DUC-WM mechanism prior for MuJoCo-style vectors.
+    """Return a compact SimFutures-LP mechanism prior for MuJoCo-style vectors.
 
     These templates are the deterministic fallback for the offline LLM prior.
     A real LLM prior file can refine the same fields. Each template also
     carries a safe law-DSL type that is compiled into a tensor prior effect
-    before the neural residual.
+    before posterior-gated dynamics learning.
     """
 
     all_state = tuple(range(state_dim))
