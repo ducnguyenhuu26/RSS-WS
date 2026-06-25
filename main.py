@@ -139,7 +139,7 @@ def main(cfg: DictConfig) -> None:
                 hidden_layers=int(cfg.duc.hidden_layers),
                 history_length=int(cfg.duc.history_length),
                 symbolic_delta_scale=float(config_get(cfg, "simfutures.symbolic_delta_scale", 0.20)),
-                planning_delta_scale=float(config_get(cfg, "simfutures.planning_delta_scale", 0.15)),
+                chart_count=int(config_get(cfg, "simfutures.chart_count", 4)),
             )
         ).to(device)
         maybe_compile_forward(model, cfg)
@@ -454,6 +454,7 @@ def simfutures_trainer_config(cfg: DictConfig, seed: int) -> SimFuturesTrainerCo
         history_length=int(cfg.duc.history_length),
         beta_kl=float(config_get(cfg, "simfutures.beta_kl", cfg.duc.beta_kl)),
         prior_kl_weight=float(config_get(cfg, "simfutures.prior_kl_weight", 5e-4)),
+        prior_path_weight=float(config_get(cfg, "simfutures.prior_path_weight", 0.25)),
         law_channel_weight=float(config_get(cfg, "simfutures.law_channel_weight", 0.10)),
         reward_weight=float(config_get(cfg, "simfutures.reward_weight", 0.10)),
         reliability_weight=float(config_get(cfg, "simfutures.reliability_weight", 0.20)),

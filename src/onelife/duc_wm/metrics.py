@@ -229,6 +229,9 @@ def evaluate_duc_model(
     proposed_norms: list[float] = []
     planning_delta_norms: list[float] = []
     mechanism_mixes: list[float] = []
+    chart_entropies: list[float] = []
+    chart_max_probs: list[float] = []
+    ctrl_alpha_means: list[float] = []
     law_channel_errors: list[float] = []
     planning_bonuses: list[float] = []
     trust_violations: list[float] = []
@@ -266,6 +269,12 @@ def evaluate_duc_model(
         proposed_norms.append(float(output.proposed_mechanism_delta.norm(dim=-1).mean().cpu()))
         planning_delta_norms.append(float(output.planning_delta.norm(dim=-1).mean().cpu()))
         mechanism_mixes.append(float(output.mechanism_mix.mean().cpu()))
+        if hasattr(output, "chart_probs"):
+            chart_probs = output.chart_probs.clamp(1e-6, 1.0)
+            chart_entropies.append(float((-(chart_probs * chart_probs.log()).sum(dim=-1)).mean().cpu()))
+            chart_max_probs.append(float(chart_probs.max(dim=-1).values.mean().cpu()))
+        if hasattr(output, "alpha_ctrl_mean"):
+            ctrl_alpha_means.append(float(output.alpha_ctrl_mean.mean().cpu()))
         if hasattr(output, "law_channel_pred") and hasattr(output, "law_channel_targets"):
             law_channel_errors.append(
                 float((output.law_channel_pred - output.law_channel_targets).pow(2).mean().cpu())
@@ -297,6 +306,12 @@ def evaluate_duc_model(
         metrics["residual_to_proposed_delta_ratio"] = residual_norm / max(1e-8, proposed_norm)
         metrics["proposed_to_final_delta_ratio"] = proposed_norm / max(1e-8, mechanism_norm)
         metrics["mechanism_mix_mean"] = float(sum(mechanism_mixes) / len(mechanism_mixes))
+        if chart_entropies:
+            metrics["chart_entropy"] = float(sum(chart_entropies) / len(chart_entropies))
+        if chart_max_probs:
+            metrics["chart_max_prob_mean"] = float(sum(chart_max_probs) / len(chart_max_probs))
+        if ctrl_alpha_means:
+            metrics["alpha_ctrl_mean"] = float(sum(ctrl_alpha_means) / len(ctrl_alpha_means))
         metrics["trust_region_violation"] = float(sum(trust_violations) / len(trust_violations))
         beta = model.prior_beta.detach().cpu().numpy()
         metrics["prior_beta_mean"] = float(np.mean(beta))

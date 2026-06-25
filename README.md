@@ -78,135 +78,131 @@ fields into bounded tensor effects.
 
 ## Model
 
-The LLM/fallback prompt creates a law hyperprior:
+The current implementation separates two questions that were coupled in earlier
+variants:
 
 \[
-H(c,z)=\rho(c)p_{\eta_c}(z),
-\]
-
-where \(c\) selects a prior source and \(z\in\mathbb R^K\) represents law
-validity/strength.
-
-The neural model learns:
-
-\[
-p_\psi(z_t\mid h_t,s_t,a_t),
+z_t^{dyn}: \text{which laws help predict state?}
 \]
 
 \[
-q_\phi(z_t\mid h_t,s_t,a_t,s_{t+1}),
+z_t^{ctrl}: \text{which laws help choose high-return actions?}
+\]
+
+Both are inferred from the same law portfolio but have separate prior and
+posterior encoders:
+
+\[
+p_\psi^{dyn}(z_t^{dyn}\mid h_t,s_t,a_t),
+\quad
+q_\phi^{dyn}(z_t^{dyn}\mid h_t,s_t,a_t,\Delta s_t,y_t^{dyn}),
 \]
 
 \[
-p_\theta(\Delta s_t,r_t\mid s_t,a_t,z_t),
+p_\psi^{ctrl}(z_t^{ctrl}\mid h_t,s_t,a_t),
+\quad
+q_\phi^{ctrl}(z_t^{ctrl}\mid h_t,s_t,a_t,\Delta s_t,y_t^{ctrl}).
 \]
 
-and a law-channel observation model
+The symbolic law effects are not added directly to the next-state delta. They
+are used as conditioning features for a local multi-chart dynamics model:
 
 \[
-p_\omega(m_t\mid z_t).
+m_{t,j}=m_j(s_t,a_t,h_t),
+\quad
+\delta_t^L=\sum_j \alpha_{t,j}^{dyn}\gamma_jm_{t,j}.
 \]
 
-The training objective is a compact joint likelihood:
+\[
+\pi_t=\operatorname{softmax}(f_c(h_t,s_t,a_t)).
+\]
 
 \[
-\mathcal L
+(\Delta_{t,c},\log v_{t,c})
 =
-\mathbb E_{q_\phi}
-\left[
--\log p_\theta(\Delta s_t,r_t\mid s_t,a_t,z_t)
--\lambda_m\log p_\omega(m_t\mid z_t)
-\right]
+f_c(h_t,s_t,a_t,\alpha_t^{dyn},\delta_t^L).
 \]
 
 \[
-+
-\beta D_{\mathrm{KL}}
-\left(
-q_\phi(z_t\mid h_t,s_t,a_t,s_{t+1})
-\|
-p_\psi(z_t\mid h_t,s_t,a_t)
-\right)
-\]
-
-\[
-+
-\beta_0D_{\mathrm{KL}}
-\left(
-p_\psi(z_t\mid h_t,s_t,a_t)
-\|
-p_{\eta_c}(z_t)
-\right).
-\]
-
-This keeps dynamics learning clean: no stack of conflicting mechanism-residual
-losses.
-
-## Wake-Calibrated Law Posterior
-
-For a law-conditioned rollout, SimFutures records:
-
-\[
-(\hat\tau_i,\tau_i,z_i,A_i).
-\]
-
-Prediction error:
-
-\[
-e_i=
-\frac{1}{H}\sum_{t=1}^{H}\|\hat s_t-s_t\|_2^2.
-\]
-
-Reward gap:
-
-\[
-g_i=|\hat J_i-J_i|.
-\]
-
-Law violation:
-
-\[
-v_i=\frac{1}{H}\sum_{t=0}^{H-1}\|m_t\|_2^2.
-\]
-
-Wake utility:
-
-\[
-U_i(z_i,A_i)
+\widehat{\Delta s}_t
 =
-J_i-\lambda_e e_i-\lambda_g g_i-\lambda_v v_i.
+\sum_c \pi_{t,c}\Delta_{t,c}.
 \]
 
-The posterior update is trust-region regularized:
+\[
+\hat s_{t+1}=s_t+\widehat{\Delta s}_t.
+\]
+
+This is the main structural change: laws modulate the dynamics manifold, rather
+than injecting a brittle hand-shaped residual directly into the predicted state.
+
+The model also trains the deployable prior path explicitly:
 
 \[
-\nu_{n+1}
+\mathcal L_{prior\_path}
 =
-\arg\max_{\nu}
-\left[
-\mathbb E_{z\sim\nu}\widehat U_n(z)
--\tau D_{\mathrm{KL}}(\nu\|\nu_n)
--\lambda D_{\mathrm{KL}}(\nu\|H)
+-\log p_\theta(s_{t+1}\mid h_t,s_t,a_t),
+\]
+
+where the forward pass does not use \(s_{t+1}\).
+
+## Wake-Calibrated Utility
+
+The utility signal is trained from offline wake data, not from test rollouts.
+For each transition:
+
+\[
+e_t^s=\|w\odot(\hat s_{t+1}-s_{t+1})\|^2,
+\quad
+e_t^r=|\hat r_t-r_t|,
+\quad
+e_t^l=\|\hat y_t-y_t^{ctrl}\|^2.
+\]
+
+\[
+u_t
+=
+z(r_t)
+-\lambda_s e_t^s
+-\lambda_r e_t^r
+-\lambda_l e_t^l.
+\]
+
+The reliability critic learns:
+
+\[
+b_t=f_B(\operatorname{sg}[s_t,a_t,\alpha_t^{ctrl},
+\widehat{\Delta s}_t,\delta_t^L]),
+\]
+
+\[
+\mathcal L_{utility}=(b_t-u_t)^2.
+\]
+
+The stop-gradient is intentional: utility learning can guide the planner, but it
+does not backpropagate through and damage the predictive dynamics model.
+
+After each epoch, the global control posterior is updated from utility evidence:
+
+\[
+e_j=\mathbb E_t[\alpha_{t,j}^{ctrl}(u_t-\bar u)].
+\]
+
+\[
+\lambda_j
+\leftarrow
+(1-\eta)\lambda_j
++\eta\left[
+\operatorname{logit}(c_j)+\frac{\bar e_j}{T}
 \right].
 \]
 
-Its closed-form update is:
-
-\[
-\nu_{n+1}(z)
-\propto
-\nu_n(z)^{\frac{\tau}{\tau+\lambda}}
-H(z)^{\frac{\lambda}{\tau+\lambda}}
-\exp\left(\frac{\widehat U_n(z)}{\tau+\lambda}\right).
-\]
-
-The implementation uses an online approximation of this update after each
-training epoch.
-
 ## Posterior-Guided MPC
 
-At planning time, CEM/MPC evaluates action sequences with both predicted reward
-and the learned reliability critic:
+At planning time, CEM/MPC uses the same predicted dynamics \(\hat s_{t+1}\) that
+is evaluated by rollout \(R^2\). There is no separate planning-only state delta.
+Action sequences are scored with predicted reward and the learned reliability
+critic:
 
 \[
 S_z(A)
@@ -214,7 +210,12 @@ S_z(A)
 \hat J_\theta(A,z)
 +\lambda_\rho\rho_\xi(z,A,h)
 -\lambda_u\hat\sigma_\theta(A,z)
--\lambda_v\hat v(A,z).
+\]
+
+In code this is:
+
+\[
+G(A)=\sum_t[\hat r_t+\lambda_\rho b_t-\lambda_u\hat\sigma_t].
 \]
 
 The planner selects

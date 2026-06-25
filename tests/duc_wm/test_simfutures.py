@@ -51,8 +51,13 @@ def test_simfutures_forward_shapes() -> None:
     assert output.mean.shape == states.shape
     assert output.logvar.shape == states.shape
     assert output.alpha_mean.shape == (4, len(templates))
+    assert output.alpha_dyn_mean.shape == (4, len(templates))
+    assert output.alpha_ctrl_mean.shape == (4, len(templates))
+    assert output.chart_probs.shape == (4, model.chart_count)
+    assert torch.allclose(output.chart_probs.sum(dim=-1), torch.ones(4), atol=1e-5)
     assert output.law_channel_pred.shape == (4, len(templates))
     assert output.planning_bonus.shape == (4,)
+    assert torch.allclose(output.planning_delta, torch.zeros_like(output.planning_delta))
 
 
 def test_simfutures_training_updates_history() -> None:
@@ -83,4 +88,6 @@ def test_simfutures_training_updates_history() -> None:
     )
     assert len(history) == 1
     assert "law_channel" in history[0]
+    assert "prior_path" in history[0]
+    assert "ctrl_kl" in history[0]
     assert "posterior_entropy" in history[0]

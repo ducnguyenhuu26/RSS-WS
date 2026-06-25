@@ -48,6 +48,25 @@ duc:
     max_tokens: 3000
     json_path: null
 
+
+simfutures:
+  symbolic_delta_scale: 0.20
+  chart_count: 4
+  beta_kl: 0.001
+  prior_kl_weight: 0.0005
+  prior_path_weight: 0.25
+  law_channel_weight: 0.10
+  reward_weight: 0.10
+  reliability_weight: 0.20
+  control_weight: 0.05
+  rollout_weight: 0.05
+  posterior_update_interval: 1
+  posterior_update_samples: 4096
+  posterior_trust: 0.25
+  posterior_temperature: 1.0
+  utility_error_weight: 1.0
+  utility_reward_gap_weight: 0.25
+  utility_law_weight: 0.10
 baseline:
   hidden_size: 256
   hidden_layers: 2
