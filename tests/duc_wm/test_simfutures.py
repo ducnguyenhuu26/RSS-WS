@@ -60,6 +60,10 @@ def test_simfutures_forward_shapes() -> None:
     assert output.phase_next_target.shape == (4, model.config.phase_dim)
     assert output.law_channel_pred.shape == (4, len(templates))
     assert output.planning_bonus.shape == (4,)
+    assert output.belief_state.shape == (4, len(templates))
+    assert output.belief_next.shape == (4, len(templates))
+    assert output.stability_score.shape == (4,)
+    assert output.planning_bonus_gate.shape == (4,)
     assert torch.allclose(output.planning_delta, torch.zeros_like(output.planning_delta))
 
 
@@ -94,4 +98,6 @@ def test_simfutures_training_updates_history() -> None:
     assert "prior_path" in history[0]
     assert "ctrl_kl" in history[0]
     assert "phase" in history[0]
+    assert "stability" in history[0]
+    assert "belief_smooth" in history[0]
     assert "posterior_entropy" in history[0]

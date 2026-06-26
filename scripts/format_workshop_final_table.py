@@ -13,6 +13,7 @@ from typing import Any
 METRICS = (
     ("score.r2_at_1", "R2@1"),
     ("score.r2_at_10", "R2@10"),
+    ("score.r2_at_25", "R2@25"),
     ("score.planner_return_mean", "Reward"),
 )
 
@@ -20,7 +21,7 @@ METRICS = (
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Format the final workshop table: R2@1, R2@10, Reward, and "
+            "Format the final workshop table: R2@1, R2@10, R2@25, Reward, and "
             "composite AvgRank over environment-metric pairs."
         )
     )
@@ -131,7 +132,7 @@ def build_table_rows(
 
 
 def print_markdown_table(rows: list[dict[str, Any]], precision: int) -> None:
-    headers = ["Method", "R2@1", "R2@10", "Reward", "AvgRank"]
+    headers = ["Method", "R2@1", "R2@10", "R2@25", "Reward", "AvgRank"]
     print("| " + " | ".join(headers) + " |")
     print("| " + " | ".join("---" for _ in headers) + " |")
     for row in rows:
@@ -142,6 +143,7 @@ def print_markdown_table(rows: list[dict[str, Any]], precision: int) -> None:
                     str(row["method"]),
                     format_cell(row.get("R2@1"), precision),
                     format_cell(row.get("R2@10"), precision),
+                    format_cell(row.get("R2@25"), precision),
                     format_cell(row.get("Reward"), precision),
                     format_rank(row.get("AvgRank"), precision),
                 ]
@@ -178,6 +180,8 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
                 "r2_at_1_std",
                 "r2_at_10_mean",
                 "r2_at_10_std",
+                "r2_at_25_mean",
+                "r2_at_25_std",
                 "reward_mean",
                 "reward_std",
                 "avg_rank",
@@ -188,6 +192,7 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         for row in rows:
             r2_1 = row.get("R2@1", {})
             r2_10 = row.get("R2@10", {})
+            r2_25 = row.get("R2@25", {})
             reward = row.get("Reward", {})
             rank = row.get("AvgRank", {})
             writer.writerow(
@@ -197,6 +202,8 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
                     r2_1.get("std"),
                     r2_10.get("mean"),
                     r2_10.get("std"),
+                    r2_25.get("mean"),
+                    r2_25.get("std"),
                     reward.get("mean"),
                     reward.get("std"),
                     rank.get("mean"),

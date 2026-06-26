@@ -141,6 +141,9 @@ def main(cfg: DictConfig) -> None:
                 symbolic_delta_scale=float(config_get(cfg, "simfutures.symbolic_delta_scale", 0.20)),
                 chart_count=int(config_get(cfg, "simfutures.chart_count", 4)),
                 phase_dim=int(config_get(cfg, "simfutures.phase_dim", 16)),
+                belief_blend=float(config_get(cfg, "simfutures.belief_blend", 0.70)),
+                belief_update_rate=float(config_get(cfg, "simfutures.belief_update_rate", 0.20)),
+                stability_gate_floor=float(config_get(cfg, "simfutures.stability_gate_floor", 0.20)),
             )
         ).to(device)
         maybe_compile_forward(model, cfg)
@@ -459,8 +462,10 @@ def simfutures_trainer_config(cfg: DictConfig, seed: int) -> SimFuturesTrainerCo
         law_channel_weight=float(config_get(cfg, "simfutures.law_channel_weight", 0.10)),
         reward_weight=float(config_get(cfg, "simfutures.reward_weight", 0.10)),
         reliability_weight=float(config_get(cfg, "simfutures.reliability_weight", 0.20)),
+        stability_weight=float(config_get(cfg, "simfutures.stability_weight", 0.10)),
         control_weight=float(config_get(cfg, "simfutures.control_weight", cfg.duc.control_weight)),
         phase_loss_weight=float(config_get(cfg, "simfutures.phase_loss_weight", 0.05)),
+        belief_smooth_weight=float(config_get(cfg, "simfutures.belief_smooth_weight", 0.02)),
         rollout_weight=float(config_get(cfg, "simfutures.rollout_weight", cfg.duc.rollout_weight)),
         rollout_horizon=int(cfg.duc.rollout_horizon),
         posterior_update_interval=int(config_get(cfg, "simfutures.posterior_update_interval", 1)),

@@ -13,6 +13,8 @@ DEFAULT_METRICS = (
     "score.r2_at_1",
     "score.r2_at_10",
     "score.duc_r2_at_10",
+    "score.r2_at_25",
+    "score.duc_r2_at_25",
     "score.nll",
     "score.planner_return_mean",
     "score.planner_return_std",
@@ -31,6 +33,9 @@ DEFAULT_METRICS = (
     "score.chart_max_prob_mean",
     "score.law_channel_mse",
     "score.planning_bonus_mean",
+    "score.stability_score_mean",
+    "score.planning_bonus_gate_mean",
+    "score.belief_drift_mean",
     "score.phase_abs_mean",
     "score.phase_transition_mse",
 )

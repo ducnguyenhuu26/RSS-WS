@@ -44,14 +44,19 @@ simfutures:
   symbolic_delta_scale: 0.20
   chart_count: 4
   phase_dim: 16
+  belief_blend: 0.70
+  belief_update_rate: 0.20
+  stability_gate_floor: 0.20
   beta_kl: 0.001
   prior_kl_weight: 0.0005
   prior_path_weight: 0.25
   law_channel_weight: 0.12
   reward_weight: 0.10
   reliability_weight: 0.25
+  stability_weight: 0.10
   control_weight: 0.05
   phase_loss_weight: 0.05
+  belief_smooth_weight: 0.02
   rollout_weight: 0.08
   posterior_update_interval: 1
   posterior_update_samples: 8192

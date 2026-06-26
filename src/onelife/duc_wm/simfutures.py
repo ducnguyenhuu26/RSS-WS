@@ -28,6 +28,9 @@ class SimFuturesWorldModelConfig:
     symbolic_delta_scale: float = 0.20
     chart_count: int = 4
     phase_dim: int = 16
+    belief_blend: float = 0.70
+    belief_update_rate: float = 0.20
+    stability_gate_floor: float = 0.20
 
 
 @dataclass(frozen=True)
@@ -42,8 +45,10 @@ class SimFuturesTrainerConfig:
     law_channel_weight: float = 0.10
     reward_weight: float = 0.10
     reliability_weight: float = 0.20
+    stability_weight: float = 0.10
     control_weight: float = 0.05
     phase_loss_weight: float = 0.05
+    belief_smooth_weight: float = 0.02
     rollout_weight: float = 0.0
     rollout_horizon: int = 1
     posterior_update_interval: int = 1
@@ -201,6 +206,19 @@ class SimFuturesWorldModel(nn.Module):
             hidden_size=config.hidden_size,
             hidden_layers=max(1, config.hidden_layers - 1),
         )
+        belief_input_dim = (
+            self.num_laws
+            + config.phase_dim
+            + config.state_dim
+            + config.action_dim
+            + config.state_dim
+        )
+        self.belief_transition = mlp(
+            input_dim=belief_input_dim,
+            output_dim=self.num_laws,
+            hidden_size=config.hidden_size,
+            hidden_layers=max(1, config.hidden_layers - 1),
+        )
         planning_input_dim = (
             config.state_dim
             + config.action_dim
@@ -209,6 +227,12 @@ class SimFuturesWorldModel(nn.Module):
             + config.phase_dim
         )
         self.reliability_head = mlp(
+            input_dim=planning_input_dim,
+            output_dim=1,
+            hidden_size=config.hidden_size,
+            hidden_layers=max(1, config.hidden_layers - 1),
+        )
+        self.stability_head = mlp(
             input_dim=planning_input_dim,
             output_dim=1,
             hidden_size=config.hidden_size,
@@ -323,6 +347,52 @@ class SimFuturesWorldModel(nn.Module):
         history_actions = actions.unsqueeze(1).expand(-1, self.config.history_length, -1)
         return history_states, history_actions
 
+    def prior_features(
+        self,
+        states: torch.Tensor,
+        actions: torch.Tensor,
+        history_states: torch.Tensor,
+        history_actions: torch.Tensor,
+    ) -> torch.Tensor:
+        return torch.cat(
+            [
+                history_states.reshape(states.shape[0], -1),
+                history_actions.reshape(states.shape[0], -1),
+                states,
+                actions,
+            ],
+            dim=-1,
+        )
+
+    def initial_belief_state(
+        self,
+        states: torch.Tensor,
+        actions: torch.Tensor,
+        history_states: torch.Tensor | None = None,
+        history_actions: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        if history_states is None or history_actions is None:
+            history_states, history_actions = self.default_history(states, actions)
+        features = self.prior_features(states, actions, history_states, history_actions)
+        prior_mean, _ = self.dyn_prior_encoder(features).chunk(2, dim=-1)
+        bias = torch.logit(self.prior_gate.clamp(1e-3, 1.0 - 1e-3)).to(
+            prior_mean.device,
+            prior_mean.dtype,
+        )
+        return torch.sigmoid(prior_mean + bias.unsqueeze(0))
+
+    def _blend_with_belief(
+        self,
+        local_alpha: torch.Tensor,
+        belief_state: torch.Tensor | None,
+    ) -> torch.Tensor:
+        if belief_state is None:
+            return local_alpha
+        belief = belief_state.to(device=local_alpha.device, dtype=local_alpha.dtype)
+        belief = belief.clamp(1e-4, 1.0 - 1e-4)
+        blend = float(max(0.0, min(1.0, self.config.belief_blend)))
+        return ((1.0 - blend) * local_alpha + blend * belief).clamp(1e-4, 1.0 - 1e-4)
+
     def forward(
         self,
         states: torch.Tensor,
@@ -332,6 +402,7 @@ class SimFuturesWorldModel(nn.Module):
         context: torch.Tensor | None = None,
         sample_context: bool = True,
         next_states: torch.Tensor | None = None,
+        belief_state: torch.Tensor | None = None,
     ) -> WorldModelForwardOutput:
         if history_states is None or history_actions is None:
             history_states, history_actions = self.default_history(states, actions)
@@ -353,15 +424,7 @@ class SimFuturesWorldModel(nn.Module):
             else states.new_zeros(states.shape[0], self.num_laws)
         )
 
-        prior_features = torch.cat(
-            [
-                history_states.reshape(states.shape[0], -1),
-                history_actions.reshape(states.shape[0], -1),
-                states,
-                actions,
-            ],
-            dim=-1,
-        )
+        prior_features = self.prior_features(states, actions, history_states, history_actions)
         phase_latent = torch.tanh(self.phase_encoder(prior_features)).to(states.dtype)
         phase_next_pred = torch.tanh(
             self.phase_transition(torch.cat([phase_latent, states, actions], dim=-1))
@@ -401,25 +464,34 @@ class SimFuturesWorldModel(nn.Module):
         prior_logvar = prior_logvar.clamp(-8.0, 4.0)
         ctrl_posterior_logvar = ctrl_posterior_logvar.clamp(-8.0, 4.0)
         ctrl_prior_logvar = ctrl_prior_logvar.clamp(-8.0, 4.0)
+        dyn_bias = torch.logit(self.prior_gate.clamp(1e-3, 1.0 - 1e-3)).to(
+            states.device,
+            states.dtype,
+        ).unsqueeze(0)
+        ctrl_bias = self.law_posterior_logits.to(states.device, states.dtype).unsqueeze(0)
 
         if context is not None:
             alpha = context.clamp(0.0, 1.0)
             alpha_mean = alpha
             alpha_ctrl = alpha
             alpha_ctrl_mean = alpha
+            local_alpha_mean = alpha
+            local_alpha_ctrl_mean = alpha
         else:
             raw = posterior_mean
             if sample_context and self.training:
                 raw = raw + torch.exp(0.5 * posterior_logvar) * torch.randn_like(raw)
-            dyn_bias = torch.logit(self.prior_gate.clamp(1e-3, 1.0 - 1e-3)).to(raw.device, raw.dtype).unsqueeze(0)
-            alpha = torch.sigmoid(raw + dyn_bias)
-            alpha_mean = torch.sigmoid(posterior_mean + dyn_bias)
+            local_alpha = torch.sigmoid(raw + dyn_bias)
+            local_alpha_mean = torch.sigmoid(posterior_mean + dyn_bias)
+            alpha = self._blend_with_belief(local_alpha, belief_state)
+            alpha_mean = self._blend_with_belief(local_alpha_mean, belief_state)
             raw_ctrl = ctrl_posterior_mean
             if sample_context and self.training:
                 raw_ctrl = raw_ctrl + torch.exp(0.5 * ctrl_posterior_logvar) * torch.randn_like(raw_ctrl)
-            ctrl_bias = self.law_posterior_logits.to(raw_ctrl.device, raw_ctrl.dtype).unsqueeze(0)
-            alpha_ctrl = torch.sigmoid(raw_ctrl + ctrl_bias)
-            alpha_ctrl_mean = torch.sigmoid(ctrl_posterior_mean + ctrl_bias)
+            local_alpha_ctrl = torch.sigmoid(raw_ctrl + ctrl_bias)
+            local_alpha_ctrl_mean = torch.sigmoid(ctrl_posterior_mean + ctrl_bias)
+            alpha_ctrl = self._blend_with_belief(local_alpha_ctrl, belief_state)
+            alpha_ctrl_mean = self._blend_with_belief(local_alpha_ctrl_mean, belief_state)
 
         gated_prior = raw_prior_effects * self.prior_gate.to(states.device, states.dtype).view(1, -1, 1)
         symbolic_delta = torch.einsum("bk,bkd->bd", alpha, gated_prior).to(states.dtype)
@@ -441,6 +513,14 @@ class SimFuturesWorldModel(nn.Module):
         second_moment = (chart_weights * (expert_var + expert_delta.pow(2))).sum(dim=1)
         mixture_var = (second_moment - base_delta.pow(2)).clamp_min(1e-8)
         logvar = mixture_var.log().clamp(self.config.min_logvar, self.config.max_logvar)
+        belief_transition_input = torch.cat([alpha_mean, phase_latent, states, actions, base_delta], dim=-1)
+        belief_candidate = torch.sigmoid(self.belief_transition(belief_transition_input) + dyn_bias)
+        update_rate = float(max(0.0, min(1.0, self.config.belief_update_rate)))
+        belief_next = ((1.0 - update_rate) * alpha_mean + update_rate * belief_candidate).clamp(
+            1e-4,
+            1.0 - 1e-4,
+        )
+        belief_drift = (belief_next - alpha_mean).pow(2).mean(dim=-1)
         prior_delta = symbolic_feature
         prediction_mean = states + base_delta
         planning_delta = states.new_zeros(states.shape)
@@ -482,7 +562,11 @@ class SimFuturesWorldModel(nn.Module):
         reward_pred = self.reward_head(reward_input).squeeze(-1).to(states.dtype)
         planning_reward_pred = self.reward_head(planning_reward_input).squeeze(-1).to(states.dtype)
         law_channel_pred = torch.sigmoid(self.law_observer(alpha)).to(states.dtype)
-        planning_bonus = self.reliability_head(planning_input).squeeze(-1).to(states.dtype)
+        raw_planning_bonus = self.reliability_head(planning_input).squeeze(-1).to(states.dtype)
+        stability_score = torch.sigmoid(self.stability_head(planning_input).squeeze(-1)).to(states.dtype)
+        floor = float(max(0.0, min(1.0, self.config.stability_gate_floor)))
+        planning_bonus_gate = floor + (1.0 - floor) * stability_score
+        planning_bonus = raw_planning_bonus * planning_bonus_gate
 
         zero_effects = raw_prior_effects.new_zeros(raw_prior_effects.shape)
         output = WorldModelForwardOutput(
@@ -524,11 +608,19 @@ class SimFuturesWorldModel(nn.Module):
         output.alpha_dyn_mean = alpha_mean
         output.alpha_ctrl = alpha_ctrl
         output.alpha_ctrl_mean = alpha_ctrl_mean
+        output.local_alpha_mean = local_alpha_mean
+        output.local_alpha_ctrl_mean = local_alpha_ctrl_mean
+        output.belief_state = alpha_mean
+        output.belief_next = belief_next
+        output.belief_drift = belief_drift
         output.chart_probs = chart_probs
         output.chart_logits = chart_logits
         output.law_channel_pred = law_channel_pred
         output.law_channel_targets = law_targets
         output.utility_law_targets = utility_law_targets
+        output.raw_planning_bonus = raw_planning_bonus
+        output.stability_score = stability_score
+        output.planning_bonus_gate = planning_bonus_gate
         output.planning_bonus = planning_bonus
         output.symbolic_delta = symbolic_feature
         output.phase_latent = phase_latent
@@ -580,6 +672,8 @@ def fit_simfutures_world_model(
         law_losses: list[float] = []
         reward_losses: list[float] = []
         reliability_losses: list[float] = []
+        stability_losses: list[float] = []
+        belief_losses: list[float] = []
         control_losses: list[float] = []
         phase_losses: list[float] = []
         rollout_losses: list[float] = []
@@ -662,6 +756,13 @@ def fit_simfutures_world_model(
                         config=config,
                     )
                     reliability_loss = (output.planning_bonus - utility.detach()).pow(2).mean()
+                stability_target = stability_targets(
+                    output=output,
+                    batch=batch,
+                    control_weights=control_weights,
+                )
+                stability_loss = (output.stability_score - stability_target.detach()).pow(2).mean()
+                belief_loss = output.belief_drift.mean()
                 batch_weights = control_weights.unsqueeze(0).expand_as(batch.states)
                 control = weighted_mse(output.mean, batch.next_states, batch_weights)
                 rollout = _rollout_loss_for_batch(
@@ -680,8 +781,10 @@ def fit_simfutures_world_model(
                     + config.law_channel_weight * law_loss
                     + config.reward_weight * reward_loss
                     + config.reliability_weight * reliability_loss
+                    + config.stability_weight * stability_loss
                     + config.control_weight * control
                     + config.phase_loss_weight * phase_loss
+                    + config.belief_smooth_weight * belief_loss
                     + config.rollout_weight * rollout
                 )
             if scaler.is_enabled():
@@ -703,6 +806,8 @@ def fit_simfutures_world_model(
             law_losses.append(float(law_loss.detach().cpu()))
             reward_losses.append(float(reward_loss.detach().cpu()))
             reliability_losses.append(float(reliability_loss.detach().cpu()))
+            stability_losses.append(float(stability_loss.detach().cpu()))
+            belief_losses.append(float(belief_loss.detach().cpu()))
             control_losses.append(float(control.detach().cpu()))
             phase_losses.append(float(phase_loss.detach().cpu()))
             rollout_losses.append(float(rollout.detach().cpu()))
@@ -729,6 +834,8 @@ def fit_simfutures_world_model(
             "law_channel": float(np.mean(law_losses)) if law_losses else 0.0,
             "reward": float(np.mean(reward_losses)) if reward_losses else 0.0,
             "reliability": float(np.mean(reliability_losses)) if reliability_losses else 0.0,
+            "stability": float(np.mean(stability_losses)) if stability_losses else 0.0,
+            "belief_smooth": float(np.mean(belief_losses)) if belief_losses else 0.0,
             "control": float(np.mean(control_losses)) if control_losses else 0.0,
             "phase": float(np.mean(phase_losses)) if phase_losses else 0.0,
             "rollout": float(np.mean(rollout_losses)) if rollout_losses else 0.0,
@@ -863,6 +970,17 @@ def wake_utility_targets(
     ).clamp(-10.0, 10.0)
 
 
+def stability_targets(
+    output: WorldModelForwardOutput,
+    batch: DUCBatch,
+    control_weights: torch.Tensor,
+) -> torch.Tensor:
+    weights = control_weights.to(batch.states.device, batch.states.dtype).unsqueeze(0)
+    state_error = ((output.prediction_mean - batch.next_states).pow(2) * weights).mean(dim=-1)
+    normalized_error = state_error / state_error.detach().mean().clamp_min(1e-6)
+    return torch.exp(-normalized_error).clamp(0.0, 1.0).to(batch.states.dtype)
+
+
 def law_posterior_entropy(model: SimFuturesWorldModel) -> float:
     probs = model.law_posterior_probs.detach().clamp(1e-6, 1.0 - 1e-6)
     entropy = -(probs * probs.log() + (1.0 - probs) * (1.0 - probs).log())
@@ -939,13 +1057,24 @@ def _rollout_loss_for_batch(
         device=device,
     )
     total = current.new_zeros(())
+    belief = None
     for offset in range(horizon):
         step_indices = index_np + offset
         actions = torch.tensor(transitions.actions[step_indices], dtype=torch.float32, device=device)
         targets = torch.tensor(transitions.next_states[step_indices], dtype=torch.float32, device=device)
-        output = model(current, actions, history_states, history_actions, sample_context=False)
+        if belief is None:
+            belief = model.initial_belief_state(current, actions, history_states, history_actions)
+        output = model(
+            current,
+            actions,
+            history_states,
+            history_actions,
+            sample_context=False,
+            belief_state=belief,
+        )
         weights = control_weights.unsqueeze(0).expand_as(targets)
         total = total + weighted_mse(output.mean, targets, weights)
+        belief = output.belief_next
         current = output.mean
         history_states = torch.cat([history_states[:, 1:], current.unsqueeze(1)], dim=1)
         history_actions = torch.cat([history_actions[:, 1:], actions.unsqueeze(1)], dim=1)

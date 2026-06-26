@@ -304,7 +304,7 @@ scripts/run_workshop_suite.py
   Multi-env, multi-seed benchmark launcher.
 
 scripts/aggregate_avg_rank.py
-  Composite AvgRank over R2@1, R2@10, and planner return.
+  Composite AvgRank over R2@1, R2@10, R2@25, and planner return.
 ```
 
 ## Smoke Test
@@ -350,7 +350,7 @@ uv run python scripts/run_workshop_suite.py \
 ```bash
 uv run python scripts/aggregate_avg_rank.py \
   "outputs/simfutures_workshop_5env_3seed/*.json" \
-  --metrics score.r2_at_1,score.r2_at_10,score.planner_return_mean \
+  --metrics score.r2_at_1,score.r2_at_10,score.r2_at_25,score.planner_return_mean \
   --csv-out outputs/simfutures_workshop_5env_3seed/avg_rank_composite.csv \
   | tee outputs/simfutures_workshop_5env_3seed/avg_rank_composite.txt
 ```
@@ -358,7 +358,7 @@ uv run python scripts/aggregate_avg_rank.py \
 The compact result table should report:
 
 \[
-R^2@1,\qquad R^2@10,\qquad \text{Reward},\qquad \text{AvgRank}.
+R^2@1,\qquad R^2@10,\qquad R^2@25,\qquad \text{Reward},\qquad \text{AvgRank}.
 \]
 
 ## LLM Prior Check

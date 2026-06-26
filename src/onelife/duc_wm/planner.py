@@ -103,16 +103,37 @@ def rollout_action_sequences(
     if model_context is not None:
         model_context = model_context.expand(candidates, -1)
     total = torch.zeros(candidates, device=action_sequences.device)
+    use_belief_state = hasattr(model, "initial_belief_state")
+    belief_state = None
     for step in range(horizon):
         action = action_sequences[:, step, :]
-        output = model(
-            state,
-            action,
-            history_states,
-            history_actions,
-            context=model_context,
-            sample_context=False,
-        )
+        if use_belief_state:
+            if belief_state is None:
+                belief_state = model.initial_belief_state(
+                    state,
+                    action,
+                    history_states,
+                    history_actions,
+                )
+            output = model(
+                state,
+                action,
+                history_states,
+                history_actions,
+                context=model_context,
+                sample_context=False,
+                belief_state=belief_state,
+            )
+            belief_state = getattr(output, "belief_next", belief_state)
+        else:
+            output = model(
+                state,
+                action,
+                history_states,
+                history_actions,
+                context=model_context,
+                sample_context=False,
+            )
         reward = reward_fn(state, action, output.mean)
         uncertainty = torch.exp(output.logvar).mean(dim=-1)
         bonus = getattr(output, "planning_bonus", None)

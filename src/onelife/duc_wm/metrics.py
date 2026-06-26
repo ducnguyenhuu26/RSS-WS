@@ -177,26 +177,27 @@ def evaluate_world_model(
     }
     if nlls:
         metrics["nll"] = float(sum(nlls) / len(nlls))
-    rollout = rollout_predictions(
-        model=model,
-        transitions=transitions,
-        device=device,
-        batch_size=batch_size,
-        history_length=history_length,
-        horizon=rollout_horizon,
-        use_oracle_context=use_oracle_context,
-    )
-    if rollout is not None:
+    rollout_horizons = sorted({int(rollout_horizon), 25})
+    for horizon in rollout_horizons:
+        rollout = rollout_predictions(
+            model=model,
+            transitions=transitions,
+            device=device,
+            batch_size=batch_size,
+            history_length=history_length,
+            horizon=horizon,
+            use_oracle_context=use_oracle_context,
+        )
+        if rollout is None:
+            continue
         rollout_pred, rollout_target = rollout
-        metrics[f"r2_at_{rollout_horizon}"] = r2_score(rollout_pred, rollout_target)
-        metrics[f"duc_r2_at_{rollout_horizon}"] = r2_score(
+        metrics[f"r2_at_{horizon}"] = r2_score(rollout_pred, rollout_target)
+        metrics[f"duc_r2_at_{horizon}"] = r2_score(
             rollout_pred,
             rollout_target,
             weights=weights,
         )
-        metrics[f"mse_at_{rollout_horizon}"] = float(
-            np.mean((rollout_pred - rollout_target) ** 2)
-        )
+        metrics[f"mse_at_{horizon}"] = float(np.mean((rollout_pred - rollout_target) ** 2))
     return metrics
 
 
@@ -234,6 +235,9 @@ def evaluate_duc_model(
     ctrl_alpha_means: list[float] = []
     law_channel_errors: list[float] = []
     planning_bonuses: list[float] = []
+    stability_scores: list[float] = []
+    planning_bonus_gates: list[float] = []
+    belief_drifts: list[float] = []
     phase_abs_means: list[float] = []
     phase_transition_errors: list[float] = []
     trust_violations: list[float] = []
@@ -283,6 +287,12 @@ def evaluate_duc_model(
             )
         if hasattr(output, "planning_bonus"):
             planning_bonuses.append(float(output.planning_bonus.mean().cpu()))
+        if hasattr(output, "stability_score"):
+            stability_scores.append(float(output.stability_score.mean().cpu()))
+        if hasattr(output, "planning_bonus_gate"):
+            planning_bonus_gates.append(float(output.planning_bonus_gate.mean().cpu()))
+        if hasattr(output, "belief_drift"):
+            belief_drifts.append(float(output.belief_drift.mean().cpu()))
         if hasattr(output, "phase_latent"):
             phase_abs_means.append(float(output.phase_latent.abs().mean().cpu()))
         if hasattr(output, "phase_next_pred") and hasattr(output, "phase_next_target"):
@@ -351,6 +361,14 @@ def evaluate_duc_model(
             metrics["law_channel_mse"] = float(sum(law_channel_errors) / len(law_channel_errors))
         if planning_bonuses:
             metrics["planning_bonus_mean"] = float(sum(planning_bonuses) / len(planning_bonuses))
+        if stability_scores:
+            metrics["stability_score_mean"] = float(sum(stability_scores) / len(stability_scores))
+        if planning_bonus_gates:
+            metrics["planning_bonus_gate_mean"] = float(
+                sum(planning_bonus_gates) / len(planning_bonus_gates)
+            )
+        if belief_drifts:
+            metrics["belief_drift_mean"] = float(sum(belief_drifts) / len(belief_drifts))
         if phase_abs_means:
             metrics["phase_abs_mean"] = float(sum(phase_abs_means) / len(phase_abs_means))
         if phase_transition_errors:
@@ -413,6 +431,7 @@ def rollout_predictions(
 
     predictions: list[np.ndarray] = []
     targets: list[np.ndarray] = []
+    use_belief_state = hasattr(model, "initial_belief_state")
     for begin in range(0, len(starts), batch_size):
         batch_starts = starts[begin : begin + batch_size]
         current = torch.tensor(
@@ -442,6 +461,7 @@ def rollout_predictions(
         )
         batch_predictions: list[np.ndarray] = []
         batch_targets: list[np.ndarray] = []
+        belief_state = None
         for offset in range(horizon):
             step_indices = batch_starts + offset
             actions = torch.tensor(
@@ -456,14 +476,33 @@ def rollout_predictions(
                     dtype=torch.float32,
                     device=device,
                 )
-            output = model(
-                current,
-                actions,
-                history_states,
-                history_actions,
-                context=context,
-                sample_context=False,
-            )
+            if use_belief_state:
+                if belief_state is None:
+                    belief_state = model.initial_belief_state(
+                        current,
+                        actions,
+                        history_states,
+                        history_actions,
+                    )
+                output = model(
+                    current,
+                    actions,
+                    history_states,
+                    history_actions,
+                    context=context,
+                    sample_context=False,
+                    belief_state=belief_state,
+                )
+                belief_state = getattr(output, "belief_next", belief_state)
+            else:
+                output = model(
+                    current,
+                    actions,
+                    history_states,
+                    history_actions,
+                    context=context,
+                    sample_context=False,
+                )
             current = output.mean
             batch_predictions.append(current.cpu().numpy())
             batch_targets.append(transitions.next_states[step_indices])
