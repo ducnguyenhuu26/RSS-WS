@@ -105,7 +105,27 @@ q_\phi^{ctrl}(z_t^{ctrl}\mid h_t,s_t,a_t,\Delta s_t,y_t^{ctrl}).
 \]
 
 The symbolic law effects are not added directly to the next-state delta. They
-are used as conditioning features for a local multi-chart dynamics model:
+are used as conditioning features for a phase-consistent local dynamics model.
+First, the history-state-action tuple is embedded into a compact latent phase:
+
+\[
+\chi_t=f_\omega(h_t,s_t,a_t).
+\]
+
+This phase is trained to be predictive over time:
+
+\[
+\hat\chi_{t+1}=g_\omega(\chi_t,s_t,a_t),
+\quad
+\chi^+_{t+1}=f_\omega(h^+_t,s_{t+1},a_t),
+\]
+
+\[
+\mathcal L_\chi=\|\hat\chi_{t+1}-\operatorname{sg}(\chi^+_{t+1})\|^2.
+\]
+
+The law portfolio then modulates dynamics through \(\chi_t\), rather than by
+adding a brittle hand-shaped residual directly into the state:
 
 \[
 m_{t,j}=m_j(s_t,a_t,h_t),
@@ -114,13 +134,13 @@ m_{t,j}=m_j(s_t,a_t,h_t),
 \]
 
 \[
-\pi_t=\operatorname{softmax}(f_c(h_t,s_t,a_t)).
+\pi_t=\operatorname{softmax}(f_c(\chi_t)).
 \]
 
 \[
 (\Delta_{t,c},\log v_{t,c})
 =
-f_c(h_t,s_t,a_t,\alpha_t^{dyn},\delta_t^L).
+F_c(h_t,s_t,a_t;\operatorname{FiLM}(\alpha_t^{dyn},\delta_t^L,\chi_t)).
 \]
 
 \[
@@ -135,6 +155,9 @@ f_c(h_t,s_t,a_t,\alpha_t^{dyn},\delta_t^L).
 
 This is the main structural change: laws modulate the dynamics manifold, rather
 than injecting a brittle hand-shaped residual directly into the predicted state.
+The same \(\chi_t\) is also passed to reward and reliability heads with
+stop-gradient, so utility can use the learned phase without corrupting state
+prediction.
 
 The model also trains the deployable prior path explicitly:
 
@@ -172,7 +195,7 @@ The reliability critic learns:
 
 \[
 b_t=f_B(\operatorname{sg}[s_t,a_t,\alpha_t^{ctrl},
-\widehat{\Delta s}_t,\delta_t^L]),
+\widehat{\Delta s}_t,\delta_t^L,\chi_t]),
 \]
 
 \[

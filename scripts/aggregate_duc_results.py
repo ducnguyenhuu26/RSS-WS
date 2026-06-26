@@ -31,6 +31,8 @@ DEFAULT_METRICS = (
     "score.chart_max_prob_mean",
     "score.law_channel_mse",
     "score.planning_bonus_mean",
+    "score.phase_abs_mean",
+    "score.phase_transition_mse",
 )
 
 

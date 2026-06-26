@@ -234,6 +234,8 @@ def evaluate_duc_model(
     ctrl_alpha_means: list[float] = []
     law_channel_errors: list[float] = []
     planning_bonuses: list[float] = []
+    phase_abs_means: list[float] = []
+    phase_transition_errors: list[float] = []
     trust_violations: list[float] = []
     for batch in iter_duc_batches(
         transitions,
@@ -281,6 +283,12 @@ def evaluate_duc_model(
             )
         if hasattr(output, "planning_bonus"):
             planning_bonuses.append(float(output.planning_bonus.mean().cpu()))
+        if hasattr(output, "phase_latent"):
+            phase_abs_means.append(float(output.phase_latent.abs().mean().cpu()))
+        if hasattr(output, "phase_next_pred") and hasattr(output, "phase_next_target"):
+            phase_transition_errors.append(
+                float((output.phase_next_pred - output.phase_next_target).pow(2).mean().cpu())
+            )
         trust_violations.append(float(trust_region_violation(model, output).cpu()))
         if batch.contexts is not None:
             context_errors.append(
@@ -343,6 +351,12 @@ def evaluate_duc_model(
             metrics["law_channel_mse"] = float(sum(law_channel_errors) / len(law_channel_errors))
         if planning_bonuses:
             metrics["planning_bonus_mean"] = float(sum(planning_bonuses) / len(planning_bonuses))
+        if phase_abs_means:
+            metrics["phase_abs_mean"] = float(sum(phase_abs_means) / len(phase_abs_means))
+        if phase_transition_errors:
+            metrics["phase_transition_mse"] = float(
+                sum(phase_transition_errors) / len(phase_transition_errors)
+            )
     if context_errors:
         metrics["context_mse"] = float(sum(context_errors) / len(context_errors))
     if transitions.contexts is not None:

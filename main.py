@@ -140,6 +140,7 @@ def main(cfg: DictConfig) -> None:
                 history_length=int(cfg.duc.history_length),
                 symbolic_delta_scale=float(config_get(cfg, "simfutures.symbolic_delta_scale", 0.20)),
                 chart_count=int(config_get(cfg, "simfutures.chart_count", 4)),
+                phase_dim=int(config_get(cfg, "simfutures.phase_dim", 16)),
             )
         ).to(device)
         maybe_compile_forward(model, cfg)
@@ -459,6 +460,7 @@ def simfutures_trainer_config(cfg: DictConfig, seed: int) -> SimFuturesTrainerCo
         reward_weight=float(config_get(cfg, "simfutures.reward_weight", 0.10)),
         reliability_weight=float(config_get(cfg, "simfutures.reliability_weight", 0.20)),
         control_weight=float(config_get(cfg, "simfutures.control_weight", cfg.duc.control_weight)),
+        phase_loss_weight=float(config_get(cfg, "simfutures.phase_loss_weight", 0.05)),
         rollout_weight=float(config_get(cfg, "simfutures.rollout_weight", cfg.duc.rollout_weight)),
         rollout_horizon=int(cfg.duc.rollout_horizon),
         posterior_update_interval=int(config_get(cfg, "simfutures.posterior_update_interval", 1)),

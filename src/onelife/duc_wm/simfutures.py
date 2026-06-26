@@ -27,6 +27,7 @@ class SimFuturesWorldModelConfig:
     max_logvar: float = 2.0
     symbolic_delta_scale: float = 0.20
     chart_count: int = 4
+    phase_dim: int = 16
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,7 @@ class SimFuturesTrainerConfig:
     reward_weight: float = 0.10
     reliability_weight: float = 0.20
     control_weight: float = 0.05
+    phase_loss_weight: float = 0.05
     rollout_weight: float = 0.0
     rollout_horizon: int = 1
     posterior_update_interval: int = 1
@@ -54,6 +56,49 @@ class SimFuturesTrainerConfig:
     seed: int = 0
     precision: str = "fp32"
     preload_to_device: bool = False
+
+
+class FiLMDynamicsExpert(nn.Module):
+    """Dynamics expert modulated by law validity and learned phase geometry."""
+
+    def __init__(
+        self,
+        input_dim: int,
+        condition_dim: int,
+        state_dim: int,
+        hidden_size: int,
+        hidden_layers: int,
+        min_logvar: float,
+        max_logvar: float,
+    ) -> None:
+        super().__init__()
+        depth = max(1, int(hidden_layers))
+        self.input_layer = nn.Linear(input_dim, hidden_size)
+        self.hidden_layers = nn.ModuleList(
+            nn.Linear(hidden_size, hidden_size) for _ in range(depth - 1)
+        )
+        self.conditioner = mlp(
+            input_dim=condition_dim,
+            output_dim=2 * hidden_size,
+            hidden_size=hidden_size,
+            hidden_layers=max(1, depth - 1),
+        )
+        self.output_layer = nn.Linear(hidden_size, 2 * state_dim)
+        self.min_logvar = float(min_logvar)
+        self.max_logvar = float(max_logvar)
+
+    def forward(self, features: torch.Tensor, condition: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        gamma, beta = self.conditioner(condition).chunk(2, dim=-1)
+        gamma = 0.10 * torch.tanh(gamma)
+        beta = 0.10 * torch.tanh(beta)
+
+        hidden = torch.nn.functional.silu(self.input_layer(features))
+        hidden = (1.0 + gamma) * hidden + beta
+        for layer in self.hidden_layers:
+            hidden = torch.nn.functional.silu(layer(hidden))
+            hidden = (1.0 + gamma) * hidden + beta
+        delta, logvar = self.output_layer(hidden).chunk(2, dim=-1)
+        return delta, logvar.clamp(self.min_logvar, self.max_logvar)
 
 
 class SimFuturesWorldModel(nn.Module):
@@ -73,6 +118,8 @@ class SimFuturesWorldModel(nn.Module):
         self.config = config
         if config.chart_count <= 0:
             raise ValueError("chart_count must be positive")
+        if config.phase_dim <= 0:
+            raise ValueError("phase_dim must be positive")
         self.law_priors = LawPriorBank(config.templates, config.state_dim, config.action_dim)
         self.num_laws = len(config.templates)
         self.chart_count = int(config.chart_count)
@@ -103,30 +150,47 @@ class SimFuturesWorldModel(nn.Module):
             hidden_size=config.hidden_size,
             hidden_layers=max(1, config.hidden_layers),
         )
-        chart_input_dim = (
-            prior_input_dim
-            + self.num_laws
-            + config.state_dim
+        self.phase_encoder = mlp(
+            input_dim=prior_input_dim,
+            output_dim=config.phase_dim,
+            hidden_size=config.hidden_size,
+            hidden_layers=max(1, config.hidden_layers - 1),
+        )
+        self.phase_transition = mlp(
+            input_dim=config.phase_dim + config.state_dim + config.action_dim,
+            output_dim=config.phase_dim,
+            hidden_size=config.hidden_size,
+            hidden_layers=max(1, config.hidden_layers - 1),
         )
         self.chart_gate = mlp(
-            input_dim=prior_input_dim,
+            input_dim=config.phase_dim,
             output_dim=self.chart_count,
             hidden_size=config.hidden_size,
             hidden_layers=max(1, config.hidden_layers - 1),
         )
+        expert_condition_dim = self.num_laws + config.state_dim + config.phase_dim
         self.dynamics_experts = nn.ModuleList(
             [
-                mlp(
-                    input_dim=chart_input_dim,
-                    output_dim=2 * config.state_dim,
+                FiLMDynamicsExpert(
+                    input_dim=prior_input_dim,
+                    condition_dim=expert_condition_dim,
+                    state_dim=config.state_dim,
                     hidden_size=config.hidden_size,
                     hidden_layers=config.hidden_layers,
+                    min_logvar=config.min_logvar,
+                    max_logvar=config.max_logvar,
                 )
                 for _ in range(self.chart_count)
             ]
         )
         self.reward_head = mlp(
-            input_dim=config.state_dim + config.action_dim + config.state_dim + self.num_laws,
+            input_dim=(
+                config.state_dim
+                + config.action_dim
+                + config.state_dim
+                + self.num_laws
+                + config.phase_dim
+            ),
             output_dim=1,
             hidden_size=config.hidden_size,
             hidden_layers=max(1, config.hidden_layers - 1),
@@ -142,6 +206,7 @@ class SimFuturesWorldModel(nn.Module):
             + config.action_dim
             + self.num_laws
             + 2 * config.state_dim
+            + config.phase_dim
         )
         self.reliability_head = mlp(
             input_dim=planning_input_dim,
@@ -297,6 +362,30 @@ class SimFuturesWorldModel(nn.Module):
             ],
             dim=-1,
         )
+        phase_latent = torch.tanh(self.phase_encoder(prior_features)).to(states.dtype)
+        phase_next_pred = torch.tanh(
+            self.phase_transition(torch.cat([phase_latent, states, actions], dim=-1))
+        ).to(states.dtype)
+        phase_next_target = None
+        if next_states is not None:
+            next_history_states = torch.cat(
+                [history_states[:, 1:], next_states.unsqueeze(1)],
+                dim=1,
+            )
+            next_history_actions = torch.cat(
+                [history_actions[:, 1:], actions.unsqueeze(1)],
+                dim=1,
+            )
+            next_prior_features = torch.cat(
+                [
+                    next_history_states.reshape(states.shape[0], -1),
+                    next_history_actions.reshape(states.shape[0], -1),
+                    next_states,
+                    actions,
+                ],
+                dim=-1,
+            )
+            phase_next_target = torch.tanh(self.phase_encoder(next_prior_features)).detach().to(states.dtype)
         prior_mean, prior_logvar = self.dyn_prior_encoder(prior_features).chunk(2, dim=-1)
         ctrl_prior_mean, ctrl_prior_logvar = self.ctrl_prior_encoder(prior_features).chunk(2, dim=-1)
         posterior_mean = prior_mean
@@ -335,15 +424,15 @@ class SimFuturesWorldModel(nn.Module):
         gated_prior = raw_prior_effects * self.prior_gate.to(states.device, states.dtype).view(1, -1, 1)
         symbolic_delta = torch.einsum("bk,bkd->bd", alpha, gated_prior).to(states.dtype)
         symbolic_feature = float(self.config.symbolic_delta_scale) * symbolic_delta
-        chart_logits = self.chart_gate(prior_features)
+        chart_logits = self.chart_gate(phase_latent)
         chart_probs = torch.softmax(chart_logits, dim=-1).to(states.dtype)
-        chart_input = torch.cat([prior_features, alpha, symbolic_feature], dim=-1)
+        expert_condition = torch.cat([alpha, symbolic_feature, phase_latent], dim=-1)
         expert_means: list[torch.Tensor] = []
         expert_logvars: list[torch.Tensor] = []
         for expert in self.dynamics_experts:
-            delta_i, logvar_i = expert(chart_input).chunk(2, dim=-1)
+            delta_i, logvar_i = expert(prior_features, expert_condition)
             expert_means.append(delta_i.to(states.dtype))
-            expert_logvars.append(logvar_i.clamp(self.config.min_logvar, self.config.max_logvar).to(states.dtype))
+            expert_logvars.append(logvar_i.to(states.dtype))
         expert_delta = torch.stack(expert_means, dim=1)
         expert_logvar = torch.stack(expert_logvars, dim=1)
         chart_weights = chart_probs.unsqueeze(-1)
@@ -358,7 +447,17 @@ class SimFuturesWorldModel(nn.Module):
         planning_mean = prediction_mean
         mean = prediction_mean
 
-        reward_input = torch.cat([states.detach(), actions.detach(), prediction_mean.detach(), alpha_ctrl.detach()], dim=-1)
+        detached_phase = phase_latent.detach()
+        reward_input = torch.cat(
+            [
+                states.detach(),
+                actions.detach(),
+                prediction_mean.detach(),
+                alpha_ctrl.detach(),
+                detached_phase,
+            ],
+            dim=-1,
+        )
         planning_input = torch.cat(
             [
                 states.detach(),
@@ -366,10 +465,20 @@ class SimFuturesWorldModel(nn.Module):
                 alpha_ctrl.detach(),
                 base_delta.detach(),
                 symbolic_feature.detach(),
+                detached_phase,
             ],
             dim=-1,
         )
-        planning_reward_input = torch.cat([states.detach(), actions.detach(), planning_mean.detach(), alpha_ctrl.detach()], dim=-1)
+        planning_reward_input = torch.cat(
+            [
+                states.detach(),
+                actions.detach(),
+                planning_mean.detach(),
+                alpha_ctrl.detach(),
+                detached_phase,
+            ],
+            dim=-1,
+        )
         reward_pred = self.reward_head(reward_input).squeeze(-1).to(states.dtype)
         planning_reward_pred = self.reward_head(planning_reward_input).squeeze(-1).to(states.dtype)
         law_channel_pred = torch.sigmoid(self.law_observer(alpha)).to(states.dtype)
@@ -422,6 +531,10 @@ class SimFuturesWorldModel(nn.Module):
         output.utility_law_targets = utility_law_targets
         output.planning_bonus = planning_bonus
         output.symbolic_delta = symbolic_feature
+        output.phase_latent = phase_latent
+        output.phase_next_pred = phase_next_pred
+        if phase_next_target is not None:
+            output.phase_next_target = phase_next_target
         return output
 
     def nll(self, output: WorldModelForwardOutput, targets: torch.Tensor) -> torch.Tensor:
@@ -468,6 +581,7 @@ def fit_simfutures_world_model(
         reward_losses: list[float] = []
         reliability_losses: list[float] = []
         control_losses: list[float] = []
+        phase_losses: list[float] = []
         rollout_losses: list[float] = []
         batches = (
             iter_prepared_duc_batches(
@@ -530,6 +644,12 @@ def fit_simfutures_world_model(
                 )
                 prior_path = model.nll(prior_output, batch.next_states)
                 law_loss = (output.law_channel_pred - output.law_channel_targets.detach()).pow(2).mean()
+                if hasattr(output, "phase_next_target"):
+                    phase_loss = (
+                        output.phase_next_pred - output.phase_next_target.detach()
+                    ).pow(2).mean()
+                else:
+                    phase_loss = batch.states.new_zeros(())
                 if batch.rewards is None:
                     reward_loss = batch.states.new_zeros(())
                     reliability_loss = batch.states.new_zeros(())
@@ -561,6 +681,7 @@ def fit_simfutures_world_model(
                     + config.reward_weight * reward_loss
                     + config.reliability_weight * reliability_loss
                     + config.control_weight * control
+                    + config.phase_loss_weight * phase_loss
                     + config.rollout_weight * rollout
                 )
             if scaler.is_enabled():
@@ -583,6 +704,7 @@ def fit_simfutures_world_model(
             reward_losses.append(float(reward_loss.detach().cpu()))
             reliability_losses.append(float(reliability_loss.detach().cpu()))
             control_losses.append(float(control.detach().cpu()))
+            phase_losses.append(float(phase_loss.detach().cpu()))
             rollout_losses.append(float(rollout.detach().cpu()))
 
         posterior_stats = {}
@@ -608,6 +730,7 @@ def fit_simfutures_world_model(
             "reward": float(np.mean(reward_losses)) if reward_losses else 0.0,
             "reliability": float(np.mean(reliability_losses)) if reliability_losses else 0.0,
             "control": float(np.mean(control_losses)) if control_losses else 0.0,
+            "phase": float(np.mean(phase_losses)) if phase_losses else 0.0,
             "rollout": float(np.mean(rollout_losses)) if rollout_losses else 0.0,
             "posterior_entropy": law_posterior_entropy(model),
             "posterior_mean": float(model.law_posterior_probs.mean().detach().cpu()),
