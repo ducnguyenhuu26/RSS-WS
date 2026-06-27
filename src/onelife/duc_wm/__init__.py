@@ -23,7 +23,12 @@ from .llm_prior import (
 )
 from .metrics import evaluate_duc_model
 from .mujoco_ext import MuJoCoExtensionConfig, collect_mujoco_extension_dataset
-from .planning_eval import PlanningEvalConfig, evaluate_cem_mpc
+from .planning_eval import (
+    PlannerCoverageStats,
+    PlanningEvalConfig,
+    build_planner_coverage_stats,
+    evaluate_cem_mpc,
+)
 from .reward_model import RewardModel, RewardModelConfig, RewardTrainerConfig, fit_reward_model
 from .simfutures import (
     SimFuturesTrainerConfig,
@@ -51,6 +56,7 @@ __all__ = [
     "MuJoCoExtensionConfig",
     "PETSWorldModel",
     "PETSWorldModelConfig",
+    "PlannerCoverageStats",
     "PlanningEvalConfig",
     "RewardModel",
     "RewardModelConfig",
@@ -60,6 +66,7 @@ __all__ = [
     "SimFuturesWorldModelConfig",
     "WorldModelForwardOutput",
     "build_duc_mujoco_prior_prompt",
+    "build_planner_coverage_stats",
     "calibrate_certified_risk",
     "collect_mujoco_extension_dataset",
     "default_mujoco_templates",

@@ -7,6 +7,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from onelife.mujoco_dataset import MuJoCoTransitions
+
 from .mujoco_ext import (
     CONTEXT_NAMES,
     apply_action_context,
@@ -33,6 +35,31 @@ class PlanningEvalConfig:
     certified_risk_weight: float = 0.0
 
 
+@dataclass(frozen=True)
+class PlannerCoverageStats:
+    mean: np.ndarray
+    scale: np.ndarray
+    train_p95: float
+
+    def distance(self, state: np.ndarray, action: np.ndarray) -> float:
+        vector = np.concatenate([state.astype(np.float32), action.astype(np.float32)])
+        normalized = (vector - self.mean) / self.scale
+        return float(np.sqrt(np.mean(np.square(normalized))))
+
+
+def build_planner_coverage_stats(transitions: MuJoCoTransitions) -> PlannerCoverageStats:
+    vectors = np.concatenate([transitions.states, transitions.actions], axis=1).astype(np.float32)
+    mean = vectors.mean(axis=0)
+    scale = vectors.std(axis=0)
+    scale = np.where(scale < 1e-6, 1.0, scale).astype(np.float32)
+    distances = np.sqrt(np.mean(np.square((vectors - mean) / scale), axis=1))
+    return PlannerCoverageStats(
+        mean=mean.astype(np.float32),
+        scale=scale,
+        train_p95=float(np.quantile(distances, 0.95)),
+    )
+
+
 @torch.no_grad()
 def evaluate_cem_mpc(
     dynamics_model: nn.Module,
@@ -46,6 +73,7 @@ def evaluate_cem_mpc(
     device: torch.device | str,
     use_oracle_context: bool = False,
     context_templates: tuple[MechanismTemplate, ...] = (),
+    coverage_stats: PlannerCoverageStats | None = None,
 ) -> dict[str, float]:
     if not config.enabled:
         return {}
@@ -64,11 +92,18 @@ def evaluate_cem_mpc(
     rng = np.random.default_rng(seed)
     returns: list[float] = []
     lengths: list[int] = []
+    ood_distances: list[float] = []
+    ood_excesses: list[float] = []
     try:
         for episode in range(config.episodes):
             variant = variants[episode % len(variants)]
             context = sample_context(variant, rng)
-            episode_return, episode_length = _run_planned_episode(
+            (
+                episode_return,
+                episode_length,
+                episode_ood_distances,
+                episode_ood_excesses,
+            ) = _run_planned_episode(
                 dynamics_model=dynamics_model,
                 reward_model=reward_model,
                 env_id=env_id,
@@ -80,17 +115,26 @@ def evaluate_cem_mpc(
                 device=device,
                 use_oracle_context=use_oracle_context,
                 context_templates=context_templates,
+                coverage_stats=coverage_stats,
             )
             returns.append(episode_return)
             lengths.append(episode_length)
+            ood_distances.extend(episode_ood_distances)
+            ood_excesses.extend(episode_ood_excesses)
     finally:
         if hasattr(dynamics_model, "set_planning_mode") and previous_planning_mode is not None:
             dynamics_model.set_planning_mode(bool(previous_planning_mode))
-    return {
+    metrics = {
         "planner_return_mean": float(np.mean(returns)),
         "planner_return_std": float(np.std(returns)),
         "planner_length_mean": float(np.mean(lengths)),
     }
+    if ood_distances:
+        metrics["planner_ood_mean"] = float(np.mean(ood_distances))
+        metrics["planner_ood_p95"] = float(np.quantile(ood_distances, 0.95))
+        metrics["planner_ood_excess_mean"] = float(np.mean(ood_excesses))
+        metrics["planner_coverage_train_p95"] = float(coverage_stats.train_p95) if coverage_stats else 0.0
+    return metrics
 
 
 def _run_planned_episode(
@@ -105,7 +149,8 @@ def _run_planned_episode(
     device: torch.device | str,
     use_oracle_context: bool = False,
     context_templates: tuple[MechanismTemplate, ...] = (),
-) -> tuple[float, int]:
+    coverage_stats: PlannerCoverageStats | None = None,
+) -> tuple[float, int, list[float], list[float]]:
     env = gym.make(env_id)
     try:
         apply_parameter_context(env, context)
@@ -132,6 +177,8 @@ def _run_planned_episode(
             if use_oracle_context
             else None
         )
+        ood_distances: list[float] = []
+        ood_excesses: list[float] = []
         for step in range(config.max_steps):
             action = plan_cem_action(
                 model=dynamics_model,
@@ -150,6 +197,10 @@ def _run_planned_episode(
                 model_context=model_context,
             )
             action = np.clip(action.astype(np.float32), action_low, action_high)
+            if coverage_stats is not None:
+                distance = coverage_stats.distance(obs, action)
+                ood_distances.append(distance)
+                ood_excesses.append(max(0.0, distance - coverage_stats.train_p95))
             effective_action = apply_action_context(action, previous_action, context, rng)
             env_next, reward, terminated, truncated, _ = env.step(effective_action)
             env_next = np.asarray(env_next, dtype=np.float32)
@@ -165,8 +216,8 @@ def _run_planned_episode(
             history_states = np.concatenate([history_states[1:], obs[None, :]], axis=0)
             history_actions = np.concatenate([history_actions[1:], action[None, :]], axis=0)
             if bool(terminated or truncated):
-                return total_return, step + 1
-        return total_return, config.max_steps
+                return total_return, step + 1, ood_distances, ood_excesses
+        return total_return, config.max_steps, ood_distances, ood_excesses
     finally:
         env.close()
 

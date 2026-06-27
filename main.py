@@ -29,6 +29,7 @@ from onelife.duc_wm import (
     SimFuturesWorldModel,
     SimFuturesWorldModelConfig,
     build_duc_mujoco_prior_prompt,
+    build_planner_coverage_stats,
     calibrate_certified_risk,
     collect_mujoco_extension_dataset,
     default_mujoco_templates,
@@ -292,7 +293,14 @@ def main(cfg: DictConfig) -> None:
             config=reward_trainer_config(cfg, reward_seed_used),
             device=device,
         )
-        if method in SIMFUTURES_METHODS and float(config_get(cfg, "planning.certified_risk_weight", 0.0)) > 0.0:
+        calibrate_risk = bool(config_get(cfg, "planning.certified_risk_calibration_enabled", False))
+        if (
+            method in SIMFUTURES_METHODS
+            and (
+                calibrate_risk
+                or float(config_get(cfg, "planning.certified_risk_weight", 0.0)) > 0.0
+            )
+        ):
             metrics.update(
                 calibrate_certified_risk(
                     model=model,
@@ -318,6 +326,7 @@ def main(cfg: DictConfig) -> None:
                 device=device,
                 use_oracle_context=uses_oracle_context,
                 context_templates=templates,
+                coverage_stats=build_planner_coverage_stats(train_dataset),
             )
         )
 

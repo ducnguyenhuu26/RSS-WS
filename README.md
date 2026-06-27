@@ -220,19 +220,21 @@ e_j=\mathbb E_t[\alpha_{t,j}^{ctrl}(u_t-\bar u)].
 \right].
 \]
 
-## Wake-Certified MPC
+## Wake-Certified Candidate Selection
 
 At planning time, CEM/MPC uses the same predicted dynamics \(\hat s_{t+1}\) that
 is evaluated by rollout \(R^2\). There is no separate planning-only state delta.
-Earlier variants scored action sequences with predicted reward plus a learned
-utility bonus. The current branch keeps that signal but adds a wake-certified
-risk sensor so optimistic virtual rollouts can be penalized before deployment.
-For a candidate sequence \(A\), the planner estimates:
+The current branch treats wake certification as a **candidate/model selection**
+signal, not as the default action-level penalty inside CEM. This avoids the
+pessimism trap where locomotion actions are suppressed simply because they are
+high-energy or far from average.
+
+For a trained candidate model \(k\), replay diagnostics estimate:
 
 \[
-\Gamma_\omega(A)
+\Gamma_\omega(k)
 =
-\sum_{t=0}^{H-1} g_\omega(\hat s_t,a_t).
+\mathbb E[g_\omega(s_t,a_t)].
 \]
 
 The risk head is trained on wake replay errors:
@@ -258,29 +260,59 @@ conservative scale \(\lambda_\Gamma\) from absolute reward gaps:
 \]
 
 Since \([\hat r_i-r_i]_+\le |\hat r_i-r_i|\), this calibration is conservative
-for lower-bound planning and still logs the optimistic gap separately.
+for lower-bound selection and still logs the optimistic gap separately.
 
-The planner then maximizes a lower-bound score rather than raw virtual reward:
+Candidate selection is baseline-relative. A SimFutures candidate must first pass
+dynamics guards:
 
 \[
-A^\star
+\overline L_H(k)
+\le
+\overline L_H^{base}+\epsilon_H,
+\qquad
+H\in\{1,10,25\}.
+\]
+
+It must also avoid planner out-of-support behavior:
+
+\[
+\widehat C_\pi(k)\le \zeta.
+\]
+
+Among valid candidates, the selector maximizes:
+
+\[
+k^\star
 =
-\arg\max_A
-\sum_{t=0}^{H-1}
+\arg\max_k
 \left[
-\hat r_t
-+\lambda_\rho b_t
--\lambda_\Gamma g_\omega(\hat s_t,a_t)
--\lambda_u\hat\sigma_t
+\widehat J_k
+-\lambda_\Gamma\Gamma_\omega(k)
+-\lambda_C\widehat C_\pi(k)
+-B\sqrt{\frac{\log(2K/\delta)}{2n}}
 \right].
 \]
 
 This directly targets the observed failure mode where a model-based planner
 finds actions that look good in the learned simulator but transfer poorly to the
-real MuJoCo transition. In code, the bonus is controlled by
-`planning.model_bonus_weight`, while the certified penalty is controlled by
-`planning.certified_risk_weight` and calibrated through
-`planning.certified_risk_delta`.
+real MuJoCo transition. In code, `planning.certified_risk_calibration_enabled`
+keeps the sensor calibrated and logged, while `planning.certified_risk_weight`
+defaults to `0.0`; nonzero action-level risk is an ablation, not the main
+protocol.
+
+The planner also logs support coverage for the selected actions:
+
+\[
+C_\pi\approx
+\mathbb E\left[
+\left\|
+\frac{[s,a]-\mu_{\mathcal D}}{\sigma_{\mathcal D}}
+\right\|_2
+\right].
+\]
+
+This separates three failure modes that previous runs conflated: weak dynamics,
+planner out-of-support behavior, and reward-model/action-ranking error.
 
 ## Baselines
 
@@ -323,10 +355,13 @@ src/onelife/duc_wm/baselines.py
   MLP, PETS-style, and CaDM-style baselines.
 
 src/onelife/duc_wm/planner.py
-  Shared CEM-MPC planner with optional reliability bonus and certified risk penalty.
+  Shared CEM-MPC planner with optional reliability bonus and diagnostic risk ablation.
 
 src/onelife/duc_wm/planning_eval.py
-  Executes MPC in MuJoCo extension environments.
+  Executes MPC in MuJoCo extension environments and logs planner coverage.
+
+scripts/select_certified_candidate.py
+  Baseline-relative dynamics/coverage guard and lower-bound candidate selector.
 
 scripts/run_balanced_gpu_jobs.py
   Parallel per-method launcher.
@@ -391,6 +426,22 @@ The compact result table should report:
 \[
 R^2@1,\qquad R^2@10,\qquad R^2@25,\qquad \text{Reward},\qquad \text{AvgRank}.
 \]
+
+The certified selector is stricter than AvgRank. It rejects candidates whose
+rollout \(R^2\) falls too far below the baseline envelope or whose planner
+actions move out of the training support:
+
+```bash
+uv run python scripts/select_certified_candidate.py \
+  "outputs/simfutures_workshop_5env_3seed/*.json" \
+  --baselines pets_context,cadm_context,cadm_supervised \
+  --horizons 1,10,25 \
+  --r2-tolerance 0.02 \
+  --duc-r2-tolerance 0.02 \
+  --ood-tolerance 0.25 \
+  --csv-out outputs/simfutures_workshop_5env_3seed/certified_selection.csv \
+  | tee outputs/simfutures_workshop_5env_3seed/certified_selection.txt
+```
 
 ## LLM Prior Check
 

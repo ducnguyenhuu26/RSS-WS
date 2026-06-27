@@ -98,7 +98,8 @@ planning:
   iterations: 2
   uncertainty_weight: 0.05
   model_bonus_weight: 0.20
-  certified_risk_weight: 0.20
+  certified_risk_weight: 0.0
+  certified_risk_calibration_enabled: true
   certified_risk_delta: 0.10
   certified_risk_samples: 8192
   certified_risk_batch_size: 4096
