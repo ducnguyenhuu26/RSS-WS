@@ -54,6 +54,7 @@ simfutures:
   reward_weight: 0.10
   reliability_weight: 0.20
   stability_weight: 0.10
+  risk_weight: 0.10
   control_weight: 0.05
   phase_loss_weight: 0.05
   belief_smooth_weight: 0.02

@@ -20,6 +20,7 @@ class CEMPlannerConfig:
     context_samples: int = 4
     uncertainty_weight: float = 0.0
     model_bonus_weight: float = 0.0
+    certified_risk_weight: float = 0.0
 
 
 @torch.no_grad()
@@ -139,10 +140,21 @@ def rollout_action_sequences(
         bonus = getattr(output, "planning_bonus", None)
         if bonus is None:
             bonus = torch.zeros_like(reward)
+        risk = getattr(output, "certified_risk", None)
+        if risk is None:
+            risk = torch.zeros_like(reward)
+        risk_scale = getattr(model, "certified_risk_scale", None)
+        if torch.is_tensor(risk_scale):
+            risk_scale_value = float(risk_scale.detach().cpu())
+        elif risk_scale is None:
+            risk_scale_value = 1.0
+        else:
+            risk_scale_value = float(risk_scale)
         total = (
             total
             + reward
             + float(config.model_bonus_weight) * bonus
+            - float(config.certified_risk_weight) * risk_scale_value * risk
             - config.uncertainty_weight * uncertainty
         )
         state = output.mean

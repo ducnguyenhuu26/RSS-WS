@@ -29,6 +29,7 @@ from onelife.duc_wm import (
     SimFuturesWorldModel,
     SimFuturesWorldModelConfig,
     build_duc_mujoco_prior_prompt,
+    calibrate_certified_risk,
     collect_mujoco_extension_dataset,
     default_mujoco_templates,
     evaluate_baseline_world_model,
@@ -291,6 +292,19 @@ def main(cfg: DictConfig) -> None:
             config=reward_trainer_config(cfg, reward_seed_used),
             device=device,
         )
+        if method in SIMFUTURES_METHODS and float(config_get(cfg, "planning.certified_risk_weight", 0.0)) > 0.0:
+            metrics.update(
+                calibrate_certified_risk(
+                    model=model,
+                    reward_model=reward_model,
+                    transitions=train_dataset,
+                    device=device,
+                    history_length=int(cfg.duc.history_length),
+                    batch_size=int(config_get(cfg, "planning.certified_risk_batch_size", cfg.eval_batch_size)),
+                    max_samples=int(config_get(cfg, "planning.certified_risk_samples", 8192)),
+                    delta=float(config_get(cfg, "planning.certified_risk_delta", 0.10)),
+                )
+            )
         metrics.update(
             evaluate_cem_mpc(
                 dynamics_model=model,
@@ -424,6 +438,7 @@ def planning_eval_config(cfg: DictConfig) -> PlanningEvalConfig:
         iterations=int(config_get(cfg, "planning.iterations", 3)),
         uncertainty_weight=float(config_get(cfg, "planning.uncertainty_weight", 0.05)),
         model_bonus_weight=float(config_get(cfg, "planning.model_bonus_weight", 0.0)),
+        certified_risk_weight=float(config_get(cfg, "planning.certified_risk_weight", 0.0)),
     )
 
 
@@ -463,6 +478,7 @@ def simfutures_trainer_config(cfg: DictConfig, seed: int) -> SimFuturesTrainerCo
         reward_weight=float(config_get(cfg, "simfutures.reward_weight", 0.10)),
         reliability_weight=float(config_get(cfg, "simfutures.reliability_weight", 0.20)),
         stability_weight=float(config_get(cfg, "simfutures.stability_weight", 0.10)),
+        risk_weight=float(config_get(cfg, "simfutures.risk_weight", 0.10)),
         control_weight=float(config_get(cfg, "simfutures.control_weight", cfg.duc.control_weight)),
         phase_loss_weight=float(config_get(cfg, "simfutures.phase_loss_weight", 0.05)),
         belief_smooth_weight=float(config_get(cfg, "simfutures.belief_smooth_weight", 0.02)),

@@ -220,36 +220,67 @@ e_j=\mathbb E_t[\alpha_{t,j}^{ctrl}(u_t-\bar u)].
 \right].
 \]
 
-## Posterior-Guided MPC
+## Wake-Certified MPC
 
 At planning time, CEM/MPC uses the same predicted dynamics \(\hat s_{t+1}\) that
 is evaluated by rollout \(R^2\). There is no separate planning-only state delta.
-Action sequences are scored with predicted reward and the learned reliability
-critic:
+Earlier variants scored action sequences with predicted reward plus a learned
+utility bonus. The current branch keeps that signal but adds a wake-certified
+risk sensor so optimistic virtual rollouts can be penalized before deployment.
+For a candidate sequence \(A\), the planner estimates:
 
 \[
-S_z(A)
+\Gamma_\omega(A)
 =
-\hat J_\theta(A,z)
-+\lambda_\rho\rho_\xi(z,A,h)
--\lambda_u\hat\sigma_\theta(A,z)
+\sum_{t=0}^{H-1} g_\omega(\hat s_t,a_t).
 \]
 
-In code this is:
+The risk head is trained on wake replay errors:
 
 \[
-G(A)=\sum_t[\hat r_t+\lambda_\rho b_t-\lambda_u\hat\sigma_t].
+g_\omega(s_t,a_t)
+\approx
+\frac{\|w\odot(\hat s_{t+1}-s_{t+1})\|^2}
+{\mathbb E[\|w\odot(\hat s_{t+1}-s_{t+1})\|^2]}
++
+\lambda_r
+\frac{|\hat r_t-r_t|}{\mathbb E[|\hat r_t-r_t|]}.
 \]
 
-The planner selects
+After the shared reward surrogate is trained, replay data calibrate a
+conservative scale \(\lambda_\Gamma\) from absolute reward gaps:
 
 \[
-A^\star=\arg\max_A\mathbb E_{z\sim\nu_n}[S_z(A)].
+\rho_i=
+\frac{|\hat r_i-r_i|}{g_\omega(s_i,a_i)+\epsilon},
+\qquad
+\lambda_\Gamma=Q_{1-\delta}(\{\rho_i\}).
 \]
 
-In code, this is implemented as `planning.model_bonus_weight`: baselines do not
-emit `planning_bonus`, so the bonus is zero for PETS/CaDM, while SimFutures uses
-its reliability critic as part of the proposed method.
+Since \([\hat r_i-r_i]_+\le |\hat r_i-r_i|\), this calibration is conservative
+for lower-bound planning and still logs the optimistic gap separately.
+
+The planner then maximizes a lower-bound score rather than raw virtual reward:
+
+\[
+A^\star
+=
+\arg\max_A
+\sum_{t=0}^{H-1}
+\left[
+\hat r_t
++\lambda_\rho b_t
+-\lambda_\Gamma g_\omega(\hat s_t,a_t)
+-\lambda_u\hat\sigma_t
+\right].
+\]
+
+This directly targets the observed failure mode where a model-based planner
+finds actions that look good in the learned simulator but transfer poorly to the
+real MuJoCo transition. In code, the bonus is controlled by
+`planning.model_bonus_weight`, while the certified penalty is controlled by
+`planning.certified_risk_weight` and calibrated through
+`planning.certified_risk_delta`.
 
 ## Baselines
 
@@ -292,7 +323,7 @@ src/onelife/duc_wm/baselines.py
   MLP, PETS-style, and CaDM-style baselines.
 
 src/onelife/duc_wm/planner.py
-  Shared CEM-MPC planner with optional SimFutures reliability bonus.
+  Shared CEM-MPC planner with optional reliability bonus and certified risk penalty.
 
 src/onelife/duc_wm/planning_eval.py
   Executes MPC in MuJoCo extension environments.

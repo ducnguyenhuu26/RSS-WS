@@ -29,6 +29,7 @@ from .simfutures import (
     SimFuturesTrainerConfig,
     SimFuturesWorldModel,
     SimFuturesWorldModelConfig,
+    calibrate_certified_risk,
     fit_simfutures_world_model,
 )
 from .templates import (
@@ -59,6 +60,7 @@ __all__ = [
     "SimFuturesWorldModelConfig",
     "WorldModelForwardOutput",
     "build_duc_mujoco_prior_prompt",
+    "calibrate_certified_risk",
     "collect_mujoco_extension_dataset",
     "default_mujoco_templates",
     "evaluate_baseline_world_model",

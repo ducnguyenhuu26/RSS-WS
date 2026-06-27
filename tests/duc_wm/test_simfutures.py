@@ -4,9 +4,12 @@ import numpy as np
 import torch
 
 from onelife.duc_wm import (
+    RewardModel,
+    RewardModelConfig,
     SimFuturesTrainerConfig,
     SimFuturesWorldModel,
     SimFuturesWorldModelConfig,
+    calibrate_certified_risk,
     default_mujoco_templates,
     fit_simfutures_world_model,
 )
@@ -63,6 +66,7 @@ def test_simfutures_forward_shapes() -> None:
     assert output.belief_state.shape == (4, len(templates))
     assert output.belief_next.shape == (4, len(templates))
     assert output.stability_score.shape == (4,)
+    assert output.certified_risk.shape == (4,)
     assert output.planning_bonus_gate.shape == (4,)
     assert torch.allclose(output.planning_delta, torch.zeros_like(output.planning_delta))
 
@@ -99,5 +103,42 @@ def test_simfutures_training_updates_history() -> None:
     assert "ctrl_kl" in history[0]
     assert "phase" in history[0]
     assert "stability" in history[0]
+    assert "risk" in history[0]
     assert "belief_smooth" in history[0]
     assert "posterior_entropy" in history[0]
+
+
+def test_certified_risk_calibration_sets_scale() -> None:
+    transitions = _tiny_transitions()
+    templates = default_mujoco_templates("Swimmer-v5", transitions.state_dim, transitions.action_dim)
+    model = SimFuturesWorldModel(
+        SimFuturesWorldModelConfig(
+            state_dim=transitions.state_dim,
+            action_dim=transitions.action_dim,
+            templates=templates,
+            hidden_size=16,
+            hidden_layers=1,
+            history_length=2,
+        )
+    )
+    reward_model = RewardModel(
+        RewardModelConfig(
+            state_dim=transitions.state_dim,
+            action_dim=transitions.action_dim,
+            hidden_size=16,
+            hidden_layers=1,
+        )
+    )
+    stats = calibrate_certified_risk(
+        model=model,
+        reward_model=reward_model,
+        transitions=transitions,
+        device=torch.device("cpu"),
+        history_length=2,
+        batch_size=8,
+        max_samples=16,
+        delta=0.10,
+    )
+    assert "certified_risk_scale" in stats
+    assert float(model.certified_risk_scale) >= 0.0
+    assert 0.0 <= stats["certified_risk_coverage"] <= 1.0

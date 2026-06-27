@@ -236,6 +236,7 @@ def evaluate_duc_model(
     law_channel_errors: list[float] = []
     planning_bonuses: list[float] = []
     stability_scores: list[float] = []
+    certified_risks: list[float] = []
     planning_bonus_gates: list[float] = []
     belief_drifts: list[float] = []
     phase_abs_means: list[float] = []
@@ -289,6 +290,8 @@ def evaluate_duc_model(
             planning_bonuses.append(float(output.planning_bonus.mean().cpu()))
         if hasattr(output, "stability_score"):
             stability_scores.append(float(output.stability_score.mean().cpu()))
+        if hasattr(output, "certified_risk"):
+            certified_risks.append(float(output.certified_risk.mean().cpu()))
         if hasattr(output, "planning_bonus_gate"):
             planning_bonus_gates.append(float(output.planning_bonus_gate.mean().cpu()))
         if hasattr(output, "belief_drift"):
@@ -363,6 +366,14 @@ def evaluate_duc_model(
             metrics["planning_bonus_mean"] = float(sum(planning_bonuses) / len(planning_bonuses))
         if stability_scores:
             metrics["stability_score_mean"] = float(sum(stability_scores) / len(stability_scores))
+        if certified_risks:
+            metrics["certified_risk_mean"] = float(sum(certified_risks) / len(certified_risks))
+            if hasattr(model, "certified_risk_scale"):
+                metrics["certified_risk_scale"] = float(model.certified_risk_scale.detach().cpu())
+            if hasattr(model, "certified_risk_coverage"):
+                metrics["certified_risk_coverage"] = float(model.certified_risk_coverage.detach().cpu())
+            if hasattr(model, "certified_risk_gap_mean"):
+                metrics["certified_risk_gap_mean"] = float(model.certified_risk_gap_mean.detach().cpu())
         if planning_bonus_gates:
             metrics["planning_bonus_gate_mean"] = float(
                 sum(planning_bonus_gates) / len(planning_bonus_gates)

@@ -46,6 +46,7 @@ class SimFuturesTrainerConfig:
     reward_weight: float = 0.10
     reliability_weight: float = 0.20
     stability_weight: float = 0.10
+    risk_weight: float = 0.10
     control_weight: float = 0.05
     phase_loss_weight: float = 0.05
     belief_smooth_weight: float = 0.02
@@ -238,6 +239,12 @@ class SimFuturesWorldModel(nn.Module):
             hidden_size=config.hidden_size,
             hidden_layers=max(1, config.hidden_layers - 1),
         )
+        self.risk_head = mlp(
+            input_dim=planning_input_dim,
+            output_dim=1,
+            hidden_size=config.hidden_size,
+            hidden_layers=max(1, config.hidden_layers - 1),
+        )
 
         prior_mean, prior_std, scales, confidences = prior_tensors(config.templates)
         self.register_buffer("law_prior_mean", prior_mean)
@@ -250,6 +257,9 @@ class SimFuturesWorldModel(nn.Module):
         self.register_buffer("data_confidence", confidences.clone())
         self.register_buffer("reward_sensitivity", torch.ones(config.state_dim))
         self.register_buffer("_residual_scale", torch.tensor(1.0, dtype=torch.float32))
+        self.register_buffer("certified_risk_scale", torch.tensor(1.0, dtype=torch.float32))
+        self.register_buffer("certified_risk_coverage", torch.tensor(0.0, dtype=torch.float32))
+        self.register_buffer("certified_risk_gap_mean", torch.tensor(0.0, dtype=torch.float32))
         self._planning_mode = False
         self.unknown_indices = tuple(
             index
@@ -304,6 +314,17 @@ class SimFuturesWorldModel(nn.Module):
 
     def set_residual_scale(self, value: float) -> None:
         self._residual_scale.fill_(float(max(0.0, min(1.0, value))))
+
+    @torch.no_grad()
+    def set_certified_risk_calibration(
+        self,
+        scale: float,
+        coverage: float,
+        gap_mean: float,
+    ) -> None:
+        self.certified_risk_scale.fill_(float(max(0.0, scale)))
+        self.certified_risk_coverage.fill_(float(max(0.0, min(1.0, coverage))))
+        self.certified_risk_gap_mean.fill_(float(max(0.0, gap_mean)))
 
     def set_planning_mode(self, enabled: bool) -> None:
         self._planning_mode = bool(enabled)
@@ -564,6 +585,9 @@ class SimFuturesWorldModel(nn.Module):
         law_channel_pred = torch.sigmoid(self.law_observer(alpha)).to(states.dtype)
         raw_planning_bonus = self.reliability_head(planning_input).squeeze(-1).to(states.dtype)
         stability_score = torch.sigmoid(self.stability_head(planning_input).squeeze(-1)).to(states.dtype)
+        certified_risk = torch.nn.functional.softplus(
+            self.risk_head(planning_input).squeeze(-1)
+        ).to(states.dtype)
         floor = float(max(0.0, min(1.0, self.config.stability_gate_floor)))
         planning_bonus_gate = floor + (1.0 - floor) * stability_score
         planning_bonus = raw_planning_bonus * planning_bonus_gate
@@ -620,6 +644,7 @@ class SimFuturesWorldModel(nn.Module):
         output.utility_law_targets = utility_law_targets
         output.raw_planning_bonus = raw_planning_bonus
         output.stability_score = stability_score
+        output.certified_risk = certified_risk
         output.planning_bonus_gate = planning_bonus_gate
         output.planning_bonus = planning_bonus
         output.symbolic_delta = symbolic_feature
@@ -673,6 +698,7 @@ def fit_simfutures_world_model(
         reward_losses: list[float] = []
         reliability_losses: list[float] = []
         stability_losses: list[float] = []
+        risk_losses: list[float] = []
         belief_losses: list[float] = []
         control_losses: list[float] = []
         phase_losses: list[float] = []
@@ -762,6 +788,28 @@ def fit_simfutures_world_model(
                     control_weights=control_weights,
                 )
                 stability_loss = (output.stability_score - stability_target.detach()).pow(2).mean()
+                risk_target = certified_risk_targets(
+                    output=output,
+                    batch=batch,
+                    control_weights=control_weights,
+                    config=config,
+                )
+                prior_risk_target = certified_risk_targets(
+                    output=prior_output,
+                    batch=batch,
+                    control_weights=control_weights,
+                    config=config,
+                )
+                risk_loss = 0.5 * (
+                    torch.nn.functional.smooth_l1_loss(
+                        output.certified_risk,
+                        risk_target.detach(),
+                    )
+                    + torch.nn.functional.smooth_l1_loss(
+                        prior_output.certified_risk,
+                        prior_risk_target.detach(),
+                    )
+                )
                 belief_loss = output.belief_drift.mean()
                 batch_weights = control_weights.unsqueeze(0).expand_as(batch.states)
                 control = weighted_mse(output.mean, batch.next_states, batch_weights)
@@ -782,6 +830,7 @@ def fit_simfutures_world_model(
                     + config.reward_weight * reward_loss
                     + config.reliability_weight * reliability_loss
                     + config.stability_weight * stability_loss
+                    + config.risk_weight * risk_loss
                     + config.control_weight * control
                     + config.phase_loss_weight * phase_loss
                     + config.belief_smooth_weight * belief_loss
@@ -807,6 +856,7 @@ def fit_simfutures_world_model(
             reward_losses.append(float(reward_loss.detach().cpu()))
             reliability_losses.append(float(reliability_loss.detach().cpu()))
             stability_losses.append(float(stability_loss.detach().cpu()))
+            risk_losses.append(float(risk_loss.detach().cpu()))
             belief_losses.append(float(belief_loss.detach().cpu()))
             control_losses.append(float(control.detach().cpu()))
             phase_losses.append(float(phase_loss.detach().cpu()))
@@ -835,6 +885,7 @@ def fit_simfutures_world_model(
             "reward": float(np.mean(reward_losses)) if reward_losses else 0.0,
             "reliability": float(np.mean(reliability_losses)) if reliability_losses else 0.0,
             "stability": float(np.mean(stability_losses)) if stability_losses else 0.0,
+            "risk": float(np.mean(risk_losses)) if risk_losses else 0.0,
             "belief_smooth": float(np.mean(belief_losses)) if belief_losses else 0.0,
             "control": float(np.mean(control_losses)) if control_losses else 0.0,
             "phase": float(np.mean(phase_losses)) if phase_losses else 0.0,
@@ -922,6 +973,93 @@ def calibrate_law_posterior(
     }
 
 
+@torch.no_grad()
+def calibrate_certified_risk(
+    model: SimFuturesWorldModel,
+    reward_model: nn.Module,
+    transitions: MuJoCoTransitions,
+    device: torch.device | str,
+    history_length: int,
+    batch_size: int,
+    max_samples: int,
+    delta: float,
+) -> dict[str, float]:
+    if transitions.rewards is None or transitions.num_steps <= 0:
+        return {}
+    was_training = model.training
+    reward_was_training = reward_model.training
+    model.eval()
+    reward_model.eval()
+    absolute_gaps: list[np.ndarray] = []
+    optimistic_gaps: list[np.ndarray] = []
+    risks: list[np.ndarray] = []
+    seen = 0
+    for batch in iter_duc_batches(
+        transitions,
+        batch_size=batch_size,
+        history_length=history_length,
+        shuffle=False,
+        device=device,
+    ):
+        if max_samples > 0 and seen >= max_samples:
+            break
+        output = model(
+            batch.states,
+            batch.actions,
+            batch.history_states,
+            batch.history_actions,
+            sample_context=False,
+            next_states=None,
+        )
+        if batch.rewards is None:
+            continue
+        predicted_reward = reward_model(batch.states, batch.actions, output.mean)
+        absolute_gap = (predicted_reward - batch.rewards).abs()
+        optimistic_gap = torch.relu(predicted_reward - batch.rewards)
+        risk = getattr(output, "certified_risk", None)
+        if risk is None:
+            risk = torch.ones_like(optimistic_gap)
+        absolute_gaps.append(absolute_gap.detach().cpu().numpy())
+        optimistic_gaps.append(optimistic_gap.detach().cpu().numpy())
+        risks.append(risk.detach().clamp_min(1e-6).cpu().numpy())
+        seen += int(batch.states.shape[0])
+    if was_training:
+        model.train()
+    if reward_was_training:
+        reward_model.train()
+    if not absolute_gaps:
+        return {}
+    abs_gaps = np.concatenate(absolute_gaps, axis=0)
+    optimistic = np.concatenate(optimistic_gaps, axis=0)
+    risk_values = np.concatenate(risks, axis=0)
+    if max_samples > 0:
+        abs_gaps = abs_gaps[:max_samples]
+        optimistic = optimistic[:max_samples]
+        risk_values = risk_values[:max_samples]
+    ratios = abs_gaps / np.maximum(risk_values, 1e-6)
+    quantile = float(np.clip(1.0 - float(delta), 0.0, 1.0))
+    scale = float(np.quantile(ratios, quantile))
+    lower_bound = optimistic - scale * risk_values
+    coverage = float(np.mean(lower_bound <= 1e-8))
+    gap_mean = float(np.mean(abs_gaps))
+    optimistic_gap_mean = float(np.mean(optimistic))
+    risk_mean = float(np.mean(risk_values))
+    model.set_certified_risk_calibration(
+        scale=scale,
+        coverage=coverage,
+        gap_mean=gap_mean,
+    )
+    return {
+        "certified_risk_scale": scale,
+        "certified_risk_coverage": coverage,
+        "certified_risk_gap_mean": gap_mean,
+        "certified_risk_optimistic_gap_mean": optimistic_gap_mean,
+        "certified_risk_mean": risk_mean,
+        "certified_risk_delta": float(delta),
+        "certified_risk_samples": float(len(abs_gaps)),
+    }
+
+
 def law_channel_targets(
     raw_prior_effects: torch.Tensor,
     target_delta: torch.Tensor | None,
@@ -979,6 +1117,25 @@ def stability_targets(
     state_error = ((output.prediction_mean - batch.next_states).pow(2) * weights).mean(dim=-1)
     normalized_error = state_error / state_error.detach().mean().clamp_min(1e-6)
     return torch.exp(-normalized_error).clamp(0.0, 1.0).to(batch.states.dtype)
+
+
+def certified_risk_targets(
+    output: WorldModelForwardOutput,
+    batch: DUCBatch,
+    control_weights: torch.Tensor,
+    config: SimFuturesTrainerConfig,
+) -> torch.Tensor:
+    weights = control_weights.to(batch.states.device, batch.states.dtype).unsqueeze(0)
+    state_error = ((output.prediction_mean - batch.next_states).pow(2) * weights).mean(dim=-1)
+    state_risk = state_error / state_error.detach().mean().clamp_min(1e-6)
+    if batch.rewards is None:
+        return state_risk.clamp(0.0, 20.0).to(batch.states.dtype)
+    reward_error = (output.reward_pred - batch.rewards).abs()
+    reward_risk = reward_error / reward_error.detach().mean().clamp_min(1e-6)
+    return (
+        state_risk
+        + float(config.utility_reward_gap_weight) * reward_risk
+    ).clamp(0.0, 20.0).to(batch.states.dtype)
 
 
 def law_posterior_entropy(model: SimFuturesWorldModel) -> float:
