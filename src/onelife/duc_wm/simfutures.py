@@ -31,6 +31,8 @@ class SimFuturesWorldModelConfig:
     belief_blend: float = 0.70
     belief_update_rate: float = 0.20
     stability_gate_floor: float = 0.20
+    adapter_gate_init: float = -3.0
+    adapter_max_scale: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -48,9 +50,13 @@ class SimFuturesTrainerConfig:
     stability_weight: float = 0.10
     risk_weight: float = 0.10
     control_weight: float = 0.05
+    backbone_weight: float = 0.50
+    adapter_safety_weight: float = 0.25
+    adapter_l1_weight: float = 0.01
     phase_loss_weight: float = 0.05
     belief_smooth_weight: float = 0.02
     rollout_weight: float = 0.0
+    rollout_safety_weight: float = 0.25
     rollout_horizon: int = 1
     posterior_update_interval: int = 1
     posterior_update_samples: int = 4096
@@ -174,6 +180,12 @@ class SimFuturesWorldModel(nn.Module):
             hidden_size=config.hidden_size,
             hidden_layers=max(1, config.hidden_layers - 1),
         )
+        self.backbone_head = mlp(
+            input_dim=prior_input_dim,
+            output_dim=2 * config.state_dim,
+            hidden_size=config.hidden_size,
+            hidden_layers=max(1, config.hidden_layers),
+        )
         expert_condition_dim = self.num_laws + config.state_dim + config.phase_dim
         self.dynamics_experts = nn.ModuleList(
             [
@@ -189,6 +201,16 @@ class SimFuturesWorldModel(nn.Module):
                 for _ in range(self.chart_count)
             ]
         )
+        self.adapter_gate_head = mlp(
+            input_dim=expert_condition_dim,
+            output_dim=1,
+            hidden_size=config.hidden_size,
+            hidden_layers=max(1, config.hidden_layers - 1),
+        )
+        adapter_gate_output = self.adapter_gate_head[-1]
+        if isinstance(adapter_gate_output, nn.Linear):
+            nn.init.zeros_(adapter_gate_output.weight)
+            nn.init.constant_(adapter_gate_output.bias, float(config.adapter_gate_init))
         self.reward_head = mlp(
             input_dim=(
                 config.state_dim
@@ -424,6 +446,7 @@ class SimFuturesWorldModel(nn.Module):
         sample_context: bool = True,
         next_states: torch.Tensor | None = None,
         belief_state: torch.Tensor | None = None,
+        force_backbone: bool = False,
     ) -> WorldModelForwardOutput:
         if history_states is None or history_actions is None:
             history_states, history_actions = self.default_history(states, actions)
@@ -517,6 +540,9 @@ class SimFuturesWorldModel(nn.Module):
         gated_prior = raw_prior_effects * self.prior_gate.to(states.device, states.dtype).view(1, -1, 1)
         symbolic_delta = torch.einsum("bk,bkd->bd", alpha, gated_prior).to(states.dtype)
         symbolic_feature = float(self.config.symbolic_delta_scale) * symbolic_delta
+        backbone_delta, backbone_logvar = self.backbone_head(prior_features).chunk(2, dim=-1)
+        backbone_delta = backbone_delta.to(states.dtype)
+        backbone_logvar = backbone_logvar.to(states.dtype).clamp(self.config.min_logvar, self.config.max_logvar)
         chart_logits = self.chart_gate(phase_latent)
         chart_probs = torch.softmax(chart_logits, dim=-1).to(states.dtype)
         expert_condition = torch.cat([alpha, symbolic_feature, phase_latent], dim=-1)
@@ -529,12 +555,23 @@ class SimFuturesWorldModel(nn.Module):
         expert_delta = torch.stack(expert_means, dim=1)
         expert_logvar = torch.stack(expert_logvars, dim=1)
         chart_weights = chart_probs.unsqueeze(-1)
-        base_delta = (chart_weights * expert_delta).sum(dim=1)
+        law_candidate_delta = (chart_weights * expert_delta).sum(dim=1) + symbolic_feature
         expert_var = torch.exp(expert_logvar)
         second_moment = (chart_weights * (expert_var + expert_delta.pow(2))).sum(dim=1)
-        mixture_var = (second_moment - base_delta.pow(2)).clamp_min(1e-8)
-        logvar = mixture_var.log().clamp(self.config.min_logvar, self.config.max_logvar)
-        belief_transition_input = torch.cat([alpha_mean, phase_latent, states, actions, base_delta], dim=-1)
+        mixture_var = (second_moment - (law_candidate_delta - symbolic_feature).pow(2)).clamp_min(1e-8)
+        adapter_gate = torch.sigmoid(self.adapter_gate_head(expert_condition)).to(states.dtype)
+        adapter_gate = adapter_gate * float(max(0.0, self.config.adapter_max_scale))
+        if force_backbone:
+            adapter_gate = torch.zeros_like(adapter_gate)
+        adapter_delta = adapter_gate * law_candidate_delta
+        mechanism_delta = backbone_delta + adapter_delta
+        backbone_var = torch.exp(backbone_logvar)
+        adapter_var = adapter_gate.pow(2) * mixture_var
+        logvar = (backbone_var + adapter_var).clamp_min(1e-8).log().clamp(
+            self.config.min_logvar,
+            self.config.max_logvar,
+        )
+        belief_transition_input = torch.cat([alpha_mean, phase_latent, states, actions, mechanism_delta], dim=-1)
         belief_candidate = torch.sigmoid(self.belief_transition(belief_transition_input) + dyn_bias)
         update_rate = float(max(0.0, min(1.0, self.config.belief_update_rate)))
         belief_next = ((1.0 - update_rate) * alpha_mean + update_rate * belief_candidate).clamp(
@@ -543,7 +580,7 @@ class SimFuturesWorldModel(nn.Module):
         )
         belief_drift = (belief_next - alpha_mean).pow(2).mean(dim=-1)
         prior_delta = symbolic_feature
-        prediction_mean = states + base_delta
+        prediction_mean = states + mechanism_delta
         planning_delta = states.new_zeros(states.shape)
         planning_mean = prediction_mean
         mean = prediction_mean
@@ -564,8 +601,8 @@ class SimFuturesWorldModel(nn.Module):
                 states.detach(),
                 actions.detach(),
                 alpha_ctrl.detach(),
-                base_delta.detach(),
-                symbolic_feature.detach(),
+                mechanism_delta.detach(),
+                adapter_delta.detach(),
                 detached_phase,
             ],
             dim=-1,
@@ -592,7 +629,7 @@ class SimFuturesWorldModel(nn.Module):
         planning_bonus_gate = floor + (1.0 - floor) * stability_score
         planning_bonus = raw_planning_bonus * planning_bonus_gate
 
-        zero_effects = raw_prior_effects.new_zeros(raw_prior_effects.shape)
+        raw_residual_effects = adapter_gate.view(-1, 1, 1) * gated_prior
         output = WorldModelForwardOutput(
             mean=mean,
             prediction_mean=prediction_mean,
@@ -600,19 +637,19 @@ class SimFuturesWorldModel(nn.Module):
             logvar=logvar.clamp(self.config.min_logvar, self.config.max_logvar),
             effects=gated_prior,
             prior_effects=gated_prior,
-            residual_effects=zero_effects,
+            residual_effects=raw_residual_effects,
             raw_prior_effects=raw_prior_effects,
-            raw_residual_effects=zero_effects,
+            raw_residual_effects=expert_delta,
             alpha=alpha,
             alpha_mean=alpha_mean,
             posterior_mean=posterior_mean,
             posterior_logvar=posterior_logvar,
-            base_delta=base_delta,
+            base_delta=backbone_delta,
             context_delta=states.new_zeros(states.shape),
             prior_delta=prior_delta,
-            residual_delta=states.new_zeros(states.shape),
-            mechanism_delta=base_delta,
-            proposed_mechanism_delta=symbolic_feature,
+            residual_delta=adapter_delta,
+            mechanism_delta=mechanism_delta,
+            proposed_mechanism_delta=law_candidate_delta,
             mechanism_mix=chart_probs,
             planning_delta=planning_delta,
             prior_beta=self.prior_beta.to(states.device, states.dtype),
@@ -648,6 +685,13 @@ class SimFuturesWorldModel(nn.Module):
         output.planning_bonus_gate = planning_bonus_gate
         output.planning_bonus = planning_bonus
         output.symbolic_delta = symbolic_feature
+        output.backbone_mean = states + backbone_delta
+        output.backbone_delta = backbone_delta
+        output.backbone_logvar = backbone_logvar
+        output.law_candidate_delta = law_candidate_delta
+        output.adapter_delta = adapter_delta
+        output.adapter_gate = adapter_gate.squeeze(-1)
+        output.force_backbone = force_backbone
         output.phase_latent = phase_latent
         output.phase_next_pred = phase_next_pred
         if phase_next_target is not None:
@@ -701,8 +745,12 @@ def fit_simfutures_world_model(
         risk_losses: list[float] = []
         belief_losses: list[float] = []
         control_losses: list[float] = []
+        backbone_losses: list[float] = []
+        adapter_safety_losses: list[float] = []
+        adapter_l1_losses: list[float] = []
         phase_losses: list[float] = []
         rollout_losses: list[float] = []
+        rollout_safety_losses: list[float] = []
         batches = (
             iter_prepared_duc_batches(
                 prepared,
@@ -813,6 +861,11 @@ def fit_simfutures_world_model(
                 belief_loss = output.belief_drift.mean()
                 batch_weights = control_weights.unsqueeze(0).expand_as(batch.states)
                 control = weighted_mse(output.mean, batch.next_states, batch_weights)
+                backbone = weighted_mse(output.backbone_mean, batch.next_states, batch_weights)
+                final_error = ((output.prediction_mean - batch.next_states).pow(2) * batch_weights).mean(dim=-1)
+                backbone_error = ((output.backbone_mean - batch.next_states).pow(2) * batch_weights).mean(dim=-1)
+                adapter_safety = torch.relu(final_error - backbone_error.detach()).mean()
+                adapter_l1 = output.adapter_gate.mean()
                 rollout = _rollout_loss_for_batch(
                     model=model,
                     transitions=transitions,
@@ -821,6 +874,20 @@ def fit_simfutures_world_model(
                     control_weights=control_weights,
                     device=device,
                 )
+                if config.rollout_safety_weight > 0.0 and config.rollout_horizon > 1:
+                    with torch.no_grad():
+                        backbone_rollout = _rollout_loss_for_batch(
+                            model=model,
+                            transitions=transitions,
+                            batch=batch,
+                            horizon=config.rollout_horizon,
+                            control_weights=control_weights,
+                            device=device,
+                            force_backbone=True,
+                        )
+                    rollout_safety = torch.relu(rollout - backbone_rollout)
+                else:
+                    rollout_safety = batch.states.new_zeros(())
                 total = (
                     nll
                     + config.beta_kl * (kl + ctrl_kl)
@@ -832,9 +899,13 @@ def fit_simfutures_world_model(
                     + config.stability_weight * stability_loss
                     + config.risk_weight * risk_loss
                     + config.control_weight * control
+                    + config.backbone_weight * backbone
+                    + config.adapter_safety_weight * adapter_safety
+                    + config.adapter_l1_weight * adapter_l1
                     + config.phase_loss_weight * phase_loss
                     + config.belief_smooth_weight * belief_loss
                     + config.rollout_weight * rollout
+                    + config.rollout_safety_weight * rollout_safety
                 )
             if scaler.is_enabled():
                 scaler.scale(total).backward()
@@ -859,8 +930,12 @@ def fit_simfutures_world_model(
             risk_losses.append(float(risk_loss.detach().cpu()))
             belief_losses.append(float(belief_loss.detach().cpu()))
             control_losses.append(float(control.detach().cpu()))
+            backbone_losses.append(float(backbone.detach().cpu()))
+            adapter_safety_losses.append(float(adapter_safety.detach().cpu()))
+            adapter_l1_losses.append(float(adapter_l1.detach().cpu()))
             phase_losses.append(float(phase_loss.detach().cpu()))
             rollout_losses.append(float(rollout.detach().cpu()))
+            rollout_safety_losses.append(float(rollout_safety.detach().cpu()))
 
         posterior_stats = {}
         if (
@@ -888,8 +963,12 @@ def fit_simfutures_world_model(
             "risk": float(np.mean(risk_losses)) if risk_losses else 0.0,
             "belief_smooth": float(np.mean(belief_losses)) if belief_losses else 0.0,
             "control": float(np.mean(control_losses)) if control_losses else 0.0,
+            "backbone": float(np.mean(backbone_losses)) if backbone_losses else 0.0,
+            "adapter_safety": float(np.mean(adapter_safety_losses)) if adapter_safety_losses else 0.0,
+            "adapter_l1": float(np.mean(adapter_l1_losses)) if adapter_l1_losses else 0.0,
             "phase": float(np.mean(phase_losses)) if phase_losses else 0.0,
             "rollout": float(np.mean(rollout_losses)) if rollout_losses else 0.0,
+            "rollout_safety": float(np.mean(rollout_safety_losses)) if rollout_safety_losses else 0.0,
             "posterior_entropy": law_posterior_entropy(model),
             "posterior_mean": float(model.law_posterior_probs.mean().detach().cpu()),
         }
@@ -1187,6 +1266,7 @@ def _rollout_loss_for_batch(
     horizon: int,
     control_weights: torch.Tensor,
     device: torch.device | str,
+    force_backbone: bool = False,
 ) -> torch.Tensor:
     if horizon <= 1:
         return batch.states.new_zeros(())
@@ -1228,6 +1308,7 @@ def _rollout_loss_for_batch(
             history_actions,
             sample_context=False,
             belief_state=belief,
+            force_backbone=force_backbone,
         )
         weights = control_weights.unsqueeze(0).expand_as(targets)
         total = total + weighted_mse(output.mean, targets, weights)

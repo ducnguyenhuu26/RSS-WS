@@ -146,6 +146,8 @@ def main(cfg: DictConfig) -> None:
                 belief_blend=float(config_get(cfg, "simfutures.belief_blend", 0.70)),
                 belief_update_rate=float(config_get(cfg, "simfutures.belief_update_rate", 0.20)),
                 stability_gate_floor=float(config_get(cfg, "simfutures.stability_gate_floor", 0.20)),
+                adapter_gate_init=float(config_get(cfg, "simfutures.adapter_gate_init", -3.0)),
+                adapter_max_scale=float(config_get(cfg, "simfutures.adapter_max_scale", 1.0)),
             )
         ).to(device)
         maybe_compile_forward(model, cfg)
@@ -489,9 +491,13 @@ def simfutures_trainer_config(cfg: DictConfig, seed: int) -> SimFuturesTrainerCo
         stability_weight=float(config_get(cfg, "simfutures.stability_weight", 0.10)),
         risk_weight=float(config_get(cfg, "simfutures.risk_weight", 0.10)),
         control_weight=float(config_get(cfg, "simfutures.control_weight", cfg.duc.control_weight)),
+        backbone_weight=float(config_get(cfg, "simfutures.backbone_weight", 0.50)),
+        adapter_safety_weight=float(config_get(cfg, "simfutures.adapter_safety_weight", 0.25)),
+        adapter_l1_weight=float(config_get(cfg, "simfutures.adapter_l1_weight", 0.01)),
         phase_loss_weight=float(config_get(cfg, "simfutures.phase_loss_weight", 0.05)),
         belief_smooth_weight=float(config_get(cfg, "simfutures.belief_smooth_weight", 0.02)),
         rollout_weight=float(config_get(cfg, "simfutures.rollout_weight", cfg.duc.rollout_weight)),
+        rollout_safety_weight=float(config_get(cfg, "simfutures.rollout_safety_weight", 0.25)),
         rollout_horizon=int(cfg.duc.rollout_horizon),
         posterior_update_interval=int(config_get(cfg, "simfutures.posterior_update_interval", 1)),
         posterior_update_samples=int(config_get(cfg, "simfutures.posterior_update_samples", 4096)),

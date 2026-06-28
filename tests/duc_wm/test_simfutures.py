@@ -68,6 +68,11 @@ def test_simfutures_forward_shapes() -> None:
     assert output.stability_score.shape == (4,)
     assert output.certified_risk.shape == (4,)
     assert output.planning_bonus_gate.shape == (4,)
+    assert output.backbone_mean.shape == states.shape
+    assert output.backbone_delta.shape == states.shape
+    assert output.adapter_delta.shape == states.shape
+    assert output.adapter_gate.shape == (4,)
+    assert torch.all(output.adapter_gate >= 0.0)
     assert torch.allclose(output.planning_delta, torch.zeros_like(output.planning_delta))
 
 
@@ -105,6 +110,10 @@ def test_simfutures_training_updates_history() -> None:
     assert "stability" in history[0]
     assert "risk" in history[0]
     assert "belief_smooth" in history[0]
+    assert "backbone" in history[0]
+    assert "adapter_safety" in history[0]
+    assert "adapter_l1" in history[0]
+    assert "rollout_safety" in history[0]
     assert "posterior_entropy" in history[0]
 
 

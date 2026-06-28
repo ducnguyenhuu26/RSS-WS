@@ -226,6 +226,9 @@ def evaluate_duc_model(
     prior_norms: list[float] = []
     residual_norms: list[float] = []
     mechanism_norms: list[float] = []
+    backbone_norms: list[float] = []
+    adapter_gate_means: list[float] = []
+    adapter_safety_gaps: list[float] = []
     context_norms: list[float] = []
     proposed_norms: list[float] = []
     planning_delta_norms: list[float] = []
@@ -272,6 +275,14 @@ def evaluate_duc_model(
         prior_norms.append(float(output.prior_delta.norm(dim=-1).mean().cpu()))
         residual_norms.append(float(output.residual_delta.norm(dim=-1).mean().cpu()))
         mechanism_norms.append(float(output.mechanism_delta.norm(dim=-1).mean().cpu()))
+        if hasattr(output, "backbone_delta"):
+            backbone_norms.append(float(output.backbone_delta.norm(dim=-1).mean().cpu()))
+        if hasattr(output, "adapter_gate"):
+            adapter_gate_means.append(float(output.adapter_gate.mean().cpu()))
+        if hasattr(output, "backbone_mean"):
+            final_error = (output.prediction_mean - batch.next_states).pow(2).mean(dim=-1)
+            backbone_error = (output.backbone_mean - batch.next_states).pow(2).mean(dim=-1)
+            adapter_safety_gaps.append(float((final_error - backbone_error).mean().cpu()))
         context_norms.append(float(output.context_delta.norm(dim=-1).mean().cpu()))
         proposed_norms.append(float(output.proposed_mechanism_delta.norm(dim=-1).mean().cpu()))
         planning_delta_norms.append(float(output.planning_delta.norm(dim=-1).mean().cpu()))
@@ -318,11 +329,20 @@ def evaluate_duc_model(
         metrics["prior_delta_norm"] = prior_norm
         metrics["residual_delta_norm"] = residual_norm
         metrics["mechanism_delta_norm"] = mechanism_norm
+        if backbone_norms:
+            backbone_norm = float(sum(backbone_norms) / len(backbone_norms))
+            metrics["backbone_delta_norm"] = backbone_norm
+            metrics["backbone_to_total_delta_ratio"] = backbone_norm / max(1e-8, mechanism_norm)
+        if adapter_gate_means:
+            metrics["adapter_gate_mean"] = float(sum(adapter_gate_means) / len(adapter_gate_means))
+        if adapter_safety_gaps:
+            metrics["adapter_one_step_error_gap"] = float(sum(adapter_safety_gaps) / len(adapter_safety_gaps))
         metrics["context_delta_norm"] = context_norm
         metrics["proposed_mechanism_delta_norm"] = proposed_norm
         metrics["planning_delta_norm"] = planning_delta_norm
         metrics["prior_to_total_delta_ratio"] = prior_norm / max(1e-8, mechanism_norm)
         metrics["residual_to_total_delta_ratio"] = residual_norm / max(1e-8, mechanism_norm)
+        metrics["adapter_to_total_delta_ratio"] = residual_norm / max(1e-8, mechanism_norm)
         metrics["prior_to_proposed_delta_ratio"] = prior_norm / max(1e-8, proposed_norm)
         metrics["residual_to_proposed_delta_ratio"] = residual_norm / max(1e-8, proposed_norm)
         metrics["proposed_to_final_delta_ratio"] = proposed_norm / max(1e-8, mechanism_norm)
