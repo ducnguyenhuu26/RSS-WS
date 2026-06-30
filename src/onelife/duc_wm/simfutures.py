@@ -33,6 +33,9 @@ class SimFuturesWorldModelConfig:
     stability_gate_floor: float = 0.20
     adapter_gate_init: float = -3.0
     adapter_max_scale: float = 1.0
+    symbolic_var_floor: float = 0.02
+    symbolic_var_ceiling: float = 25.0
+    symbolic_temperature: float = 2.0
 
 
 @dataclass(frozen=True)
@@ -246,7 +249,8 @@ class SimFuturesWorldModel(nn.Module):
             config.state_dim
             + config.action_dim
             + self.num_laws
-            + 2 * config.state_dim
+            + 3 * config.state_dim
+            + 1
             + config.phase_dim
         )
         self.reliability_head = mlp(
@@ -273,6 +277,10 @@ class SimFuturesWorldModel(nn.Module):
         self.register_buffer("law_prior_std", prior_std.clamp_min(0.05))
         self.register_buffer("context_scales", scales)
         self.register_buffer("prior_confidence", confidences)
+        self.register_buffer(
+            "law_output_mask",
+            law_output_mask(config.templates, config.state_dim),
+        )
         init_logits = torch.logit(confidences.clamp(1e-3, 1.0 - 1e-3))
         self.register_buffer("law_posterior_logits", init_logits)
         self.register_buffer("prior_gate", confidences.clone())
@@ -537,9 +545,37 @@ class SimFuturesWorldModel(nn.Module):
             alpha_ctrl = self._blend_with_belief(local_alpha_ctrl, belief_state)
             alpha_ctrl_mean = self._blend_with_belief(local_alpha_ctrl_mean, belief_state)
 
-        gated_prior = raw_prior_effects * self.prior_gate.to(states.device, states.dtype).view(1, -1, 1)
-        symbolic_delta = torch.einsum("bk,bkd->bd", alpha, gated_prior).to(states.dtype)
+        prior_gate = self.prior_gate.to(states.device, states.dtype)
+        data_confidence = self.data_confidence.to(states.device, states.dtype)
+        posterior_confidence = self.law_posterior_probs.to(states.device, states.dtype)
+        effective_confidence = (prior_gate * data_confidence * posterior_confidence).clamp(0.0, 1.0)
+        gated_prior = raw_prior_effects * prior_gate.view(1, -1, 1)
+        law_mask = self.law_output_mask.to(states.device, states.dtype).unsqueeze(0)
+        law_var = (
+            self.law_prior_std.to(states.device, states.dtype)
+            * self.context_scales.to(states.device, states.dtype)
+        ).pow(2)
+        law_var = law_var / effective_confidence.clamp_min(0.05)
+        temperature = float(max(1e-3, self.config.symbolic_temperature))
+        law_precision = (
+            alpha
+            * effective_confidence.view(1, -1)
+            / (temperature * law_var.clamp_min(float(self.config.symbolic_var_floor))).view(1, -1)
+        ).unsqueeze(-1) * law_mask
+        precision_sum = law_precision.sum(dim=1)
+        symbolic_delta = torch.where(
+            precision_sum > 1e-8,
+            (law_precision * raw_prior_effects).sum(dim=1) / precision_sum.clamp_min(1e-8),
+            torch.zeros_like(states),
+        ).to(states.dtype)
+        symbolic_var = (1.0 / precision_sum.clamp_min(1e-8)).clamp(
+            float(self.config.symbolic_var_floor),
+            float(self.config.symbolic_var_ceiling),
+        ).to(states.dtype)
+        symbolic_std = symbolic_var.sqrt()
+        symbolic_precision_mass = torch.log1p(precision_sum.mean(dim=-1, keepdim=True)).to(states.dtype)
         symbolic_feature = float(self.config.symbolic_delta_scale) * symbolic_delta
+        symbolic_feature_var = (float(self.config.symbolic_delta_scale) ** 2) * symbolic_var
         backbone_delta, backbone_logvar = self.backbone_head(prior_features).chunk(2, dim=-1)
         backbone_delta = backbone_delta.to(states.dtype)
         backbone_logvar = backbone_logvar.to(states.dtype).clamp(self.config.min_logvar, self.config.max_logvar)
@@ -566,7 +602,7 @@ class SimFuturesWorldModel(nn.Module):
         adapter_delta = adapter_gate * law_candidate_delta
         mechanism_delta = backbone_delta + adapter_delta
         backbone_var = torch.exp(backbone_logvar)
-        adapter_var = adapter_gate.pow(2) * mixture_var
+        adapter_var = adapter_gate.pow(2) * (mixture_var + symbolic_feature_var)
         logvar = (backbone_var + adapter_var).clamp_min(1e-8).log().clamp(
             self.config.min_logvar,
             self.config.max_logvar,
@@ -603,6 +639,8 @@ class SimFuturesWorldModel(nn.Module):
                 alpha_ctrl.detach(),
                 mechanism_delta.detach(),
                 adapter_delta.detach(),
+                symbolic_std.detach(),
+                symbolic_precision_mass.detach(),
                 detached_phase,
             ],
             dim=-1,
@@ -685,6 +723,10 @@ class SimFuturesWorldModel(nn.Module):
         output.planning_bonus_gate = planning_bonus_gate
         output.planning_bonus = planning_bonus
         output.symbolic_delta = symbolic_feature
+        output.symbolic_mean = symbolic_delta
+        output.symbolic_var = symbolic_var
+        output.symbolic_std = symbolic_std
+        output.symbolic_precision_mass = symbolic_precision_mass.squeeze(-1)
         output.backbone_mean = states + backbone_delta
         output.backbone_delta = backbone_delta
         output.backbone_logvar = backbone_logvar
@@ -1221,6 +1263,18 @@ def law_posterior_entropy(model: SimFuturesWorldModel) -> float:
     probs = model.law_posterior_probs.detach().clamp(1e-6, 1.0 - 1e-6)
     entropy = -(probs * probs.log() + (1.0 - probs) * (1.0 - probs).log())
     return float(entropy.mean().cpu())
+
+
+def law_output_mask(
+    templates: tuple[MechanismTemplate, ...],
+    state_dim: int,
+) -> torch.Tensor:
+    mask = torch.zeros(len(templates), state_dim, dtype=torch.float32)
+    for law_index, template in enumerate(templates):
+        for output_index in template.output_indices:
+            if 0 <= output_index < state_dim:
+                mask[law_index, output_index] = 1.0
+    return mask
 
 
 def estimate_reward_sensitivity(

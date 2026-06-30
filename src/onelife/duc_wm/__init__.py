@@ -41,6 +41,7 @@ from .templates import (
     MechanismTemplate,
     default_mujoco_templates,
 )
+from .wake_replay import WakeReplayConfig, calibrate_wake_replay
 
 __all__ = [
     "BaselineTrainerConfig",
@@ -65,9 +66,11 @@ __all__ = [
     "SimFuturesWorldModel",
     "SimFuturesWorldModelConfig",
     "WorldModelForwardOutput",
+    "WakeReplayConfig",
     "build_duc_mujoco_prior_prompt",
     "build_planner_coverage_stats",
     "calibrate_certified_risk",
+    "calibrate_wake_replay",
     "collect_mujoco_extension_dataset",
     "default_mujoco_templates",
     "evaluate_baseline_world_model",

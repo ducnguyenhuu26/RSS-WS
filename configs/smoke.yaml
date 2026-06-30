@@ -47,6 +47,9 @@ simfutures:
   stability_gate_floor: 0.20
   adapter_gate_init: -3.0
   adapter_max_scale: 1.0
+  symbolic_var_floor: 0.02
+  symbolic_var_ceiling: 25.0
+  symbolic_temperature: 2.0
   beta_kl: 0.001
   prior_kl_weight: 0.0005
   prior_path_weight: 0.25
@@ -93,12 +96,27 @@ planning:
   elites: 2
   iterations: 1
   uncertainty_weight: 0.0
-  model_bonus_weight: 0.15
+  model_bonus_weight: 0.0
   certified_risk_weight: 0.0
   certified_risk_calibration_enabled: true
   certified_risk_delta: 0.10
   certified_risk_samples: 8192
   certified_risk_batch_size: 4096
+
+wake:
+  enabled: false
+  episodes: 1
+  max_steps: 20
+  horizon: 5
+  candidates: 32
+  elites: 8
+  iterations: 1
+  uncertainty_weight: 0.0
+  model_bonus_weight: 0.0
+  certified_risk_weight: 0.0
+  risk_delta: 0.10
+  posterior_trust: 0.15
+  posterior_temperature: 1.0
 
 runtime:
   precision: fp32

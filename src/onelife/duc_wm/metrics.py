@@ -241,6 +241,9 @@ def evaluate_duc_model(
     stability_scores: list[float] = []
     certified_risks: list[float] = []
     planning_bonus_gates: list[float] = []
+    symbolic_mean_norms: list[float] = []
+    symbolic_var_means: list[float] = []
+    symbolic_precision_masses: list[float] = []
     belief_drifts: list[float] = []
     phase_abs_means: list[float] = []
     phase_transition_errors: list[float] = []
@@ -305,6 +308,12 @@ def evaluate_duc_model(
             certified_risks.append(float(output.certified_risk.mean().cpu()))
         if hasattr(output, "planning_bonus_gate"):
             planning_bonus_gates.append(float(output.planning_bonus_gate.mean().cpu()))
+        if hasattr(output, "symbolic_mean"):
+            symbolic_mean_norms.append(float(output.symbolic_mean.norm(dim=-1).mean().cpu()))
+        if hasattr(output, "symbolic_var"):
+            symbolic_var_means.append(float(output.symbolic_var.mean().cpu()))
+        if hasattr(output, "symbolic_precision_mass"):
+            symbolic_precision_masses.append(float(output.symbolic_precision_mass.mean().cpu()))
         if hasattr(output, "belief_drift"):
             belief_drifts.append(float(output.belief_drift.mean().cpu()))
         if hasattr(output, "phase_latent"):
@@ -397,6 +406,14 @@ def evaluate_duc_model(
         if planning_bonus_gates:
             metrics["planning_bonus_gate_mean"] = float(
                 sum(planning_bonus_gates) / len(planning_bonus_gates)
+            )
+        if symbolic_mean_norms:
+            metrics["symbolic_mean_norm"] = float(sum(symbolic_mean_norms) / len(symbolic_mean_norms))
+        if symbolic_var_means:
+            metrics["symbolic_var_mean"] = float(sum(symbolic_var_means) / len(symbolic_var_means))
+        if symbolic_precision_masses:
+            metrics["symbolic_precision_mass_mean"] = float(
+                sum(symbolic_precision_masses) / len(symbolic_precision_masses)
             )
         if belief_drifts:
             metrics["belief_drift_mean"] = float(sum(belief_drifts) / len(belief_drifts))

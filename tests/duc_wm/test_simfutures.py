@@ -72,6 +72,11 @@ def test_simfutures_forward_shapes() -> None:
     assert output.backbone_delta.shape == states.shape
     assert output.adapter_delta.shape == states.shape
     assert output.adapter_gate.shape == (4,)
+    assert output.symbolic_mean.shape == states.shape
+    assert output.symbolic_var.shape == states.shape
+    assert output.symbolic_std.shape == states.shape
+    assert output.symbolic_precision_mass.shape == (4,)
+    assert torch.all(output.symbolic_var > 0.0)
     assert torch.all(output.adapter_gate >= 0.0)
     assert torch.allclose(output.planning_delta, torch.zeros_like(output.planning_delta))
 

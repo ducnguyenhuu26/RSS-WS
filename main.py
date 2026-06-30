@@ -28,9 +28,11 @@ from onelife.duc_wm import (
     SimFuturesTrainerConfig,
     SimFuturesWorldModel,
     SimFuturesWorldModelConfig,
+    WakeReplayConfig,
     build_duc_mujoco_prior_prompt,
     build_planner_coverage_stats,
     calibrate_certified_risk,
+    calibrate_wake_replay,
     collect_mujoco_extension_dataset,
     default_mujoco_templates,
     evaluate_baseline_world_model,
@@ -148,6 +150,9 @@ def main(cfg: DictConfig) -> None:
                 stability_gate_floor=float(config_get(cfg, "simfutures.stability_gate_floor", 0.20)),
                 adapter_gate_init=float(config_get(cfg, "simfutures.adapter_gate_init", -3.0)),
                 adapter_max_scale=float(config_get(cfg, "simfutures.adapter_max_scale", 1.0)),
+                symbolic_var_floor=float(config_get(cfg, "simfutures.symbolic_var_floor", 0.02)),
+                symbolic_var_ceiling=float(config_get(cfg, "simfutures.symbolic_var_ceiling", 25.0)),
+                symbolic_temperature=float(config_get(cfg, "simfutures.symbolic_temperature", 2.0)),
             )
         ).to(device)
         maybe_compile_forward(model, cfg)
@@ -295,6 +300,7 @@ def main(cfg: DictConfig) -> None:
             config=reward_trainer_config(cfg, reward_seed_used),
             device=device,
         )
+        coverage_stats = build_planner_coverage_stats(train_dataset)
         calibrate_risk = bool(config_get(cfg, "planning.certified_risk_calibration_enabled", False))
         if (
             method in SIMFUTURES_METHODS
@@ -315,6 +321,24 @@ def main(cfg: DictConfig) -> None:
                     delta=float(config_get(cfg, "planning.certified_risk_delta", 0.10)),
                 )
             )
+        wake_cfg = wake_replay_config(cfg)
+        if method in SIMFUTURES_METHODS and wake_cfg.enabled:
+            metrics.update(
+                calibrate_wake_replay(
+                    model=model,
+                    reward_model=reward_model,
+                    env_id=problem,
+                    variants=train_variants,
+                    seed=seed + 30_000,
+                    action_smoothing=float(cfg.mujoco_extension.action_smoothing),
+                    history_length=int(cfg.duc.history_length),
+                    config=wake_cfg,
+                    device=device,
+                    use_oracle_context=uses_oracle_context,
+                    context_templates=templates,
+                    coverage_stats=coverage_stats,
+                )
+            )
         metrics.update(
             evaluate_cem_mpc(
                 dynamics_model=model,
@@ -328,7 +352,7 @@ def main(cfg: DictConfig) -> None:
                 device=device,
                 use_oracle_context=uses_oracle_context,
                 context_templates=templates,
-                coverage_stats=build_planner_coverage_stats(train_dataset),
+                coverage_stats=coverage_stats,
             )
         )
 
@@ -450,6 +474,26 @@ def planning_eval_config(cfg: DictConfig) -> PlanningEvalConfig:
         uncertainty_weight=float(config_get(cfg, "planning.uncertainty_weight", 0.05)),
         model_bonus_weight=float(config_get(cfg, "planning.model_bonus_weight", 0.0)),
         certified_risk_weight=float(config_get(cfg, "planning.certified_risk_weight", 0.0)),
+    )
+
+
+def wake_replay_config(cfg: DictConfig) -> WakeReplayConfig:
+    return WakeReplayConfig(
+        enabled=bool(config_get(cfg, "wake.enabled", False)),
+        episodes=int(config_get(cfg, "wake.episodes", 3)),
+        max_steps=int(config_get(cfg, "wake.max_steps", 90)),
+        horizon=int(config_get(cfg, "wake.horizon", config_get(cfg, "planning.horizon", 15))),
+        candidates=int(config_get(cfg, "wake.candidates", config_get(cfg, "planning.candidates", 256))),
+        elites=int(config_get(cfg, "wake.elites", config_get(cfg, "planning.elites", 32))),
+        iterations=int(config_get(cfg, "wake.iterations", config_get(cfg, "planning.iterations", 3))),
+        uncertainty_weight=float(
+            config_get(cfg, "wake.uncertainty_weight", config_get(cfg, "planning.uncertainty_weight", 0.0))
+        ),
+        model_bonus_weight=float(config_get(cfg, "wake.model_bonus_weight", 0.0)),
+        certified_risk_weight=float(config_get(cfg, "wake.certified_risk_weight", 0.0)),
+        risk_delta=float(config_get(cfg, "wake.risk_delta", config_get(cfg, "planning.certified_risk_delta", 0.10))),
+        posterior_trust=float(config_get(cfg, "wake.posterior_trust", 0.15)),
+        posterior_temperature=float(config_get(cfg, "wake.posterior_temperature", 1.0)),
     )
 
 
