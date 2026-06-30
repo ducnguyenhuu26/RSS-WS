@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 
+from omegaconf import OmegaConf
+
+from main import llm_prior_cache_path
 from onelife.duc_wm import (
     build_duc_mujoco_prior_prompt,
     score_prior_portfolio,
@@ -77,3 +80,28 @@ def test_prior_portfolio_score_prefers_structured_action_laws():
         state_dim=27,
         action_dim=8,
     )
+
+
+def test_llm_prior_cache_scope_can_include_seed():
+    prompt = build_duc_mujoco_prior_prompt("Swimmer-v5", state_dim=8, action_dim=2)
+    base = {
+        "seed": 0,
+        "duc": {
+            "llm_prior": {
+                "cache_enabled": True,
+                "cache_scope": "seed",
+                "cache_dir": "outputs/llm_prior_cache",
+                "provider": "openai",
+                "model_slug": "gpt-4.1-mini",
+                "num_candidates": 3,
+            }
+        },
+    }
+    cfg0 = OmegaConf.create(base)
+    cfg1 = OmegaConf.create({**base, "seed": 1})
+
+    assert llm_prior_cache_path(cfg0, prompt) != llm_prior_cache_path(cfg1, prompt)
+
+    cfg0.duc.llm_prior.cache_scope = "env"
+    cfg1.duc.llm_prior.cache_scope = "env"
+    assert llm_prior_cache_path(cfg0, prompt) == llm_prior_cache_path(cfg1, prompt)

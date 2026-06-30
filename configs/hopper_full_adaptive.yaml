@@ -40,6 +40,7 @@ duc:
     max_tokens: 4500
     num_candidates: 3
     cache_enabled: true
+    cache_scope: seed
     cache_dir: outputs/llm_prior_cache
     json_path: null
 

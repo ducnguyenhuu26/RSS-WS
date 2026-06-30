@@ -580,17 +580,25 @@ def llm_prior_config(cfg: DictConfig) -> DUCLLMPriorConfig:
 def llm_prior_cache_path(cfg: DictConfig, prior_prompt: Any) -> Path | None:
     if not bool(config_get(cfg, "duc.llm_prior.cache_enabled", True)):
         return None
+    cache_scope = str(config_get(cfg, "duc.llm_prior.cache_scope", "seed")).lower()
+    if cache_scope not in {"env", "seed"}:
+        raise ValueError("duc.llm_prior.cache_scope must be 'env' or 'seed'")
     cache_dir = Path(str(config_get(cfg, "duc.llm_prior.cache_dir", "outputs/llm_prior_cache")))
     if not cache_dir.is_absolute():
-        cache_dir = Path(get_original_cwd()) / cache_dir
+        try:
+            root = Path(get_original_cwd())
+        except ValueError:
+            root = Path.cwd()
+        cache_dir = root / cache_dir
     fingerprint = hashlib.sha1(prior_prompt.prompt.encode("utf-8")).hexdigest()[:12]
     provider = safe_label(str(cfg.duc.llm_prior.provider))
     model = safe_label(str(cfg.duc.llm_prior.model_slug))
     candidates = int(config_get(cfg, "duc.llm_prior.num_candidates", 1))
     env = safe_label(str(prior_prompt.env_id))
+    seed_tag = f"_seed{int(cfg.seed)}" if cache_scope == "seed" else ""
     return cache_dir / (
         f"{env}_s{int(prior_prompt.state_dim)}_a{int(prior_prompt.action_dim)}_"
-        f"{provider}_{model}_k{candidates}_{fingerprint}.json"
+        f"{provider}_{model}_k{candidates}{seed_tag}_{fingerprint}.json"
     )
 
 
