@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +18,8 @@ from onelife.duc_wm import (
     CaDMWorldModel,
     CaDMWorldModelConfig,
     DUCLLMPriorConfig,
+    LEANWorldModel,
+    LEANWorldModelConfig,
     MLPWorldModel,
     MLPWorldModelConfig,
     MuJoCoExtensionConfig,
@@ -96,7 +100,7 @@ def main(cfg: DictConfig) -> None:
         action_dim=train_dataset.action_dim,
     )
     prior_path = cfg.duc.llm_prior.get("json_path")
-    should_use_duc_prior = method in DUC_METHODS
+    should_use_duc_prior = method in LAW_PRIOR_METHODS
     llm_prior_status: dict[str, Any] = {
         "source": "fallback",
         "error": None,
@@ -110,22 +114,51 @@ def main(cfg: DictConfig) -> None:
         )
         llm_prior_status["source"] = f"json_path:{prior_path}"
     elif should_use_duc_prior and bool(cfg.duc.llm_prior.get("enabled", False)):
+        cache_path = llm_prior_cache_path(cfg, prior_prompt)
         try:
-            templates, raw_response = synthesize_templates_with_llm(
-                prior_prompt=prior_prompt,
-                state_dim=train_dataset.state_dim,
-                action_dim=train_dataset.action_dim,
-                config=DUCLLMPriorConfig(
-                    provider=str(cfg.duc.llm_prior.provider),
-                    model_slug=str(cfg.duc.llm_prior.model_slug),
-                    api_key_env=str(cfg.duc.llm_prior.api_key_env),
-                    max_tokens=int(cfg.duc.llm_prior.max_tokens),
-                ),
-            )
-            llm_prior_status["source"] = (
-                f"llm:{cfg.duc.llm_prior.provider}/{cfg.duc.llm_prior.model_slug}"
-            )
-            llm_prior_status["raw_response"] = raw_response
+            if cache_path and cache_path.exists():
+                templates = load_templates_from_json_file(
+                    cache_path,
+                    state_dim=train_dataset.state_dim,
+                    action_dim=train_dataset.action_dim,
+                )
+                raw_response = cache_path.read_text(encoding="utf-8")
+                llm_prior_status["source"] = f"cache:{cache_path}"
+                llm_prior_status["raw_response"] = raw_response
+            else:
+                if cache_path:
+                    cached = wait_for_llm_prior_cache(
+                        cache_path,
+                        state_dim=train_dataset.state_dim,
+                        action_dim=train_dataset.action_dim,
+                    )
+                    if cached is not None:
+                        templates, raw_response = cached
+                        llm_prior_status["source"] = f"cache:{cache_path}"
+                        llm_prior_status["raw_response"] = raw_response
+                    else:
+                        templates, raw_response = synthesize_and_cache_llm_prior(
+                            prior_prompt=prior_prompt,
+                            state_dim=train_dataset.state_dim,
+                            action_dim=train_dataset.action_dim,
+                            cfg=cfg,
+                            cache_path=cache_path,
+                        )
+                        llm_prior_status["source"] = (
+                            f"llm:{cfg.duc.llm_prior.provider}/{cfg.duc.llm_prior.model_slug}"
+                        )
+                        llm_prior_status["raw_response"] = raw_response
+                else:
+                    templates, raw_response = synthesize_templates_with_llm(
+                        prior_prompt=prior_prompt,
+                        state_dim=train_dataset.state_dim,
+                        action_dim=train_dataset.action_dim,
+                        config=llm_prior_config(cfg),
+                    )
+                    llm_prior_status["source"] = (
+                        f"llm:{cfg.duc.llm_prior.provider}/{cfg.duc.llm_prior.model_slug}"
+                    )
+                    llm_prior_status["raw_response"] = raw_response
         except Exception as exc:
             templates = prior_prompt.fallback_templates
             llm_prior_status["source"] = "fallback_after_llm_error"
@@ -273,6 +306,43 @@ def main(cfg: DictConfig) -> None:
             history_length=int(cfg.duc.history_length),
             rollout_horizon=int(cfg.duc.rollout_horizon),
             use_oracle_context=use_oracle_context,
+        )
+    elif method in LEAN_METHODS:
+        lean_mode = "tr" if method.endswith("_tr") else "gr"
+        model = LEANWorldModel(
+            LEANWorldModelConfig(
+                state_dim=train_dataset.state_dim,
+                action_dim=train_dataset.action_dim,
+                templates=templates,
+                mode=lean_mode,
+                history_length=int(cfg.duc.history_length),
+                hidden_size=int(config_get(cfg, "baseline.hidden_size", cfg.duc.hidden_size)),
+                hidden_layers=int(config_get(cfg, "baseline.hidden_layers", cfg.duc.hidden_layers)),
+                symbolic_delta_scale=float(config_get(cfg, "simfutures.symbolic_delta_scale", 0.20)),
+                symbolic_var_floor=float(config_get(cfg, "simfutures.symbolic_var_floor", 0.02)),
+                symbolic_var_ceiling=float(config_get(cfg, "simfutures.symbolic_var_ceiling", 25.0)),
+                symbolic_temperature=float(config_get(cfg, "simfutures.symbolic_temperature", 2.0)),
+                trust_scale=float(config_get(cfg, "baseline.trust_scale", 1.0)),
+            )
+        ).to(device)
+        maybe_compile_forward(model, cfg)
+        history = fit_baseline_world_model(
+            model=model,
+            transitions=train_dataset,
+            config=baseline_trainer_config(cfg, seed),
+            device=device,
+            control_templates=templates,
+            use_oracle_context=False,
+        )
+        metrics = evaluate_baseline_world_model(
+            model=model,
+            transitions=test_dataset,
+            device=device,
+            control_templates=templates,
+            batch_size=int(cfg.eval_batch_size),
+            history_length=int(cfg.duc.history_length),
+            rollout_horizon=int(cfg.duc.rollout_horizon),
+            use_oracle_context=False,
         )
     else:
         raise ValueError(
@@ -497,12 +567,108 @@ def wake_replay_config(cfg: DictConfig) -> WakeReplayConfig:
     )
 
 
+def llm_prior_config(cfg: DictConfig) -> DUCLLMPriorConfig:
+    return DUCLLMPriorConfig(
+        provider=str(cfg.duc.llm_prior.provider),
+        model_slug=str(cfg.duc.llm_prior.model_slug),
+        api_key_env=str(cfg.duc.llm_prior.api_key_env),
+        max_tokens=int(cfg.duc.llm_prior.max_tokens),
+    )
+
+
+def llm_prior_cache_path(cfg: DictConfig, prior_prompt: Any) -> Path | None:
+    if not bool(config_get(cfg, "duc.llm_prior.cache_enabled", True)):
+        return None
+    cache_dir = Path(str(config_get(cfg, "duc.llm_prior.cache_dir", "outputs/llm_prior_cache")))
+    if not cache_dir.is_absolute():
+        cache_dir = Path(get_original_cwd()) / cache_dir
+    fingerprint = hashlib.sha1(prior_prompt.prompt.encode("utf-8")).hexdigest()[:12]
+    provider = safe_label(str(cfg.duc.llm_prior.provider))
+    model = safe_label(str(cfg.duc.llm_prior.model_slug))
+    env = safe_label(str(prior_prompt.env_id))
+    return cache_dir / (
+        f"{env}_s{int(prior_prompt.state_dim)}_a{int(prior_prompt.action_dim)}_"
+        f"{provider}_{model}_{fingerprint}.json"
+    )
+
+
+def wait_for_llm_prior_cache(
+    cache_path: Path,
+    state_dim: int,
+    action_dim: int,
+    timeout_s: float = 240.0,
+) -> tuple[tuple[Any, ...], str] | None:
+    lock_path = cache_path.with_suffix(cache_path.suffix + ".lock")
+    if not lock_path.exists():
+        return None
+    deadline = time.time() + max(0.0, timeout_s)
+    while time.time() < deadline:
+        if cache_path.exists():
+            raw = cache_path.read_text(encoding="utf-8")
+            templates = load_templates_from_json_file(cache_path, state_dim, action_dim)
+            return templates, raw
+        if not lock_path.exists():
+            return None
+        time.sleep(1.0)
+    return None
+
+
+def synthesize_and_cache_llm_prior(
+    prior_prompt: Any,
+    state_dim: int,
+    action_dim: int,
+    cfg: DictConfig,
+    cache_path: Path,
+) -> tuple[tuple[Any, ...], str]:
+    lock_path = cache_path.with_suffix(cache_path.suffix + ".lock")
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    acquired = False
+    try:
+        try:
+            with lock_path.open("x", encoding="utf-8") as handle:
+                handle.write(f"pid-local:{time.time()}\n")
+            acquired = True
+        except FileExistsError:
+            cached = wait_for_llm_prior_cache(cache_path, state_dim, action_dim)
+            if cached is not None:
+                return cached
+            lock_path.unlink(missing_ok=True)
+            with lock_path.open("x", encoding="utf-8") as handle:
+                handle.write(f"pid-local:{time.time()}\n")
+            acquired = True
+
+        if cache_path.exists():
+            raw = cache_path.read_text(encoding="utf-8")
+            templates = load_templates_from_json_file(cache_path, state_dim, action_dim)
+            return templates, raw
+        templates, raw = synthesize_templates_with_llm(
+            prior_prompt=prior_prompt,
+            state_dim=state_dim,
+            action_dim=action_dim,
+            config=llm_prior_config(cfg),
+        )
+        tmp_path = cache_path.with_suffix(cache_path.suffix + ".tmp")
+        tmp_path.write_text(raw, encoding="utf-8")
+        tmp_path.replace(cache_path)
+        return templates, raw
+    finally:
+        if acquired:
+            lock_path.unlink(missing_ok=True)
+
+
 SIMFUTURES_METHODS = {
     "duc_wm",
     "simfutures",
 }
 
 DUC_METHODS = SIMFUTURES_METHODS
+
+LEAN_METHODS = {
+    "lean_gr",
+    "lean_tr",
+    "nswm_gr",
+    "nswm_tr",
+}
 
 BASELINE_METHODS = {
     "mlp",
@@ -512,7 +678,8 @@ BASELINE_METHODS = {
     "pets_context",
     "cadm_context",
     "cadm_supervised",
-}
+} | LEAN_METHODS
+LAW_PRIOR_METHODS = DUC_METHODS | LEAN_METHODS
 ALL_METHODS = DUC_METHODS | BASELINE_METHODS
 
 

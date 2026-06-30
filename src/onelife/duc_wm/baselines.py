@@ -15,8 +15,9 @@ from .data import (
     iter_prepared_duc_batches,
     prepare_duc_data,
 )
+from .law_dsl import LawPriorBank
 from .metrics import _history_for_indices, default_control_weights, evaluate_world_model
-from .templates import MechanismTemplate
+from .templates import MechanismTemplate, prior_tensors
 
 
 @dataclass(frozen=True)
@@ -66,6 +67,24 @@ class CaDMWorldModelConfig:
     hidden_layers: int = 2
     min_logvar: float = -8.0
     max_logvar: float = 2.0
+
+
+@dataclass(frozen=True)
+class LEANWorldModelConfig:
+    state_dim: int
+    action_dim: int
+    templates: tuple[MechanismTemplate, ...]
+    mode: str = "gr"
+    history_length: int = 4
+    hidden_size: int = 256
+    hidden_layers: int = 2
+    min_logvar: float = -8.0
+    max_logvar: float = 2.0
+    symbolic_delta_scale: float = 0.20
+    symbolic_var_floor: float = 0.02
+    symbolic_var_ceiling: float = 25.0
+    symbolic_temperature: float = 2.0
+    trust_scale: float = 1.0
 
 
 @dataclass
@@ -262,8 +281,184 @@ class CaDMWorldModel(nn.Module):
         return 0.5 * ((targets - output.mean).pow(2) * inv_var + output.logvar).mean()
 
 
+class LEANWorldModel(nn.Module):
+    """Neurosymbolic gated-residual/trust-region baseline.
+
+    The model receives the same executable law portfolio as SimFutures-LP, but
+    it does not use wake replay, law-posterior calibration, planning bonus, or
+    certified-risk calibration. A history-conditioned neural backbone predicts
+    the transition; symbolic laws add only a gated correction.
+    """
+
+    def __init__(self, config: LEANWorldModelConfig) -> None:
+        super().__init__()
+        if not config.templates:
+            raise ValueError("LEANWorldModel requires at least one law template")
+        if config.mode not in {"gr", "tr"}:
+            raise ValueError("LEANWorldModel mode must be 'gr' or 'tr'")
+        self.config = config
+        self.law_priors = LawPriorBank(config.templates, config.state_dim, config.action_dim)
+        self.num_laws = len(config.templates)
+        history_dim = config.history_length * (config.state_dim + config.action_dim)
+        base_input_dim = history_dim + config.state_dim + config.action_dim
+        conditioned_dim = base_input_dim + self.num_laws + 2 * config.state_dim
+        self.backbone = mlp(
+            input_dim=base_input_dim,
+            output_dim=2 * config.state_dim,
+            hidden_size=config.hidden_size,
+            hidden_layers=config.hidden_layers,
+        )
+        self.law_activation = mlp(
+            input_dim=base_input_dim,
+            output_dim=self.num_laws,
+            hidden_size=config.hidden_size,
+            hidden_layers=max(1, config.hidden_layers),
+        )
+        self.gate = mlp(
+            input_dim=conditioned_dim,
+            output_dim=config.state_dim,
+            hidden_size=config.hidden_size,
+            hidden_layers=max(1, config.hidden_layers),
+        )
+        self.trust_correction = mlp(
+            input_dim=conditioned_dim,
+            output_dim=config.state_dim,
+            hidden_size=config.hidden_size,
+            hidden_layers=max(1, config.hidden_layers),
+        )
+        prior_mean, prior_std, scales, confidences = prior_tensors(config.templates)
+        self.register_buffer("law_prior_mean", prior_mean)
+        self.register_buffer("law_prior_std", prior_std)
+        self.register_buffer("context_scales", scales)
+        self.register_buffer("law_confidence", confidences)
+        self.register_buffer("law_logit_bias", torch.logit(confidences.clamp(1e-6, 1.0 - 1e-6)))
+        self.register_buffer("law_output_mask", _law_output_mask(config.templates, config.state_dim))
+
+    def default_history(
+        self,
+        states: torch.Tensor,
+        actions: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        history_states = states.unsqueeze(1).expand(-1, self.config.history_length, -1)
+        history_actions = actions.unsqueeze(1).expand(-1, self.config.history_length, -1)
+        return history_states, history_actions
+
+    def forward(
+        self,
+        states: torch.Tensor,
+        actions: torch.Tensor,
+        history_states: torch.Tensor | None = None,
+        history_actions: torch.Tensor | None = None,
+        context: torch.Tensor | None = None,
+        sample_context: bool = False,
+    ) -> BaselineForwardOutput:
+        del context, sample_context
+        if history_states is None or history_actions is None:
+            history_states, history_actions = self.default_history(states, actions)
+        history = torch.cat(
+            [
+                history_states.reshape(history_states.shape[0], -1),
+                history_actions.reshape(history_actions.shape[0], -1),
+            ],
+            dim=-1,
+        )
+        features = torch.cat([history, states, actions], dim=-1)
+        backbone_delta, backbone_logvar = self.backbone(features).chunk(2, dim=-1)
+        backbone_delta = backbone_delta.to(states.dtype)
+        backbone_logvar = backbone_logvar.to(states.dtype).clamp(
+            self.config.min_logvar,
+            self.config.max_logvar,
+        )
+        symbolic_mean, symbolic_var, alpha = self._symbolic_distribution(
+            states=states,
+            actions=actions,
+            history_states=history_states,
+            history_actions=history_actions,
+            features=features,
+        )
+        symbolic_feature = float(self.config.symbolic_delta_scale) * symbolic_mean
+        symbolic_feature_var = (float(self.config.symbolic_delta_scale) ** 2) * symbolic_var
+        conditioned = torch.cat(
+            [
+                features,
+                alpha,
+                symbolic_feature,
+                symbolic_var.clamp_min(float(self.config.symbolic_var_floor)).sqrt(),
+            ],
+            dim=-1,
+        )
+        gate = torch.sigmoid(self.gate(conditioned)).to(states.dtype)
+        if self.config.mode == "gr":
+            symbolic_correction = gate * symbolic_feature
+            correction_var = gate.pow(2) * symbolic_feature_var
+        else:
+            radius = (
+                float(max(0.0, self.config.trust_scale))
+                * symbolic_feature_var.clamp_min(float(self.config.symbolic_var_floor)).sqrt()
+            )
+            local = torch.tanh(self.trust_correction(conditioned).to(states.dtype)) * radius
+            symbolic_correction = gate * (symbolic_feature + local)
+            correction_var = gate.pow(2) * (symbolic_feature_var + radius.pow(2))
+
+        delta = backbone_delta + symbolic_correction
+        variance = (torch.exp(backbone_logvar) + correction_var).clamp_min(1e-8)
+        logvar = variance.log().clamp(self.config.min_logvar, self.config.max_logvar)
+        output = BaselineForwardOutput(mean=states + delta, logvar=logvar, latent=alpha)
+        output.symbolic_mean = symbolic_mean
+        output.symbolic_delta = symbolic_feature
+        output.symbolic_var = symbolic_var
+        output.alpha = alpha
+        output.lean_gate = gate
+        output.lean_correction = symbolic_correction
+        output.backbone_delta = backbone_delta
+        return output
+
+    def nll(self, output: BaselineForwardOutput, targets: torch.Tensor) -> torch.Tensor:
+        inv_var = torch.exp(-output.logvar)
+        return 0.5 * ((targets - output.mean).pow(2) * inv_var + output.logvar).mean()
+
+    def _symbolic_distribution(
+        self,
+        states: torch.Tensor,
+        actions: torch.Tensor,
+        history_states: torch.Tensor,
+        history_actions: torch.Tensor,
+        features: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        raw_effects = self.law_priors(states, actions, history_states, history_actions)
+        alpha_logits = self.law_activation(features) + self.law_logit_bias.to(
+            states.device,
+            states.dtype,
+        ).unsqueeze(0)
+        alpha = torch.sigmoid(alpha_logits).to(states.dtype)
+        confidence = self.law_confidence.to(states.device, states.dtype).clamp(0.0, 1.0)
+        law_var = (
+            self.law_prior_std.to(states.device, states.dtype)
+            * self.context_scales.to(states.device, states.dtype)
+        ).pow(2)
+        law_var = law_var / confidence.clamp_min(0.05)
+        mask = self.law_output_mask.to(states.device, states.dtype).unsqueeze(0)
+        temperature = float(max(1e-3, self.config.symbolic_temperature))
+        precision = (
+            alpha
+            * confidence.view(1, -1)
+            / (temperature * law_var.clamp_min(float(self.config.symbolic_var_floor))).view(1, -1)
+        ).unsqueeze(-1) * mask
+        precision_sum = precision.sum(dim=1)
+        symbolic_mean = torch.where(
+            precision_sum > 1e-8,
+            (precision * raw_effects).sum(dim=1) / precision_sum.clamp_min(1e-8),
+            torch.zeros_like(states),
+        ).to(states.dtype)
+        symbolic_var = (1.0 / precision_sum.clamp_min(1e-8)).clamp(
+            float(self.config.symbolic_var_floor),
+            float(self.config.symbolic_var_ceiling),
+        ).to(states.dtype)
+        return symbolic_mean, symbolic_var, alpha
+
+
 def fit_baseline_world_model(
-    model: MLPWorldModel | PETSWorldModel | CaDMWorldModel,
+    model: MLPWorldModel | PETSWorldModel | CaDMWorldModel | LEANWorldModel,
     transitions: MuJoCoTransitions,
     config: BaselineTrainerConfig,
     device: torch.device | str,
@@ -377,7 +572,7 @@ def fit_baseline_world_model(
 
 
 def evaluate_baseline_world_model(
-    model: MLPWorldModel | PETSWorldModel | CaDMWorldModel,
+    model: MLPWorldModel | PETSWorldModel | CaDMWorldModel | LEANWorldModel,
     transitions: MuJoCoTransitions,
     device: torch.device | str,
     control_templates: tuple[MechanismTemplate, ...],
@@ -401,7 +596,7 @@ def evaluate_baseline_world_model(
 
 
 def _rollout_loss_for_batch(
-    model: MLPWorldModel | PETSWorldModel | CaDMWorldModel,
+    model: MLPWorldModel | PETSWorldModel | CaDMWorldModel | LEANWorldModel,
     transitions: MuJoCoTransitions,
     batch: DUCBatch,
     horizon: int,
@@ -504,3 +699,15 @@ def _autocast_settings(precision: str, device: torch.device) -> tuple[bool, torc
     if precision in {"fp32", "none"}:
         return False, torch.float32
     raise ValueError("precision must be fp32, bf16, or fp16")
+
+
+def _law_output_mask(
+    templates: tuple[MechanismTemplate, ...],
+    state_dim: int,
+) -> torch.Tensor:
+    mask = torch.zeros(len(templates), state_dim, dtype=torch.float32)
+    for law_index, template in enumerate(templates):
+        for output_index in template.output_indices:
+            if 0 <= output_index < state_dim:
+                mask[law_index, output_index] = 1.0
+    return mask
