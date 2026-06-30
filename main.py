@@ -573,6 +573,7 @@ def llm_prior_config(cfg: DictConfig) -> DUCLLMPriorConfig:
         model_slug=str(cfg.duc.llm_prior.model_slug),
         api_key_env=str(cfg.duc.llm_prior.api_key_env),
         max_tokens=int(cfg.duc.llm_prior.max_tokens),
+        num_candidates=int(config_get(cfg, "duc.llm_prior.num_candidates", 1)),
     )
 
 
@@ -585,10 +586,11 @@ def llm_prior_cache_path(cfg: DictConfig, prior_prompt: Any) -> Path | None:
     fingerprint = hashlib.sha1(prior_prompt.prompt.encode("utf-8")).hexdigest()[:12]
     provider = safe_label(str(cfg.duc.llm_prior.provider))
     model = safe_label(str(cfg.duc.llm_prior.model_slug))
+    candidates = int(config_get(cfg, "duc.llm_prior.num_candidates", 1))
     env = safe_label(str(prior_prompt.env_id))
     return cache_dir / (
         f"{env}_s{int(prior_prompt.state_dim)}_a{int(prior_prompt.action_dim)}_"
-        f"{provider}_{model}_{fingerprint}.json"
+        f"{provider}_{model}_k{candidates}_{fingerprint}.json"
     )
 
 

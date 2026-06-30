@@ -37,7 +37,10 @@ duc:
     provider: openai
     model_slug: gpt-4.1-mini
     api_key_env: OPENAI_API_KEY
-    max_tokens: 3000
+    max_tokens: 4500
+    num_candidates: 3
+    cache_enabled: true
+    cache_dir: outputs/llm_prior_cache
     json_path: null
 
 simfutures:
@@ -93,25 +96,25 @@ reward:
 
 planning:
   enabled: true
-  episodes: 3
-  max_steps: 350
-  horizon: 25
-  candidates: 512
-  elites: 64
+  episodes: 5
+  max_steps: 400
+  horizon: 16
+  candidates: 384
+  elites: 48
   iterations: 4
   uncertainty_weight: 0.0
   model_bonus_weight: 0.0
   certified_risk_weight: 1.0
   certified_risk_calibration_enabled: true
   certified_risk_delta: 0.10
-  certified_risk_samples: 8192
+  certified_risk_samples: 12288
   certified_risk_batch_size: 4096
 
 wake:
   enabled: true
-  episodes: 3
-  max_steps: 90
-  horizon: 15
+  episodes: 4
+  max_steps: 120
+  horizon: 12
   candidates: 256
   elites: 32
   iterations: 3

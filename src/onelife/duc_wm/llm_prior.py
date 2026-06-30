@@ -26,6 +26,7 @@ class DUCLLMPriorConfig:
     model_slug: str = "gpt-4.1-mini"
     api_key_env: str = "OPENAI_API_KEY"
     max_tokens: int = 3000
+    num_candidates: int = 1
 
 
 def build_duc_mujoco_prior_prompt(
@@ -343,6 +344,88 @@ def synthesize_templates_with_llm(
     api_key = os.environ.get(config.api_key_env)
     if not api_key:
         raise RuntimeError(f"missing API key environment variable {config.api_key_env}")
+    num_candidates = max(1, int(config.num_candidates))
+    best_templates: tuple[MechanismTemplate, ...] | None = None
+    best_text: str | None = None
+    best_score: float | None = None
+    errors: list[str] = []
+    for candidate_index in range(num_candidates):
+        try:
+            text = _request_llm_prior_text(prior_prompt, config, api_key)
+            templates = templates_from_llm_json(text, state_dim=state_dim, action_dim=action_dim)
+            score = score_prior_portfolio(templates, state_dim=state_dim, action_dim=action_dim)
+        except Exception as exc:
+            errors.append(f"candidate {candidate_index}: {exc}")
+            continue
+        if best_score is None or score > best_score:
+            best_templates = templates
+            best_text = text
+            best_score = score
+    if best_templates is None or best_text is None:
+        detail = "; ".join(errors) if errors else "no valid candidates"
+        raise RuntimeError(f"LLM prior produced no valid portfolio: {detail}")
+    return best_templates, best_text
+
+
+def score_prior_portfolio(
+    templates: tuple[MechanismTemplate, ...],
+    state_dim: int,
+    action_dim: int,
+) -> float:
+    """Rank validated LLM portfolios without using train/test transitions."""
+
+    if not templates:
+        return float("-inf")
+    names = {template.name for template in templates}
+    law_types = {template.law_type for template in templates}
+    output_indices = {
+        index
+        for template in templates
+        for index in template.output_indices
+        if 0 <= index < state_dim
+    }
+    action_indices = {
+        index
+        for template in templates
+        for index in template.action_indices
+        if 0 <= index < action_dim
+    }
+    dense_fraction = sum(
+        len(template.output_indices) / max(1, state_dim) > 0.75
+        for template in templates
+    ) / len(templates)
+    confidence_mean = sum(template.prior_confidence for template in templates) / len(templates)
+    reward_text = sum(bool(template.reward_relevance.strip()) for template in templates) / len(templates)
+    event_count = sum(template.timescale == "event" for template in templates)
+    learned_residual_fraction = sum(
+        template.law_type == "learned_residual" for template in templates
+    ) / len(templates)
+    count_score = 1.0 - min(1.0, abs(len(templates) - 8) / 4.0)
+    action_coverage = len(action_indices) / max(1, action_dim)
+    output_coverage = len(output_indices) / max(1, state_dim)
+    diversity = len(law_types) / min(len(ALLOWED_LAW_TYPES), max(1, len(templates)))
+    confidence_balance = 1.0 - min(1.0, abs(confidence_mean - 0.55) / 0.55)
+    event_balance = min(1.0, event_count / 2.0)
+    actuation = 1.0 if "actuation" in names else 0.0
+    return (
+        2.0 * actuation
+        + 1.2 * action_coverage
+        + 1.0 * output_coverage
+        + 0.8 * diversity
+        + 0.8 * count_score
+        + 0.6 * confidence_balance
+        + 0.5 * event_balance
+        + 0.5 * reward_text
+        - 0.8 * dense_fraction
+        - 0.4 * learned_residual_fraction
+    )
+
+
+def _request_llm_prior_text(
+    prior_prompt: DUCPriorPrompt,
+    config: DUCLLMPriorConfig,
+    api_key: str,
+) -> str:
     params = LiteLlmParamsBase(
         provider=config.provider,
         model_slug=config.model_slug,
@@ -363,8 +446,7 @@ def synthesize_templates_with_llm(
         params=params,
     )
     response = request()
-    text = _response_text(response)
-    return templates_from_llm_json(text, state_dim=state_dim, action_dim=action_dim), text
+    return _response_text(response)
 
 
 def load_templates_from_json_file(

@@ -20,6 +20,7 @@ from .llm_prior import (
     build_duc_mujoco_prior_prompt,
     load_templates_from_json_file,
     prompt_payload,
+    score_prior_portfolio,
     synthesize_templates_with_llm,
     templates_from_llm_json,
 )
@@ -86,6 +87,7 @@ __all__ = [
     "iter_duc_batches",
     "load_templates_from_json_file",
     "prompt_payload",
+    "score_prior_portfolio",
     "synthesize_templates_with_llm",
     "templates_from_llm_json",
 ]
